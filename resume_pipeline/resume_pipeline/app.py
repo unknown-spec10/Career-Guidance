@@ -1,0 +1,1602 @@
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session, joinedload
+from uuid import uuid4
+from typing import Optional, List
+import os
+from .utils import save_upload, sha256_file
+from .config import settings
+from .constants import (
+    ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB,
+    API_MESSAGES, RECOMMENDATION_WEIGHTS, DEFAULT_PAGE_SIZE
+)
+from .schemas import (
+    UserRegister, UserLogin, Token, UserResponse,
+    JobCreate, JobUpdate, JobResponse,
+    JobApplicationCreate, JobApplicationResponse,
+    CollegeProgramCreate, CollegeProgramResponse,
+    CollegeApplicationCreate, CollegeApplicationResponse,
+    ApprovalAction, MarksheetUpload, VerifyCodeRequest, ResendCodeRequest
+)
+from .auth import (
+    get_password_hash, verify_password, create_access_token,
+    get_current_user, require_role
+)
+from pathlib import Path
+import json
+from .resume.parse_service import ResumeParserService
+import pymysql
+import logging
+from datetime import timedelta
+import secrets
+import datetime
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Database dependency
+def get_db():
+    """FastAPI dependency for database sessions"""
+    from .db import SessionLocal
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+app = FastAPI(
+    title="Career Guidance AI API",
+    description="AI-powered resume parsing and career recommendation system",
+    version="1.0.0"
+)
+
+# Add CORS middleware for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # Frontend dev servers
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    try:
+        # Create database if not exists
+        conn = pymysql.connect(
+            host=settings.MYSQL_HOST or 'localhost',
+            port=settings.MYSQL_PORT or 3306,
+            user=settings.MYSQL_USER or 'root',
+            password=settings.MYSQL_PASSWORD or ''
+        )
+        cursor = conn.cursor()
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DB or 'resumes'}")
+        conn.commit()
+        conn.close()
+        logger.info(f"✓ Database '{settings.MYSQL_DB}' ready")
+        
+        # Create tables
+        from .db import init_db
+        init_db()
+        logger.info("✓ Database tables initialized")
+        
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        raise
+
+DATA_ROOT = Path(settings.FILE_STORAGE_PATH)
+
+
+# ============================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================
+
+@app.post("/api/auth/register", response_model=UserResponse)
+async def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    """Register a new user and send verification email"""
+    from .db import User, Employer, College
+    from .email_verification import (
+        generate_verification_token,
+        send_verification_email,
+        generate_verification_code,
+        send_verification_code_email,
+    )
+    import datetime
+    
+    # Check if email already exists
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Always generate a verification CODE (link flow disabled)
+    base_code = generate_verification_code(settings.VERIFICATION_CODE_LENGTH or 6, digits_only=True)
+    # Store a composite token to satisfy DB uniqueness (CODE-randomsuffix)
+    verification_secret = f"{base_code}-{secrets.token_hex(3)}"
+    
+    # Create user
+    hashed_password = get_password_hash(user_data.password)
+    new_user = User(
+        email=user_data.email,
+        password_hash=hashed_password,
+        name=user_data.name,
+        role=user_data.role.value,
+        phone=user_data.phone,
+        is_active=True,
+        is_verified=False,
+        verification_token=verification_secret,
+        verification_token_created_at=datetime.datetime.utcnow()
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    # Send verification email (non-blocking - don't fail registration if email fails)
+    try:
+        email_sent = send_verification_code_email(
+            to_email=user_data.email,
+            code=base_code,
+            user_name=user_data.name
+        )
+        if not email_sent:
+            logger.warning(f"Failed to send verification email to {user_data.email}")
+    except Exception as e:
+        logger.error(f"Error sending verification email: {e}")
+    
+    # Create role-specific profile
+    if user_data.role.value == 'employer':
+        employer = Employer(
+            user_id=new_user.id,
+            company_name=user_data.name,
+            is_verified=False
+        )
+        db.add(employer)
+    elif user_data.role.value == 'college':
+        # Generate slug from name
+        slug = user_data.name.lower().replace(' ', '-').replace("'", '')
+        college = College(
+            user_id=new_user.id,
+            name=user_data.name,
+            slug=slug,
+            is_verified=False
+        )
+        db.add(college)
+    
+    db.commit()
+    
+    logger.info(f"New user registered: {new_user.email} as {new_user.role}")
+    return new_user
+
+
+@app.post("/api/auth/login", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Login and receive access token"""
+    from .db import User
+    
+    # Find user
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    # Verify password
+    password_hash = getattr(user, 'password_hash', '')
+    if not verify_password(form_data.password, password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    is_active = getattr(user, 'is_active', True)
+    if not is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+    
+    # Require email verification before issuing tokens
+    if not getattr(user, 'is_verified', False):
+        raise HTTPException(
+            status_code=403,
+            detail="Email not verified. Enter your verification code or request a new one via /api/auth/resend-verification."
+        )
+    
+    # Create access token (sub must be string for JWT)
+    access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+            "is_verified": user.is_verified
+        }
+    }
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+async def get_current_user_info(current_user = Depends(get_current_user)):
+    """Get current user information"""
+    return current_user
+
+
+@app.post("/api/auth/verify-email")
+async def verify_email_disabled(token: str = Body(..., embed=True)):
+    """Link-based verification disabled in this deployment."""
+    raise HTTPException(status_code=410, detail="Link-based verification is disabled; use /api/auth/verify-code")
+
+
+@app.post("/api/auth/verify-code")
+async def verify_code(payload: VerifyCodeRequest, db: Session = Depends(get_db)):
+    """Verify user email using a short code sent via email."""
+    from .db import User
+    from .email_verification import is_code_expired
+
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.is_verified:  # type: ignore
+        return {"status": "success", "message": "Email already verified"}
+
+    # Compare against stored verification_token (repurposed to store code)
+    stored = getattr(user, 'verification_token', None)
+    created_at = getattr(user, 'verification_token_created_at', None)
+    if not stored or not created_at:
+        raise HTTPException(status_code=400, detail="No active verification code. Please resend.")
+
+    # Stored token is in format CODE-randomsuffix; compare only the CODE part
+    stored_code = str(stored).split('-', 1)[0]
+    if str(payload.code).strip() != stored_code.strip():
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    if is_code_expired(created_at, settings.VERIFICATION_CODE_TTL_MINUTES or 30):
+        raise HTTPException(status_code=400, detail="Verification code has expired")
+
+    user.is_verified = True  # type: ignore
+    user.verification_token = None  # type: ignore
+    user.verification_token_created_at = None  # type: ignore
+    db.commit()
+
+    logger.info(f"Email verified via code for user: {user.email}")
+    return {"status": "success", "message": "Email verified successfully"}
+
+
+@app.post("/api/auth/resend-verification")
+async def resend_verification_email(email: str = Body(..., embed=True), db: Session = Depends(get_db)):
+    """Resend verification email"""
+    from .db import User
+    from .email_verification import (
+        generate_verification_code,
+        send_verification_code_email,
+    )
+    import datetime
+    
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.is_verified:  # type: ignore
+        raise HTTPException(status_code=400, detail="Email already verified")
+    
+    # Generate new token/code depending on mode
+    base_code = generate_verification_code(settings.VERIFICATION_CODE_LENGTH or 6, digits_only=True)
+    user.verification_token = f"{base_code}-{secrets.token_hex(3)}"  # type: ignore
+    user.verification_token_created_at = datetime.datetime.utcnow()  # type: ignore
+    db.commit()
+    
+    # Send email
+    user_name = getattr(user, 'name', None) or "User"
+    email_sent = send_verification_code_email(
+        to_email=email,
+        code=base_code,
+        user_name=user_name
+    )
+    
+    if not email_sent:
+        raise HTTPException(status_code=500, detail="Failed to send verification email")
+    
+    return {"status": "success", "message": "Verification email sent"}
+
+
+@app.post("/upload")
+async def upload_resume(
+    resume: UploadFile = File(...),
+    marksheets: list[UploadFile] | None = None,
+    jee_rank: int | None = Form(None),
+    location: str | None = Form(None),
+    preferences: str | None = Form(None),
+    upload_type: str = Form("resume"),  # "resume" or "marksheet"
+    twelfth_percentage: float | None = Form(None),
+    twelfth_board: str | None = Form(None),
+    twelfth_subjects: str | None = Form(None),  # JSON string
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user) if False else None  # Optional auth
+):
+    from .db import Applicant, Upload
+    
+    # Validate file type using constants
+    if not resume.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+    
+    file_ext = Path(resume.filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400, 
+            detail=API_MESSAGES['INVALID_FILE_TYPE']
+        )
+    
+    # save files
+    applicant_id = f"app_{uuid4().hex}"
+    applicant_dir = DATA_ROOT / applicant_id
+    applicant_dir.mkdir(parents=True, exist_ok=True)
+
+    res_name = resume.filename or "resume_upload"
+    resume_path = applicant_dir / res_name
+    # read and write
+    with open(resume_path, "wb") as f:
+        content = await resume.read()
+        f.write(content)
+
+    resume_hash = sha256_file(str(resume_path))
+    
+    # Check for duplicate resume by hash
+    existing_upload = db.query(Upload).filter(Upload.file_hash == resume_hash).first()
+    if existing_upload:
+        existing_applicant = db.query(Applicant).filter(Applicant.id == existing_upload.applicant_id).first()
+        if existing_applicant:
+            logger.info(f"Duplicate resume detected. Returning existing applicant {existing_applicant.applicant_id}")
+            created_str = None
+            if hasattr(existing_applicant, 'created_at'):
+                try:
+                    val = getattr(existing_applicant, 'created_at', None)
+                    if val is not None:
+                        created_str = val.isoformat()
+                except:
+                    pass
+            return JSONResponse({
+                "status": "duplicate",
+                "message": "This resume has already been uploaded",
+                "applicant_id": existing_applicant.applicant_id,
+                "db_id": existing_applicant.id,
+                "resume_hash": resume_hash,
+                "existing_created_at": created_str
+            })
+
+    marks_paths = []
+    if marksheets:
+        for ms in marksheets:
+            ms_name = ms.filename or "marksheet_upload"
+            ms_path = applicant_dir / ms_name
+            with open(ms_path, "wb") as f:
+                f.write(await ms.read())
+            marks_paths.append(str(ms_path))
+
+    # store a minimal metadata JSON next to files
+    meta = {
+        "applicant_id": applicant_id,
+        "resume_file": str(resume_path),
+        "resume_hash": resume_hash,
+        "marksheets": marks_paths,
+        "jee_rank": jee_rank,
+        "jee_rank_user_provided": jee_rank is not None,  # Flag to prioritize user input
+        "location": location,
+        "preferences": preferences,
+    }
+    with open(applicant_dir / "metadata.json", "w", encoding="utf-8") as mf:
+        json.dump(meta, mf, indent=2)
+    
+    # Save to database
+    try:
+        # Extract location parts
+        location_parts = (location or "").split(",")
+        city = location_parts[0].strip() if location_parts else None
+        state = location_parts[1].strip() if len(location_parts) > 1 else None
+        
+        # Create applicant record
+        # Parse preferences - handle both JSON array and comma-separated string
+        preferred_locs = None
+        if preferences:
+            try:
+                preferred_locs = json.loads(preferences)
+            except (json.JSONDecodeError, TypeError):
+                # If not JSON, treat as comma-separated string
+                preferred_locs = [loc.strip() for loc in preferences.split(',') if loc.strip()]
+        
+        applicant = Applicant(
+            applicant_id=applicant_id,
+            display_name=f"Applicant {applicant_id[:8]}",
+            location_city=city,
+            location_state=state,
+            preferred_locations=preferred_locs
+        )
+        db.add(applicant)
+        db.flush()  # Get the ID
+        
+        # Create upload record
+        upload = Upload(
+            applicant_id=applicant.id,
+            file_name=res_name,
+            file_type='resume',
+            storage_path=str(resume_path),
+            file_hash=resume_hash
+        )
+        db.add(upload)
+        db.commit()
+        
+        logger.info(f"✓ Saved applicant {applicant_id} to database (ID: {applicant.id})")
+        
+        return JSONResponse({
+            "status": "ok",
+            "applicant_id": applicant_id,
+            "db_id": applicant.id,
+            "resume_hash": resume_hash
+        })
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save to database: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        # Still return success for file upload even if DB fails
+        return JSONResponse({
+            "status": "ok",
+            "applicant_id": applicant_id,
+            "resume_hash": resume_hash,
+            "warning": f"File saved but database record failed: {str(e)}"
+        })
+
+
+parser_service = ResumeParserService()
+
+
+@app.post("/parse/{applicant_id}")
+async def parse_applicant(applicant_id: str, db: Session = Depends(get_db)):
+    from .db import Applicant, LLMParsedRecord
+    
+    applicant_dir = DATA_ROOT / applicant_id
+    if not applicant_dir.exists():
+        raise HTTPException(status_code=404, detail="applicant_id not found")
+    
+    # Run parsing
+    result = parser_service.run_parse(str(applicant_dir), applicant_id)
+    
+    # Save to database
+    try:
+        # Find applicant by applicant_id string
+        applicant = db.query(Applicant).filter(Applicant.applicant_id == applicant_id).first()
+        if not applicant:
+            logger.warning(f"Applicant {applicant_id} not found in database, skipping save")
+            return JSONResponse(result)
+        
+        # Update display name from parsed data if available
+        normalized = result.get('normalized', {})
+        personal_info = normalized.get('personal_info', {})
+        if personal_info.get('name'):
+            applicant.display_name = personal_info['name']
+        if personal_info.get('location'):
+            location_parts = personal_info['location'].split(',')
+            applicant.location_city = location_parts[0].strip() if location_parts else None  # type: ignore
+            applicant.location_state = location_parts[1].strip() if len(location_parts) > 1 else None  # type: ignore
+        
+        # Save or update LLM parsed record
+        llm_record = db.query(LLMParsedRecord).filter(
+            LLMParsedRecord.applicant_id == applicant.id
+        ).first()
+        
+        if llm_record:
+            # Update existing
+            llm_record.raw_llm_output = result  # type: ignore
+            llm_record.normalized = normalized  # type: ignore
+            llm_record.llm_provenance = result.get('llm_provenance', {})  # type: ignore
+            llm_record.needs_review = result.get('needs_review', False)
+        else:
+            # Create new
+            llm_record = LLMParsedRecord(
+                applicant_id=applicant.id,
+                raw_llm_output=result,
+                normalized=normalized,
+                llm_provenance=result.get('llm_provenance', {}),
+                needs_review=result.get('needs_review', False)
+            )
+            db.add(llm_record)
+        
+        db.commit()
+        logger.info(f"✓ Saved parsed data for applicant {applicant_id} (ID: {applicant.id})")
+        
+        # Add database ID to result
+        result['db_applicant_id'] = applicant.id
+        
+        # Auto-generate recommendations after successful parse
+        try:
+            logger.info(f"Auto-generating recommendations for applicant {applicant.id}")
+            from .db import CollegeEligibility, CollegeApplicabilityLog, JobRecommendation, Job, Employer
+            
+            # Quick recommendation generation (simplified)
+            normalized = result.get('normalized', {})
+            education = normalized.get('education', [])
+            applicant_cgpa = education[0].get('grade') if education and len(education) > 0 and isinstance(education[0], dict) else None
+            jee_rank = normalized.get('jee_rank')
+            
+            # Store metadata for recommendations
+            metadata_path = applicant_dir / "metadata.json"
+            if metadata_path.exists():
+                with open(metadata_path, 'r') as f:
+                    meta = json.load(f)
+                    # Prioritize user-provided JEE rank over parsed
+                    if meta.get('jee_rank_user_provided') and meta.get('jee_rank'):
+                        jee_rank = meta['jee_rank']
+                        logger.info(f"Using user-provided JEE rank: {jee_rank}")
+            
+            # Generate a few recommendations (full generation happens via dedicated endpoint)
+            colleges = db.query(College, CollegeEligibility).outerjoin(
+                CollegeEligibility, College.id == CollegeEligibility.college_id
+            ).filter(
+                # Pre-filter by eligibility
+                (CollegeEligibility.min_cgpa.is_(None)) | (CollegeEligibility.min_cgpa <= applicant_cgpa if applicant_cgpa else True),
+                (CollegeEligibility.min_jee_rank.is_(None)) | (CollegeEligibility.min_jee_rank >= jee_rank if jee_rank else True)
+            ).limit(5).all()
+            
+            rec_count = 0
+            for college, eligibility in colleges:
+                if eligibility:
+                    score = 50.0  # Simplified scoring
+                    rec = CollegeApplicabilityLog(
+                        applicant_id=applicant.id,
+                        college_id=college.id,
+                        recommend_score=score,
+                        explain={"reasons": ["Auto-generated after parse"], "auto_generated": True},
+                        status='recommended'
+                    )
+                    db.add(rec)
+                    rec_count += 1
+            
+            db.commit()
+            result['auto_recommendations_generated'] = rec_count
+            logger.info(f"✓ Auto-generated {rec_count} recommendations")
+        except Exception as e:
+            logger.warning(f"Failed to auto-generate recommendations: {e}")
+            result['auto_recommendations_error'] = str(e)
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save parsed data to database: {e}")
+        result['database_error'] = str(e)
+    
+    return JSONResponse(result)
+
+
+# New endpoints for comprehensive features
+from .db import SessionLocal, Applicant, LLMParsedRecord, College, CollegeApplicabilityLog, Job, JobRecommendation, CollegeProgram, Employer
+
+# ============================================================
+# STUDENT PROFILE ENDPOINT
+# ============================================================
+
+@app.get("/api/student/applicant")
+async def get_current_student_applicant(current_user = Depends(require_role("student")), db: Session = Depends(get_db)):
+    """Get the current student's applicant profile (DB id, applicant_id, etc)"""
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found. Please upload your resume.")
+    return {
+        "id": applicant.id,
+        "applicant_id": applicant.applicant_id,
+        "display_name": applicant.display_name,
+        "location_city": applicant.location_city,
+        "location_state": applicant.location_state,
+        "country": applicant.country,
+        "created_at": applicant.created_at.isoformat() if applicant.created_at else None
+    }
+from sqlalchemy import desc, func
+
+
+@app.get("/api/applicants")
+async def get_all_applicants(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
+    """Get all applicants with pagination"""
+    # Use joinedload to prevent N+1 queries
+    applicants = db.query(Applicant).options(
+        joinedload('*')  # Load all relationships
+    ).offset(skip).limit(limit).all()
+    total = db.query(Applicant).count()
+    
+    result = []
+    for app in applicants:
+        llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == app.id).first()
+        result.append({
+            "id": app.id,
+            "applicant_id": app.applicant_id,
+            "display_name": app.display_name,
+            "location_city": app.location_city,
+            "country": app.country,
+            "created_at": app.created_at.isoformat() if app.created_at is not None else None,
+            "has_parsed_data": llm_record is not None,
+            "needs_review": llm_record.needs_review if llm_record else False
+        })
+    
+    return {"applicants": result, "total": total, "skip": skip, "limit": limit}
+
+
+@app.get("/api/applicant/{applicant_id}")
+async def get_applicant_details(applicant_id: int, db: Session = Depends(get_db)):
+    """Get detailed applicant information"""
+    applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+    
+    llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
+    
+    return {
+        "applicant": {
+            "id": applicant.id,
+            "applicant_id": applicant.applicant_id,
+            "display_name": applicant.display_name,
+            "location_city": applicant.location_city,
+            "location_state": applicant.location_state,
+            "country": applicant.country,
+            "preferred_locations": applicant.preferred_locations,
+            "created_at": applicant.created_at.isoformat() if applicant.created_at is not None else None
+        },
+        "parsed_data": llm_record.normalized if llm_record else None,
+        "needs_review": llm_record.needs_review if llm_record else False,
+        "field_confidences": llm_record.field_confidences if llm_record else None
+    }
+
+
+# ============================================================
+# EMPLOYER JOB POSTING ENDPOINTS
+# ============================================================
+
+@app.post("/api/employer/jobs", response_model=JobResponse)
+async def create_job_posting(
+    job_data: JobCreate,
+    current_user = Depends(require_role("employer")),
+    db: Session = Depends(get_db)
+):
+    """Employer creates a job posting (pending approval)"""
+    from .db import Job, Employer
+    
+    # Get employer profile
+    employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer profile not found")
+    
+    # Create job posting
+    job = Job(
+        employer_id=employer.id,
+        title=job_data.title,
+        description=job_data.description,
+        location_city=job_data.location_city,
+        location_state=job_data.location_state,
+        work_type=job_data.work_type,
+        min_experience_years=job_data.min_experience_years,
+        min_cgpa=job_data.min_cgpa,
+        required_skills=job_data.required_skills,
+        optional_skills=job_data.optional_skills,
+        expires_at=job_data.expires_at,
+        status='pending'
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    
+    logger.info(f"Job created by employer {employer.company_name}: {job.title} (ID: {job.id})")
+    return job
+
+
+@app.get("/api/employer/jobs")
+async def get_employer_jobs(
+    current_user = Depends(require_role("employer")),
+    db: Session = Depends(get_db)
+):
+    """Get all jobs posted by current employer"""
+    from .db import Job, Employer
+    
+    employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer profile not found")
+    
+    jobs = db.query(Job).filter(Job.employer_id == employer.id).all()
+    return {"jobs": jobs, "total": len(jobs)}
+
+
+@app.get("/api/employer/jobs/{job_id}/applicants")
+async def get_job_applicants(
+    job_id: int,
+    current_user = Depends(require_role("employer")),
+    db: Session = Depends(get_db)
+):
+    """Get all applicants for a specific job"""
+    from .db import Job, JobApplication, Applicant, Employer
+    
+    # Verify employer owns this job
+    employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer profile not found")
+    
+    job = db.query(Job).filter(Job.id == job_id, Job.employer_id == employer.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or access denied")
+    
+    # Get applications
+    applications = db.query(JobApplication, Applicant).join(
+        Applicant, JobApplication.applicant_id == Applicant.id
+    ).filter(JobApplication.job_id == job_id).all()
+    
+    result = []
+    for app, applicant in applications:
+        applied_at_val = app.applied_at if hasattr(app, 'applied_at') else None
+        if isinstance(applied_at_val, (datetime.datetime, datetime.date)):
+            applied_at_ser = applied_at_val.isoformat()
+        elif applied_at_val is not None:
+            applied_at_ser = str(applied_at_val)
+        else:
+            applied_at_ser = None
+        result.append({
+            "application_id": app.id,
+            "applicant_id": applicant.id,
+            "applicant_name": applicant.display_name,
+            "status": app.status,
+            "applied_at": applied_at_ser,
+            "cover_letter": app.cover_letter
+        })
+    
+    return {"applicants": result, "total": len(result)}
+
+
+# ============================================================
+# COLLEGE PROGRAM POSTING ENDPOINTS
+# ============================================================
+
+@app.post("/api/college/programs", response_model=CollegeProgramResponse)
+async def create_college_program(
+    program_data: CollegeProgramCreate,
+    current_user = Depends(require_role("college")),
+    db: Session = Depends(get_db)
+):
+    """College creates a program (pending approval)"""
+    from .db import College, CollegeProgram
+    
+    # Get college profile
+    college = db.query(College).filter(College.user_id == current_user.id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College profile not found")
+    
+    # Create program
+    program = CollegeProgram(
+        college_id=college.id,
+        program_name=program_data.program_name,
+        duration_months=program_data.duration_months,
+        required_skills=program_data.required_skills,
+        program_description=program_data.program_description,
+        status='pending'
+    )
+    db.add(program)
+    db.commit()
+    db.refresh(program)
+    
+    logger.info(f"Program created by college {college.name}: {program.program_name} (ID: {program.id})")
+    return program
+
+
+@app.get("/api/college/programs")
+async def get_college_programs(
+    current_user = Depends(require_role("college")),
+    db: Session = Depends(get_db)
+):
+    """Get all programs posted by current college"""
+    from .db import College, CollegeProgram
+    
+    college = db.query(College).filter(College.user_id == current_user.id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College profile not found")
+    
+    programs = db.query(CollegeProgram).filter(CollegeProgram.college_id == college.id).all()
+    return {"programs": programs, "total": len(programs)}
+
+
+@app.get("/api/college/applications")
+async def get_college_applications(
+    current_user = Depends(require_role("college")),
+    db: Session = Depends(get_db)
+):
+    """Get all applications to current college"""
+    from .db import College, CollegeApplication, Applicant
+    
+    college = db.query(College).filter(College.user_id == current_user.id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College profile not found")
+    
+    # Get applications
+    applications = db.query(CollegeApplication, Applicant).join(
+        Applicant, CollegeApplication.applicant_id == Applicant.id
+    ).filter(CollegeApplication.college_id == college.id).all()
+    
+    result = []
+    for app, applicant in applications:
+        result.append({
+            "application_id": app.id,
+            "applicant_id": applicant.id,
+            "applicant_name": applicant.display_name,
+            "program_id": app.program_id,
+            "status": app.status,
+            "applied_at": app.applied_at.isoformat() if app.applied_at else None,
+            "twelfth_percentage": float(app.twelfth_percentage) if app.twelfth_percentage else None,  # type: ignore
+            "twelfth_board": app.twelfth_board,
+            "statement_of_purpose": app.statement_of_purpose
+        })
+    
+    return {"applications": result, "total": len(result)}
+
+
+# ============================================================
+# STUDENT APPLICATION ENDPOINTS
+# ============================================================
+
+@app.post("/api/jobs/{job_id}/apply", response_model=JobApplicationResponse)
+async def apply_to_job(
+    job_id: int,
+    application_data: JobApplicationCreate,
+    current_user = Depends(require_role("student")),
+    db: Session = Depends(get_db)
+):
+    """Student applies to a job"""
+    from .db import Job, JobApplication, Applicant
+    
+    # Verify job exists and is approved
+    job = db.query(Job).filter(Job.id == job_id, Job.status == 'approved').first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or not available")
+    
+    # Get student's applicant profile
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=400, detail="Please upload your resume first")
+    
+    # Check if already applied
+    existing = db.query(JobApplication).filter(
+        JobApplication.applicant_id == applicant.id,
+        JobApplication.job_id == job_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="You have already applied to this job")
+    
+    # Create application
+    application = JobApplication(
+        applicant_id=applicant.id,
+        job_id=job_id,
+        cover_letter=application_data.cover_letter,
+        status='applied'
+    )
+    db.add(application)
+    db.commit()
+    db.refresh(application)
+    
+    logger.info(f"Student {applicant.display_name} applied to job {job.title}")
+    return application
+
+
+@app.post("/api/colleges/{college_id}/apply", response_model=CollegeApplicationResponse)
+async def apply_to_college(
+    college_id: int,
+    application_data: CollegeApplicationCreate,
+    current_user = Depends(require_role("student")),
+    db: Session = Depends(get_db)
+):
+    """Student applies to a college"""
+    from .db import College, CollegeApplication, Applicant
+    
+    # Verify college exists
+    college = db.query(College).filter(College.id == college_id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College not found")
+    
+    # Get student's applicant profile
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=400, detail="Please upload your documents first")
+    
+    # Check if already applied to this program
+    existing = db.query(CollegeApplication).filter(
+        CollegeApplication.applicant_id == applicant.id,
+        CollegeApplication.college_id == college_id,
+        CollegeApplication.program_id == application_data.program_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="You have already applied to this program")
+    
+    # Create application
+    application = CollegeApplication(
+        applicant_id=applicant.id,
+        college_id=college_id,
+        program_id=application_data.program_id,
+        statement_of_purpose=application_data.statement_of_purpose,
+        twelfth_percentage=application_data.twelfth_percentage,
+        twelfth_board=application_data.twelfth_board,
+        twelfth_subjects=application_data.twelfth_subjects,
+        status='applied'
+    )
+    db.add(application)
+    db.commit()
+    db.refresh(application)
+    
+    logger.info(f"Student {applicant.display_name} applied to college {college.name}")
+    return application
+
+
+@app.get("/api/student/applications/jobs")
+async def get_student_job_applications(
+    current_user = Depends(require_role("student")),
+    db: Session = Depends(get_db)
+):
+    """Get all job applications by current student"""
+    from .db import JobApplication, Job, Applicant, Employer
+    
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        return {"applications": [], "total": 0}
+    
+    applications = db.query(JobApplication, Job, Employer).join(
+        Job, JobApplication.job_id == Job.id
+    ).join(
+        Employer, Job.employer_id == Employer.id
+    ).filter(JobApplication.applicant_id == applicant.id).all()
+    
+    result = []
+    for app, job, employer in applications:
+        result.append({
+            "application_id": app.id,
+            "job_id": job.id,
+            "job_title": job.title,
+            "company": employer.company_name,
+            "status": app.status,
+            "applied_at": app.applied_at.isoformat() if app.applied_at else None
+        })
+    
+    return {"applications": result, "total": len(result)}
+
+
+@app.get("/api/student/applications/colleges")
+async def get_student_college_applications(
+    current_user = Depends(require_role("student")),
+    db: Session = Depends(get_db)
+):
+    """Get all college applications by current student"""
+    from .db import CollegeApplication, College, Applicant
+    
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        return {"applications": [], "total": 0}
+    
+    applications = db.query(CollegeApplication, College).join(
+        College, CollegeApplication.college_id == College.id
+    ).filter(CollegeApplication.applicant_id == applicant.id).all()
+    
+    result = []
+    for app, college in applications:
+        applied_at_val = app.applied_at if hasattr(app, 'applied_at') else None
+        if isinstance(applied_at_val, (datetime.datetime, datetime.date)):
+            applied_at_ser = applied_at_val.isoformat()
+        elif applied_at_val is not None:
+            applied_at_ser = str(applied_at_val)
+        else:
+            applied_at_ser = None
+        result.append({
+            "application_id": app.id,
+            "college_id": college.id,
+            "college_name": college.name,
+            "program_id": app.program_id,
+            "status": app.status,
+            "applied_at": applied_at_ser
+        })
+    
+    return {"applications": result, "total": len(result)}
+
+
+# ============================================================
+# ADMIN APPROVAL ENDPOINTS
+# ============================================================
+
+@app.patch("/api/admin/jobs/{job_id}/review")
+async def review_job_posting(
+    job_id: int,
+    action: ApprovalAction,
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Admin approves or rejects a job posting"""
+    from .db import Job
+    
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if action.action == "approve":
+        job.status = 'approved'  # type: ignore
+        job.reviewed_by = current_user.id  # type: ignore
+        job.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+    elif action.action == "reject":
+        job.status = 'rejected'  # type: ignore
+        job.rejection_reason = action.reason  # type: ignore
+        job.reviewed_by = current_user.id  # type: ignore
+        job.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    db.commit()
+    db.refresh(job)
+    
+    logger.info(f"Job {job.title} {action.action}ed by admin {current_user.name}")
+    return {"status": "success", "job_status": job.status}
+
+
+@app.patch("/api/admin/programs/{program_id}/review")
+async def review_college_program(
+    program_id: int,
+    action: ApprovalAction,
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Admin approves or rejects a college program"""
+    from .db import CollegeProgram
+    
+    program = db.query(CollegeProgram).filter(CollegeProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+    
+    if action.action == "approve":
+        program.status = 'approved'  # type: ignore
+        program.reviewed_by = current_user.id  # type: ignore
+        program.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+    elif action.action == "reject":
+        program.status = 'rejected'  # type: ignore
+        program.rejection_reason = action.reason  # type: ignore
+        program.reviewed_by = current_user.id  # type: ignore
+        program.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    db.commit()
+    db.refresh(program)
+    
+    logger.info(f"Program {program.program_name} {action.action}ed by admin {current_user.name}")
+    return {"status": "success", "program_status": program.status}
+
+
+@app.get("/api/admin/pending-reviews")
+async def get_pending_reviews(
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Get all pending jobs and programs for review"""
+    from .db import Job, CollegeProgram, Employer, College
+    
+    # Get pending jobs
+    pending_jobs = db.query(Job, Employer).join(
+        Employer, Job.employer_id == Employer.id
+    ).filter(Job.status == 'pending').all()
+    
+    jobs_list = []
+    for job, employer in pending_jobs:
+        jobs_list.append({
+            "id": job.id,
+            "title": job.title,
+            "company": employer.company_name,
+            "created_at": job.created_at.isoformat() if job.created_at else None
+        })
+    
+    # Get pending programs
+    pending_programs = db.query(CollegeProgram, College).join(
+        College, CollegeProgram.college_id == College.id
+    ).filter(CollegeProgram.status == 'pending').all()
+    
+    programs_list = []
+    for program, college in pending_programs:
+        programs_list.append({
+            "id": program.id,
+            "program_name": program.program_name,
+            "college": college.name,
+            "created_at": program.created_at.isoformat() if program.created_at else None
+        })
+    
+    return {
+        "pending_jobs": jobs_list,
+        "pending_programs": programs_list,
+        "total_pending": len(jobs_list) + len(programs_list)
+    }
+
+
+@app.get("/api/colleges")
+async def get_colleges(skip: int = 0, limit: int = 20, db: Session = Depends(get_db)):
+    """Get all colleges with eligibility info"""
+    from .db import CollegeEligibility, CollegeMetadata
+    
+    # Fetch all data in batch queries to avoid N+1
+    colleges = db.query(College).offset(skip).limit(limit).all()
+    total = db.query(College).count()
+    
+    college_ids = [c.id for c in colleges]
+    eligibilities = {e.college_id: e for e in db.query(CollegeEligibility).filter(CollegeEligibility.college_id.in_(college_ids)).all()}
+    metadatas = {m.college_id: m for m in db.query(CollegeMetadata).filter(CollegeMetadata.college_id.in_(college_ids)).all()}
+    program_counts = {row[0]: row[1] for row in db.query(CollegeProgram.college_id, func.count(CollegeProgram.id)).filter(CollegeProgram.college_id.in_(college_ids)).group_by(CollegeProgram.college_id).all()}  # type: ignore
+    
+    result = []
+    for college in colleges:
+        eligibility = eligibilities.get(college.id)
+        metadata = metadatas.get(college.id)
+        
+        result.append({
+            "id": college.id,
+            "name": college.name,
+            "slug": college.slug,
+            "location_city": college.location_city,
+            "location_state": college.location_state,
+            "country": college.country,
+            "description": college.description,
+            "website": college.website,
+            "min_jee_rank": eligibility.min_jee_rank if eligibility else None,
+            "min_cgpa": float(eligibility.min_cgpa) if eligibility and eligibility.min_cgpa is not None else None,  # type: ignore
+            "seats": eligibility.seats if eligibility else None,
+            "programs_count": program_counts.get(college.id, 0) if hasattr(college, 'id') else 0,  # type: ignore
+            "popularity_score": float(metadata.popularity_score) if metadata and metadata.popularity_score is not None else 0.0  # type: ignore
+        })
+    
+    return {"colleges": result, "total": total}
+
+
+@app.get("/api/college/{college_id}")
+async def get_college_details(college_id: int, db: Session = Depends(get_db)):
+    """Get detailed college information"""
+    from .db import CollegeEligibility, CollegeMetadata
+    
+    college = db.query(College).filter(College.id == college_id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail=API_MESSAGES['COLLEGE_NOT_FOUND'])
+    
+    eligibility = db.query(CollegeEligibility).filter(CollegeEligibility.college_id == college_id).first()
+    metadata = db.query(CollegeMetadata).filter(CollegeMetadata.college_id == college_id).first()
+    programs = db.query(CollegeProgram).filter(CollegeProgram.college_id == college_id).all()
+    
+    return {
+        "college": {
+            "id": college.id,
+            "name": college.name,
+            "slug": college.slug,
+            "location_city": college.location_city,
+            "location_state": college.location_state,
+            "country": college.country,
+            "description": college.description,
+            "website": college.website
+        },
+        "eligibility": {
+            "min_jee_rank": eligibility.min_jee_rank if eligibility else None,
+            "min_cgpa": float(eligibility.min_cgpa) if eligibility and eligibility.min_cgpa is not None else None,  # type: ignore
+            "eligible_degrees": eligibility.eligible_degrees if eligibility else [],
+            "seats": eligibility.seats if eligibility else None
+        } if eligibility else None,
+        "programs": [
+            {
+                "id": p.id,
+                "program_name": p.program_name,
+                "duration_months": p.duration_months,
+                "required_skills": p.required_skills,
+                "description": p.program_description
+            } for p in programs
+        ],
+        "metadata": {
+            "canonical_skills": metadata.canonical_skills if metadata else [],
+            "popularity_score": float(metadata.popularity_score) if metadata and metadata.popularity_score is not None else 0.0  # type: ignore
+        } if metadata else None
+    }
+
+
+@app.get("/api/jobs")
+async def get_jobs(skip: int = 0, limit: int = 20, location: Optional[str] = None, work_type: Optional[str] = None, db: Session = Depends(get_db)):
+    """Get all APPROVED jobs with filters, excluding expired jobs"""
+    from datetime import datetime
+    from .db import JobMetadata
+    
+    # Only show approved jobs to public
+    now = datetime.utcnow()
+    query = db.query(Job).filter(
+        Job.status == 'approved',
+        (Job.expires_at.is_(None)) | (Job.expires_at > now)
+    )
+    
+    if location:
+        query = query.filter(Job.location_city.ilike(f"%{location}%"))
+    if work_type:
+        query = query.filter(Job.work_type == work_type)
+    
+    jobs = query.offset(skip).limit(limit).all()
+    total = query.count()
+    
+    # Batch fetch employers and metadata
+    job_ids = [j.id for j in jobs]
+    employer_ids = list(set([j.employer_id for j in jobs]))
+    employers = {e.id: e for e in db.query(Employer).filter(Employer.id.in_(employer_ids)).all()}
+    metadatas = {m.job_id: m for m in db.query(JobMetadata).filter(JobMetadata.job_id.in_(job_ids)).all()}
+    
+    result = []
+    for job in jobs:
+        employer = employers.get(job.employer_id)
+        metadata = metadatas.get(job.id)
+        
+        result.append({
+            "id": job.id,
+            "title": job.title,
+            "company": employer.company_name if employer else "Unknown",
+            "location_city": job.location_city,
+            "work_type": job.work_type,
+            "min_experience_years": float(job.min_experience_years) if job.min_experience_years is not None else 0.0,  # type: ignore
+            "min_cgpa": float(job.min_cgpa) if job.min_cgpa is not None else None,  # type: ignore
+            "required_skills": job.required_skills,
+            "optional_skills": job.optional_skills,
+            "expires_at": job.expires_at.isoformat() if job.expires_at is not None else None,
+            "tags": metadata.tags if metadata else [],
+            "popularity": float(metadata.popularity) if metadata and metadata.popularity is not None else 0.0  # type: ignore
+        })
+    
+    return {"jobs": result, "total": total}
+
+
+@app.get("/api/job/{job_id}")
+async def get_job_details(job_id: int, db: Session = Depends(get_db)):
+    """Get detailed job information"""
+    from .db import JobMetadata
+    
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail=API_MESSAGES['JOB_NOT_FOUND'])
+    
+    employer = db.query(Employer).filter(Employer.id == job.employer_id).first()
+    metadata = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+    
+    return {
+        "job": {
+            "id": job.id,
+            "title": job.title,
+            "description": job.description,
+            "location_city": job.location_city,
+            "location_state": job.location_state,
+            "work_type": job.work_type,
+            "min_experience_years": float(job.min_experience_years) if job.min_experience_years is not None else 0.0,  # type: ignore
+            "min_cgpa": float(job.min_cgpa) if job.min_cgpa is not None else None,  # type: ignore
+            "required_skills": job.required_skills,
+            "optional_skills": job.optional_skills,
+            "expires_at": job.expires_at.isoformat() if job.expires_at is not None else None
+        },
+        "employer": {
+            "company_name": employer.company_name if employer else "Unknown",
+            "website": employer.website if employer else None,
+            "location_city": employer.location_city if employer else None
+        } if employer else None,
+        "metadata": {
+            "tags": metadata.tags if metadata else [],
+            "popularity": float(metadata.popularity) if metadata and metadata.popularity is not None else 0.0  # type: ignore
+        } if metadata else None
+    }
+
+
+@app.get("/api/recommendations/{applicant_id}")
+async def get_applicant_recommendations(applicant_id: int, db: Session = Depends(get_db)):
+    """Get college and job recommendations for an applicant"""
+    # College recommendations
+    college_recs = db.query(CollegeApplicabilityLog, College).join(
+        College, CollegeApplicabilityLog.college_id == College.id
+    ).filter(CollegeApplicabilityLog.applicant_id == applicant_id).order_by(
+        desc(CollegeApplicabilityLog.recommend_score)
+    ).all()
+    
+    # Job recommendations
+    job_recs = db.query(JobRecommendation, Job, Employer).join(
+        Job, JobRecommendation.job_id == Job.id
+    ).join(
+        Employer, Job.employer_id == Employer.id
+    ).filter(JobRecommendation.applicant_id == applicant_id).order_by(
+        desc(JobRecommendation.score)
+    ).all()
+    
+    return {
+        "college_recommendations": [
+            {
+                "id": log.id,
+                "college": {
+                    "id": college.id,
+                    "name": college.name,
+                    "location_city": college.location_city,
+                    "location_state": college.location_state,
+                    "website": college.website
+                },
+                "recommend_score": float(log.recommend_score) if log.recommend_score else 0,
+                "explain": log.explain,
+                "status": log.status
+            } for log, college in college_recs
+        ],
+        "job_recommendations": [
+            {
+                "id": rec.id,
+                "job": {
+                    "id": job.id,
+                    "title": job.title,
+                    "company": employer.company_name,
+                    "location_city": job.location_city,
+                    "work_type": job.work_type
+                },
+                "score": float(rec.score) if rec.score else 0,
+                "scoring_breakdown": rec.scoring_breakdown,
+                "explain": rec.explain,
+                "status": rec.status
+            } for rec, job, employer in job_recs
+        ]
+    }
+
+
+@app.get("/api/stats")
+async def get_statistics(db: Session = Depends(get_db)):
+    """Get dashboard statistics"""
+    stats = {
+        "total_applicants": db.query(Applicant).count(),
+        "total_colleges": db.query(College).count(),
+        "total_jobs": db.query(Job).count(),
+        "total_college_recommendations": db.query(CollegeApplicabilityLog).count(),
+        "total_job_recommendations": db.query(JobRecommendation).count(),
+        "applicants_needing_review": db.query(LLMParsedRecord).filter(
+            LLMParsedRecord.needs_review == True
+        ).count()
+    }
+    
+    # Average match scores
+    college_avg = db.query(func.avg(CollegeApplicabilityLog.recommend_score)).scalar()
+    job_avg = db.query(func.avg(JobRecommendation.score)).scalar()
+    
+    avg_college = float(college_avg) if college_avg is not None else 0.0
+    avg_job = float(job_avg) if job_avg is not None else 0.0
+    
+    return {
+        **stats,
+        "avg_college_match": avg_college,
+        "avg_job_match": avg_job
+    }
+
+
+@app.patch("/api/college-recommendation/{rec_id}/status")
+def update_college_recommendation_status(
+    rec_id: int,
+    status: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """Update the status of a college recommendation"""
+    from .db import CollegeApplicabilityLog
+    from .constants import API_MESSAGES
+    
+    valid_statuses = ['recommended', 'applied', 'accepted', 'rejected', 'withdrawn']
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    
+    rec = db.query(CollegeApplicabilityLog).filter(CollegeApplicabilityLog.id == rec_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail=API_MESSAGES["applicant_not_found"])
+    
+    rec.status = status  # type: ignore
+    db.commit()
+    db.refresh(rec)
+    
+    return {"id": rec.id, "status": rec.status, "message": "Status updated successfully"}
+
+
+@app.patch("/api/job-recommendation/{rec_id}/status")
+def update_job_recommendation_status(
+    rec_id: int,
+    status: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """Update the status of a job recommendation"""
+    from .db import JobRecommendation
+    from .constants import API_MESSAGES
+    
+    valid_statuses = ['recommended', 'applied', 'interviewing', 'offered', 'accepted', 'rejected', 'withdrawn']
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    
+    rec = db.query(JobRecommendation).filter(JobRecommendation.id == rec_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail=API_MESSAGES["applicant_not_found"])
+    
+    rec.status = status  # type: ignore
+    db.commit()
+    db.refresh(rec)
+    
+    return {"id": rec.id, "status": rec.status, "message": "Status updated successfully"}
+
+
+@app.post("/api/applicant/{applicant_id}/generate-recommendations")
+def generate_recommendations(applicant_id: int, db: Session = Depends(get_db)):
+    """Generate college and job recommendations for an applicant"""
+    from .db import CollegeEligibility
+    import random
+    
+    # Check if applicant exists
+    applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail=API_MESSAGES['APPLICANT_NOT_FOUND'])
+    
+    # Get parsed data
+    llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
+    if not llm_record:
+        raise HTTPException(status_code=400, detail=API_MESSAGES['NO_PARSED_DATA'])
+    
+    parsed_data = llm_record.normalized
+    education = parsed_data.get('education', [])
+    skills = parsed_data.get('skills', [])
+    jee_rank = parsed_data.get('jee_rank')
+    
+    # Calculate applicant CGPA (use first education entry)
+    applicant_cgpa = None
+    if education and len(education) > 0:
+        first_edu = education[0]
+        if isinstance(first_edu, dict) and 'grade' in first_edu:
+            applicant_cgpa = first_edu.get('grade')
+    
+    # Pre-filter colleges by eligibility to improve performance
+    colleges = db.query(College, CollegeEligibility).outerjoin(
+        CollegeEligibility, College.id == CollegeEligibility.college_id
+    ).filter(
+        # Only include colleges where applicant meets basic requirements
+        (CollegeEligibility.min_cgpa.is_(None)) | (CollegeEligibility.min_cgpa <= applicant_cgpa if applicant_cgpa else True),
+        (CollegeEligibility.min_jee_rank.is_(None)) | (CollegeEligibility.min_jee_rank >= jee_rank if jee_rank else True)
+    ).all()
+    
+    college_recommendations = []
+    for college, eligibility in colleges:
+        if not eligibility:
+            continue
+        
+        score = 0.0
+        explain_parts = []
+        
+        # Check JEE rank eligibility
+        if eligibility.min_jee_rank and jee_rank:
+            if jee_rank <= eligibility.min_jee_rank:
+                score += RECOMMENDATION_WEIGHTS['JEE_RANK_SCORE']
+                explain_parts.append(f"JEE rank {jee_rank} meets cutoff")
+            else:
+                continue  # Skip if doesn't meet JEE requirement
+        
+        # Check CGPA eligibility
+        if eligibility.min_cgpa and applicant_cgpa:
+            if applicant_cgpa >= eligibility.min_cgpa:
+                score += RECOMMENDATION_WEIGHTS['CGPA_SCORE']
+                explain_parts.append(f"CGPA {applicant_cgpa} meets minimum")
+            else:
+                continue  # Skip if doesn't meet CGPA requirement
+        
+        # Skills match (simplified)
+        programs = db.query(CollegeProgram).filter(CollegeProgram.college_id == college.id).all()
+        if programs and skills:
+            skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
+            matched = 0
+            for program in programs:
+                if program.required_skills is not None:  # type: ignore
+                    for req_skill in program.required_skills:
+                        req_name = req_skill if isinstance(req_skill, str) else req_skill.get('name', '')
+                        # Improved skill matching: require word boundaries and minimum 3-char length
+                        if len(req_name) >= 3:
+                            import re
+                            pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
+                            if any(re.search(pattern, sn.lower()) for sn in skill_names):
+                                matched += 1
+                        else:
+                            # For short names, require exact match
+                            if any(req_name.lower() == sn.lower() for sn in skill_names):
+                                matched += 1
+            if matched > 0:
+                score += min(30.0, matched * 5)
+                explain_parts.append(f"{matched} skill(s) matched")
+        
+        if score > 0:
+            # Create recommendation
+            rec = CollegeApplicabilityLog(
+                applicant_id=applicant_id,
+                college_id=college.id,
+                recommend_score=score,
+                explain={"reasons": explain_parts, "match_details": "Auto-generated recommendation"},
+                status='recommended'
+            )
+            db.add(rec)
+            college_recommendations.append({
+                "college_name": college.name,
+                "score": score,
+                "reasons": explain_parts
+            })
+    
+    # Get all jobs
+    jobs = db.query(Job).all()
+    job_recommendations = []
+    
+    for job in jobs:
+        score = 0.0
+        breakdown: dict[str, float] = {"skill_score": 0.0, "academic_score": 0.0, "experience_score": 0.0}
+        explain_parts = []
+        
+        # Check CGPA requirement
+        if job.min_cgpa is not None and applicant_cgpa:  # type: ignore
+            if applicant_cgpa >= job.min_cgpa:
+                academic_score = RECOMMENDATION_WEIGHTS['ACADEMIC_SCORE']
+                breakdown["academic_score"] = academic_score
+                score += academic_score
+                explain_parts.append(f"CGPA {applicant_cgpa} meets requirement")
+            else:
+                continue  # Skip if doesn't meet requirement
+        
+        # Skills matching
+        if job.required_skills is not None and skills:  # type: ignore
+            skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
+            required = job.required_skills if isinstance(job.required_skills, list) else []
+            matched = 0
+            for req_skill in required:
+                req_name = req_skill.get('name', '') if isinstance(req_skill, dict) else str(req_skill)
+                # Improved skill matching for jobs
+                if len(req_name) >= 3:
+                    import re
+                    pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
+                    if any(re.search(pattern, sn.lower()) for sn in skill_names):
+                        matched += 1
+                else:
+                    if any(req_name.lower() == sn.lower() for sn in skill_names):
+                        matched += 1
+
+            if matched > 0:
+                skill_score = min(50.0, (matched / max(len(required), 1)) * 50)
+                breakdown["skill_score"] = skill_score
+                score += skill_score
+                explain_parts.append(f"{matched}/{len(required)} required skills matched")
+        
+        # Experience (simplified - assume 0 years for students)
+        min_exp = float(job.min_experience_years) if job.min_experience_years is not None else 0.0  # type: ignore
+        experience_score = RECOMMENDATION_WEIGHTS['EXPERIENCE_SCORE'] if min_exp == 0 else 0.0
+        breakdown["experience_score"] = experience_score
+        score += experience_score
+        
+        if score >= RECOMMENDATION_WEIGHTS['MIN_JOB_RECOMMENDATION_SCORE']:  # Only recommend if score is decent
+            # Standardize explain format to match college recommendations (JSON)
+            rec = JobRecommendation(
+                applicant_id=applicant_id,
+                job_id=job.id,
+                score=score,
+                scoring_breakdown=breakdown,
+                explain={"reasons": explain_parts, "match_details": "Auto-generated recommendation", "breakdown": breakdown},
+                status='recommended'
+            )
+            db.add(rec)
+            employer = db.query(Employer).filter(Employer.id == job.employer_id).first()
+            job_recommendations.append({
+                "job_title": job.title,
+                "company": employer.company_name if employer else "Unknown",
+                "score": score,
+                "breakdown": breakdown
+            })
+    
+    db.commit()
+    
+    return {
+        "status": "success",
+        "college_recommendations_generated": len(college_recommendations),
+        "job_recommendations_generated": len(job_recommendations),
+        "college_recommendations": college_recommendations[:10],  # Top 10
+        "job_recommendations": job_recommendations[:10]  # Top 10
+    }
+
+
+# ============================================================
+# Local development entrypoint (reads host/port from .env via settings)
+# ============================================================
+if __name__ == "__main__":
+    import uvicorn
+    # Use configured API host/port from settings; default values are set in config.py
+    uvicorn.run(
+        "resume_pipeline.app:app",
+        host=settings.API_HOST,
+        port=settings.API_PORT,
+        reload=True
+    )

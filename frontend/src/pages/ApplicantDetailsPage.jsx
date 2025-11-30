@@ -1,0 +1,255 @@
+import React, { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { 
+  ArrowLeft, User, MapPin, GraduationCap, Briefcase, Target, TrendingUp 
+} from 'lucide-react'
+import api from '../config/api'
+
+export default function ApplicantDetailsPage() {
+  const { applicantId } = useParams()
+  const navigate = useNavigate()
+  const [data, setData] = useState(null)
+  const [recommendations, setRecommendations] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchData()
+  }, [applicantId])
+
+  const fetchData = async () => {
+    try {
+      const [detailsRes, recsRes] = await Promise.all([
+        api.get(`/api/applicant/${applicantId}`),
+        api.get(`/api/recommendations/${applicantId}`)
+      ])
+      setData(detailsRes.data)
+      setRecommendations(recsRes.data)
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    )
+  }
+
+  const applicant = data?.applicant
+  const parsed = data?.parsed_data || {}
+  const personal = parsed.personal || {}
+  const education = parsed.education || []
+  const skills = parsed.skills || []
+
+  return (
+    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <button
+            onClick={() => navigate('/applicants')}
+            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors duration-200 mb-4"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span>Back to Applicants</span>
+          </button>
+          <h1 className="text-3xl md:text-4xl font-bold">
+            {applicant?.display_name || 'Applicant Details'}
+          </h1>
+        </motion.div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Column */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Personal Info */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="card"
+            >
+              <div className="flex items-center space-x-2 mb-4">
+                <User className="w-5 h-5 text-primary-400" />
+                <h2 className="text-xl font-semibold">Personal Information</h2>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm text-gray-400">Name</p>
+                  <p className="font-medium">{personal.name || applicant?.display_name}</p>
+                </div>
+                {personal.email && (
+                  <div>
+                    <p className="text-sm text-gray-400">Email</p>
+                    <p className="font-medium">{personal.email}</p>
+                  </div>
+                )}
+                {applicant?.location_city && (
+                  <div className="flex items-center space-x-2">
+                    <MapPin className="w-4 h-4 text-gray-400" />
+                    <p className="text-sm">{applicant.location_city}, {applicant.country}</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Education */}
+            {education.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 }}
+                className="card"
+              >
+                <div className="flex items-center space-x-2 mb-4">
+                  <GraduationCap className="w-5 h-5 text-primary-400" />
+                  <h2 className="text-xl font-semibold">Education</h2>
+                </div>
+                <div className="space-y-4">
+                  {education.map((edu, idx) => (
+                    <div key={idx} className="pb-4 border-b border-dark-700 last:border-0 last:pb-0">
+                      <p className="font-medium">{edu.institution}</p>
+                      <p className="text-sm text-gray-400">{edu.degree}</p>
+                      {edu.cgpa && (
+                        <p className="text-sm text-primary-400 mt-1">CGPA: {edu.cgpa}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Skills */}
+            {skills.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 }}
+                className="card"
+              >
+                <div className="flex items-center space-x-2 mb-4">
+                  <Target className="w-5 h-5 text-primary-400" />
+                  <h2 className="text-xl font-semibold">Skills</h2>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {skills.map((skill, idx) => (
+                    <span
+                      key={idx}
+                      className="px-3 py-1 bg-primary-900/30 border border-primary-500/30 rounded-full text-sm"
+                    >
+                      {skill.name}
+                    </span>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </div>
+
+          {/* Right Column - Recommendations */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* College Recommendations */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="card"
+            >
+              <div className="flex items-center space-x-2 mb-4">
+                <GraduationCap className="w-6 h-6 text-primary-400" />
+                <h2 className="text-2xl font-semibold">College Recommendations</h2>
+              </div>
+              <div className="space-y-4">
+                {recommendations?.college_recommendations?.map((rec) => (
+                  <Link
+                    key={rec.id}
+                    to={`/college/${rec.college.id}`}
+                    className="block p-4 bg-dark-800 hover:bg-dark-700 rounded-lg border border-dark-700 hover:border-primary-500/50 transition-all duration-300"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h3 className="font-semibold text-lg">{rec.college.name}</h3>
+                        <p className="text-sm text-gray-400">
+                          {rec.college.location_city}, {rec.college.location_state}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="flex items-center space-x-1">
+                          <TrendingUp className="w-4 h-4 text-primary-400" />
+                          <span className="text-xl font-bold text-primary-400">
+                            {rec.recommend_score.toFixed(1)}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">Match Score</p>
+                      </div>
+                    </div>
+                    {rec.explain && (
+                      <p className="text-sm text-gray-400 mt-2">
+                        {rec.explain.reasoning || 'Good match based on profile'}
+                      </p>
+                    )}
+                  </Link>
+                ))}
+                {recommendations?.college_recommendations?.length === 0 && (
+                  <p className="text-gray-400 text-center py-4">No college recommendations yet</p>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Job Recommendations */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="card"
+            >
+              <div className="flex items-center space-x-2 mb-4">
+                <Briefcase className="w-6 h-6 text-green-400" />
+                <h2 className="text-2xl font-semibold">Job Recommendations</h2>
+              </div>
+              <div className="space-y-4">
+                {recommendations?.job_recommendations?.map((rec) => (
+                  <Link
+                    key={rec.id}
+                    to={`/job/${rec.job.id}`}
+                    className="block p-4 bg-dark-800 hover:bg-dark-700 rounded-lg border border-dark-700 hover:border-green-500/50 transition-all duration-300"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h3 className="font-semibold text-lg">{rec.job.title}</h3>
+                        <p className="text-sm text-gray-400">{rec.job.company}</p>
+                        <p className="text-sm text-gray-500">
+                          {rec.job.location_city} • {rec.job.work_type}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="flex items-center space-x-1">
+                          <TrendingUp className="w-4 h-4 text-green-400" />
+                          <span className="text-xl font-bold text-green-400">
+                            {rec.score.toFixed(1)}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">Match Score</p>
+                      </div>
+                    </div>
+                    {rec.explain && (
+                      <p className="text-sm text-gray-400 mt-2">{rec.explain}</p>
+                    )}
+                  </Link>
+                ))}
+                {recommendations?.job_recommendations?.length === 0 && (
+                  <p className="text-gray-400 text-center py-4">No job recommendations yet</p>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

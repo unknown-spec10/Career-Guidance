@@ -1,0 +1,147 @@
+import React, { useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import Navbar from './components/Navbar'
+import Hero from './components/Hero'
+import Features from './components/Features'
+import UploadSection from './components/UploadSection'
+import ResultsPage from './pages/ResultsPage'
+import DashboardPage from './pages/DashboardPage'
+import DashboardRouter from './pages/DashboardRouter'
+import ApplicantsPage from './pages/ApplicantsPage'
+import ApplicantDetailsPage from './pages/ApplicantDetailsPage'
+import CollegesPage from './pages/CollegesPage'
+import CollegeDetailsPage from './pages/CollegeDetailsPage'
+import JobsPage from './pages/JobsPage'
+import JobDetailsPage from './pages/JobDetailsPage'
+import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import EmailVerificationPage from './pages/EmailVerificationPage'
+import ResendVerificationPage from './pages/ResendVerificationPage'
+import VerifyCodePage from './pages/VerifyCodePage'
+import StudentDashboard from './pages/StudentDashboard'
+import EmployerDashboard from './pages/EmployerDashboard'
+import CollegeDashboard from './pages/CollegeDashboard'
+import AdminReviewsPage from './pages/AdminDashboard'
+import ProtectedRoute from './components/ProtectedRoute'
+import Footer from './components/Footer'
+import api from './config/api'
+
+function HomePage() {
+  return (
+    <>
+      <Hero />
+      <Features />
+    </>
+  )
+}
+
+function App() {
+  useEffect(() => {
+    // Set authorization header if token exists
+    const token = localStorage.getItem('token')
+    if (token) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    }
+  }, [])
+
+  return (
+    <Router>
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <main className="flex-grow">
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<HomePage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/verify-email" element={<EmailVerificationPage />} />
+            <Route path="/verify-code" element={<VerifyCodePage />} />
+            <Route path="/resend-verification" element={<ResendVerificationPage />} />
+            <Route path="/colleges" element={<CollegesPage />} />
+            <Route path="/college/:collegeId" element={<CollegeDetailsPage />} />
+            <Route path="/jobs" element={<JobsPage />} />
+            <Route path="/job/:jobId" element={<JobDetailsPage />} />
+
+            {/* Student Routes */}
+            <Route 
+              path="/student/dashboard" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <StudentDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/results/:applicantId" 
+              element={
+                <ProtectedRoute allowedRoles={['student', 'admin']}>
+                  <ResultsPage />
+                </ProtectedRoute>
+              } 
+            />
+
+            {/* Employer Routes */}
+            <Route 
+              path="/employer/dashboard" 
+              element={
+                <ProtectedRoute allowedRoles={['employer']}>
+                  <EmployerDashboard />
+                </ProtectedRoute>
+              } 
+            />
+
+            {/* College Routes */}
+            <Route 
+              path="/college/dashboard" 
+              element={
+                <ProtectedRoute allowedRoles={['college']}>
+                  <CollegeDashboard />
+                </ProtectedRoute>
+              } 
+            />
+
+            {/* Admin Routes */}
+            <Route 
+              path="/admin/dashboard" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <DashboardPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/admin/reviews" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminReviewsPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/applicants" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <ApplicantsPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/applicant/:applicantId" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <ApplicantDetailsPage />
+                </ProtectedRoute>
+              } 
+            />
+
+            {/* Smart Dashboard Router - redirects to role-specific dashboard */}
+            <Route path="/dashboard" element={<DashboardRouter />} />
+          </Routes>
+        </main>
+        <Footer />
+      </div>
+    </Router>
+  )
+}
+
+export default App

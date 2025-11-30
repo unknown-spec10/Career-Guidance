@@ -1,0 +1,809 @@
+{
+  "data analysis": {
+    "skill_id": "skill_012",
+    "display_name": "Data Analysis",
+    "relevance_score": 89.7,
+    "category": "programming",
+    "related_skills": [
+      "ai",
+      "java"
+    ],
+    "market_demand": "very_high"
+  },
+  "deep learning": {
+    "skill_id": "skill_007",
+    "display_name": "Deep Learning",
+    "relevance_score": 37.6,
+    "category": "programming",
+    "related_skills": [
+      "ai",
+      "machine learning",
+      "deep learning"
+    ],
+    "market_demand": "low"
+  },
+  "machine learning": {
+    "skill_id": "skill_006",
+    "display_name": "Machine Learning",
+    "relevance_score": 25.7,
+    "category": "programming",
+    "related_skills": [
+      "gcp",
+      "azure",
+      "machine learning",
+      "python",
+      "java"
+    ],
+    "market_demand": "low"
+  },
+  "node.js": {
+    "skill_id": "skill_005",
+    "display_name": "Node.js",
+    "relevance_score": 17.4,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "django",
+      "aws",
+      "react",
+      "javascript"
+    ],
+    "market_demand": "very_low"
+  },
+  "javascript": {
+    "skill_id": "skill_003",
+    "display_name": "JavaScript",
+    "relevance_score": 16.7,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "java",
+      "rust",
+      "sql",
+      "javascript"
+    ],
+    "market_demand": "very_low"
+  },
+  "python": {
+    "skill_id": "skill_001",
+    "display_name": "Python",
+    "relevance_score": 6.66,
+    "category": "programming",
+    "related_skills": [
+      "javascript",
+      "python",
+      "java"
+    ],
+    "market_demand": "very_low"
+  },
+  "java": {
+    "skill_id": "skill_002",
+    "display_name": "Java",
+    "relevance_score": 4.78,
+    "category": "programming",
+    "related_skills": [
+      "java"
+    ],
+    "market_demand": "very_low"
+  },
+  "sql": {
+    "skill_id": "skill_008",
+    "display_name": "SQL",
+    "relevance_score": 4.01,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "java",
+      "rust",
+      "sql",
+      "javascript"
+    ],
+    "market_demand": "very_low"
+  },
+  "react": {
+    "skill_id": "skill_004",
+    "display_name": "React",
+    "relevance_score": 3.78,
+    "category": "programming",
+    "related_skills": [
+      "react",
+      "ai",
+      "vue"
+    ],
+    "market_demand": "very_low"
+  },
+  "aws": {
+    "skill_id": "skill_010",
+    "display_name": "AWS",
+    "relevance_score": 2.24,
+    "category": "programming",
+    "related_skills": [
+      "azure",
+      "aws"
+    ],
+    "market_demand": "very_low"
+  },
+  "git": {
+    "skill_id": "skill_011",
+    "display_name": "Git",
+    "relevance_score": 1.8,
+    "category": "programming",
+    "related_skills": [
+      "javascript",
+      "python",
+      "java",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "docker": {
+    "skill_id": "skill_009",
+    "display_name": "Docker",
+    "relevance_score": 0.26,
+    "category": "programming",
+    "related_skills": [
+      "docker",
+      "python",
+      "java",
+      "javascript",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "c++": {
+    "skill_id": "skill_013",
+    "display_name": "C++",
+    "relevance_score": 0.22,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "java",
+      "rust",
+      "sql",
+      "javascript"
+    ],
+    "market_demand": "very_low"
+  },
+  "mongodb": {
+    "skill_id": "skill_014",
+    "display_name": "MongoDB",
+    "relevance_score": 0.16,
+    "category": "programming",
+    "related_skills": [
+      "redis",
+      "mongodb",
+      "java",
+      "mysql",
+      "sql"
+    ],
+    "market_demand": "very_low"
+  },
+  "oops": {
+    "skill_id": "skill_015",
+    "display_name": "OOPs",
+    "relevance_score": 0.41,
+    "category": "programming",
+    "related_skills": [
+      "java",
+      "javascript",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "data structures and algorithms (dsa)": {
+    "skill_id": "skill_016",
+    "display_name": "Data Structures and Algorithms (DSA)",
+    "relevance_score": 0.08,
+    "category": "programming",
+    "related_skills": [
+      "java"
+    ],
+    "market_demand": "very_low"
+  },
+  "chromadb": {
+    "skill_id": "skill_017",
+    "display_name": "ChromaDB",
+    "relevance_score": 0.0,
+    "category": "programming",
+    "related_skills": [
+      "rust",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "pytorch": {
+    "skill_id": "skill_018",
+    "display_name": "PyTorch",
+    "relevance_score": 0.08,
+    "category": "programming",
+    "related_skills": [
+      "computer vision",
+      "python",
+      "java",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "natural language processing (nlp)": {
+    "skill_id": "skill_019",
+    "display_name": "Natural Language Processing (NLP)",
+    "relevance_score": 0.09,
+    "category": "programming",
+    "related_skills": [
+      "nlp",
+      "python",
+      "machine learning",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "generative ai": {
+    "skill_id": "skill_020",
+    "display_name": "Generative AI",
+    "relevance_score": 0.97,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "regression": {
+    "skill_id": "skill_021",
+    "display_name": "Regression",
+    "relevance_score": 0.66,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "machine learning",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "classification": {
+    "skill_id": "skill_022",
+    "display_name": "Classification",
+    "relevance_score": 35.4,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "low"
+  },
+  "clustering algorithms": {
+    "skill_id": "skill_023",
+    "display_name": "Clustering algorithms",
+    "relevance_score": 1.64,
+    "category": "programming",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "linear regression": {
+    "skill_id": "skill_024",
+    "display_name": "Linear Regression",
+    "relevance_score": 78.8,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "high"
+  },
+  "logistic regression": {
+    "skill_id": "skill_025",
+    "display_name": "Logistic Regression",
+    "relevance_score": 15.0,
+    "category": "data_science",
+    "related_skills": [
+      "machine learning",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "decision trees": {
+    "skill_id": "skill_026",
+    "display_name": "Decision Trees",
+    "relevance_score": 6.53,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "random forests": {
+    "skill_id": "skill_027",
+    "display_name": "Random Forests",
+    "relevance_score": 3.81,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "svm": {
+    "skill_id": "skill_028",
+    "display_name": "SVM",
+    "relevance_score": 0.04,
+    "category": "programming",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "k-means": {
+    "skill_id": "skill_029",
+    "display_name": "K-Means",
+    "relevance_score": 32.4,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "low"
+  },
+  "model evaluation": {
+    "skill_id": "skill_030",
+    "display_name": "Model evaluation",
+    "relevance_score": 100,
+    "category": "programming",
+    "related_skills": [
+      "java"
+    ],
+    "market_demand": "very_high"
+  },
+  "hyperparameter tuning": {
+    "skill_id": "skill_031",
+    "display_name": "Hyperparameter tuning",
+    "relevance_score": 0.02,
+    "category": "programming",
+    "related_skills": [
+      "machine learning",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "cnns": {
+    "skill_id": "skill_032",
+    "display_name": "CNNs",
+    "relevance_score": 0.41,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "rnns": {
+    "skill_id": "skill_033",
+    "display_name": "RNNs",
+    "relevance_score": 0.03,
+    "category": "programming",
+    "related_skills": [
+      "go",
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "lstms": {
+    "skill_id": "skill_034",
+    "display_name": "LSTMs",
+    "relevance_score": 0.02,
+    "category": "data_science",
+    "related_skills": [
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "transformers": {
+    "skill_id": "skill_035",
+    "display_name": "Transformers",
+    "relevance_score": 0.29,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "text preprocessing": {
+    "skill_id": "skill_036",
+    "display_name": "Text preprocessing",
+    "relevance_score": 0.05,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "machine learning"
+    ],
+    "market_demand": "very_low"
+  },
+  "tf-idf": {
+    "skill_id": "skill_037",
+    "display_name": "TF-IDF",
+    "relevance_score": 0.01,
+    "category": "other",
+    "related_skills": [
+      "nlp"
+    ],
+    "market_demand": "very_low"
+  },
+  "embeddings": {
+    "skill_id": "skill_038",
+    "display_name": "Embeddings",
+    "relevance_score": 0.28,
+    "category": "programming",
+    "related_skills": [
+      "computer vision",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "semantic similarity": {
+    "skill_id": "skill_039",
+    "display_name": "Semantic similarity",
+    "relevance_score": 0.04,
+    "category": "data_science",
+    "related_skills": [
+      "rust",
+      "java",
+      "javascript",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "agent-based systems": {
+    "skill_id": "skill_040",
+    "display_name": "Agent-based systems",
+    "relevance_score": 7.69,
+    "category": "data_science",
+    "related_skills": [
+      "java",
+      "javascript",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "workflow automation": {
+    "skill_id": "skill_041",
+    "display_name": "Workflow automation",
+    "relevance_score": 12.8,
+    "category": "programming",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "bert": {
+    "skill_id": "skill_042",
+    "display_name": "BERT",
+    "relevance_score": 6.22,
+    "category": "data_science",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "huggingface": {
+    "skill_id": "skill_043",
+    "display_name": "HuggingFace",
+    "relevance_score": 0.03,
+    "category": "programming",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "llama": {
+    "skill_id": "skill_044",
+    "display_name": "LLaMA",
+    "relevance_score": 0.11,
+    "category": "programming",
+    "related_skills": [
+      "computer vision",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "ollama": {
+    "skill_id": "skill_045",
+    "display_name": "Ollama",
+    "relevance_score": 0.01,
+    "category": "programming",
+    "related_skills": [
+      "go",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "streamlit": {
+    "skill_id": "skill_046",
+    "display_name": "Streamlit",
+    "relevance_score": 0.03,
+    "category": "programming",
+    "related_skills": [
+      "python"
+    ],
+    "market_demand": "very_low"
+  },
+  "fastapi": {
+    "skill_id": "skill_047",
+    "display_name": "FastAPI",
+    "relevance_score": 0.04,
+    "category": "programming",
+    "related_skills": [
+      "ruby",
+      "spring",
+      "django",
+      "python"
+    ],
+    "market_demand": "very_low"
+  },
+  "jwt authentication": {
+    "skill_id": "skill_048",
+    "display_name": "JWT authentication",
+    "relevance_score": 0.05,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "redis": {
+    "skill_id": "skill_049",
+    "display_name": "Redis",
+    "relevance_score": 0.07,
+    "category": "programming",
+    "related_skills": [
+      "mongodb",
+      "mysql",
+      "java",
+      "sql",
+      "python"
+    ],
+    "market_demand": "very_low"
+  },
+  "kafka": {
+    "skill_id": "skill_050",
+    "display_name": "Kafka",
+    "relevance_score": 0.14,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "pydantic": {
+    "skill_id": "skill_051",
+    "display_name": "Pydantic",
+    "relevance_score": 0.0,
+    "category": "programming",
+    "related_skills": [
+      "go",
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "llm": {
+    "skill_id": "skill_052",
+    "display_name": "LLM",
+    "relevance_score": 0.34,
+    "category": "programming",
+    "related_skills": [
+      "computer vision",
+      "python",
+      "machine learning",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "numpy": {
+    "skill_id": "skill_053",
+    "display_name": "NumPy",
+    "relevance_score": 0.08,
+    "category": "programming",
+    "related_skills": [
+      "sql",
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "pandas": {
+    "skill_id": "skill_054",
+    "display_name": "Pandas",
+    "relevance_score": 0.33,
+    "category": "programming",
+    "related_skills": [
+      "sql",
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "seaborn": {
+    "skill_id": "skill_055",
+    "display_name": "Seaborn",
+    "relevance_score": 0.04,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "matplotlib": {
+    "skill_id": "skill_056",
+    "display_name": "Matplotlib",
+    "relevance_score": 7.16,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "java",
+      "javascript"
+    ],
+    "market_demand": "very_low"
+  },
+  "scikit-learn": {
+    "skill_id": "skill_057",
+    "display_name": "Scikit-learn",
+    "relevance_score": 0.55,
+    "category": "programming",
+    "related_skills": [
+      "python",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "database management": {
+    "skill_id": "skill_058",
+    "display_name": "Database Management",
+    "relevance_score": 100,
+    "category": "programming",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_high"
+  },
+  "ai model deployment": {
+    "skill_id": "skill_059",
+    "display_name": "AI Model Deployment",
+    "relevance_score": 4.76,
+    "category": "data_science",
+    "related_skills": [
+      "computer vision",
+      "kubernetes",
+      "docker",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "skill gap analysis": {
+    "skill_id": "skill_060",
+    "display_name": "Skill Gap Analysis",
+    "relevance_score": 11.0,
+    "category": "data_science",
+    "related_skills": [
+      "machine learning",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "resume parsing": {
+    "skill_id": "skill_061",
+    "display_name": "Resume Parsing",
+    "relevance_score": 0.29,
+    "category": "programming",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "web scraping": {
+    "skill_id": "skill_062",
+    "display_name": "Web Scraping",
+    "relevance_score": 0.74,
+    "category": "programming",
+    "related_skills": [
+      "python"
+    ],
+    "market_demand": "very_low"
+  },
+  "agentic ai": {
+    "skill_id": "skill_063",
+    "display_name": "Agentic AI",
+    "relevance_score": 9.63,
+    "category": "data_science",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "tensorflow": {
+    "skill_id": "skill_064",
+    "display_name": "TensorFlow",
+    "relevance_score": 0.1,
+    "category": "programming",
+    "related_skills": [
+      "deep learning",
+      "machine learning",
+      "python",
+      "java"
+    ],
+    "market_demand": "very_low"
+  },
+  "langgraph": {
+    "skill_id": "skill_065",
+    "display_name": "LangGraph",
+    "relevance_score": 0.01,
+    "category": "programming",
+    "related_skills": [
+      "go",
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "azure devops": {
+    "skill_id": "skill_066",
+    "display_name": "Azure DevOps",
+    "relevance_score": 0.25,
+    "category": "programming",
+    "related_skills": [
+      "azure"
+    ],
+    "market_demand": "very_low"
+  },
+  "api development": {
+    "skill_id": "skill_067",
+    "display_name": "API Development",
+    "relevance_score": 6.19,
+    "category": "programming",
+    "related_skills": [
+      "java"
+    ],
+    "market_demand": "very_low"
+  },
+  "data science": {
+    "skill_id": "skill_068",
+    "display_name": "Data Science",
+    "relevance_score": 22.0,
+    "category": "data_science",
+    "related_skills": [
+      "java"
+    ],
+    "market_demand": "low"
+  },
+  "phi data": {
+    "skill_id": "skill_069",
+    "display_name": "Phi Data",
+    "relevance_score": 0.46,
+    "category": "programming",
+    "related_skills": [
+      "ai",
+      "java"
+    ],
+    "market_demand": "very_low"
+  },
+  "langsmith": {
+    "skill_id": "skill_070",
+    "display_name": "LangSmith",
+    "relevance_score": 0.0,
+    "category": "programming",
+    "related_skills": [
+      "ai",
+      "sql"
+    ],
+    "market_demand": "very_low"
+  },
+  "pdfplumber": {
+    "skill_id": "skill_071",
+    "display_name": "pdfplumber",
+    "relevance_score": 0.0,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "pymupdf": {
+    "skill_id": "skill_072",
+    "display_name": "PyMuPDF",
+    "relevance_score": 0.0,
+    "category": "programming",
+    "related_skills": [
+      "go",
+      "java",
+      "python"
+    ],
+    "market_demand": "very_low"
+  },
+  "tesseract": {
+    "skill_id": "skill_073",
+    "display_name": "Tesseract",
+    "relevance_score": 0.0,
+    "category": "programming",
+    "related_skills": [
+      "machine learning"
+    ],
+    "market_demand": "very_low"
+  }
+}

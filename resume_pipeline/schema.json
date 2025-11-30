@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "properties": {
+    "personal_info": {
+      "type": "object",
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "email": {"type": ["string", "null"]},
+        "phone": {"type": ["string", "null"]},
+        "location": {"type": ["string", "null"]}
+      }
+    },
+    "education": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "institution": {"type": ["string", "null"]},
+          "degree": {"type": ["string", "null"]},
+          "field": {"type": ["string", "null"]},
+          "start_date": {"type": ["string", "null"]},
+          "end_date": {"type": ["string", "null"]},
+          "grade": {"type": ["number", "null"]},
+          "grade_scale": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "experience": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "company": {"type": ["string", "null"]},
+          "title": {"type": ["string", "null"]},
+          "start_date": {"type": ["string", "null"]},
+          "end_date": {"type": ["string", "null"]},
+          "description": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": ["object", "string"],
+        "properties": {
+          "name": {"type": "string"},
+          "level": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "jee_rank": {"type": ["integer", "null"]},
+    "llm_confidence": {"type": ["number", "null"]},
+    "_provenance": {"type": ["object", "null"]}
+  },
+  "required": []
+}
