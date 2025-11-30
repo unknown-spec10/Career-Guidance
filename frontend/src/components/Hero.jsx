@@ -62,7 +62,7 @@ export default function Hero() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
           >
             <a 
-              href="#get-started" 
+              href="/register" 
               className="group relative inline-flex items-center justify-center px-8 py-4 text-base font-semibold text-white bg-primary-600 rounded-xl overflow-hidden transition-all duration-300 hover:bg-primary-700 hover:scale-105 hover:shadow-xl hover:shadow-primary-500/25"
             >
               <span className="relative z-10 flex items-center space-x-2">

@@ -31,7 +31,7 @@ import pymysql
 import logging
 from datetime import timedelta
 import secrets
-import datetime
+import datetime as dt
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -580,13 +580,13 @@ async def get_current_student_applicant(current_user = Depends(require_role("stu
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant profile not found. Please upload your resume.")
     return {
-        "id": applicant.id,
-        "applicant_id": applicant.applicant_id,
-        "display_name": applicant.display_name,
-        "location_city": applicant.location_city,
-        "location_state": applicant.location_state,
-        "country": applicant.country,
-        "created_at": applicant.created_at.isoformat() if applicant.created_at else None
+        "id": getattr(applicant, 'id'),
+        "applicant_id": getattr(applicant, 'applicant_id'),
+        "display_name": getattr(applicant, 'display_name'),
+        "location_city": getattr(applicant, 'location_city'),
+        "location_state": getattr(applicant, 'location_state'),
+        "country": getattr(applicant, 'country'),
+        "created_at": (getattr(applicant, 'created_at').isoformat() if getattr(applicant, 'created_at', None) is not None else None)
     }
 from sqlalchemy import desc, func
 
@@ -726,7 +726,7 @@ async def get_job_applicants(
     result = []
     for app, applicant in applications:
         applied_at_val = app.applied_at if hasattr(app, 'applied_at') else None
-        if isinstance(applied_at_val, (datetime.datetime, datetime.date)):
+        if isinstance(applied_at_val, (dt.datetime, dt.date)):
             applied_at_ser = applied_at_val.isoformat()
         elif applied_at_val is not None:
             applied_at_ser = str(applied_at_val)
@@ -975,7 +975,7 @@ async def get_student_college_applications(
     result = []
     for app, college in applications:
         applied_at_val = app.applied_at if hasattr(app, 'applied_at') else None
-        if isinstance(applied_at_val, (datetime.datetime, datetime.date)):
+        if isinstance(applied_at_val, (dt.datetime, dt.date)):
             applied_at_ser = applied_at_val.isoformat()
         elif applied_at_val is not None:
             applied_at_ser = str(applied_at_val)
@@ -1107,18 +1107,94 @@ async def get_pending_reviews(
 
 
 @app.get("/api/colleges")
-async def get_colleges(skip: int = 0, limit: int = 20, db: Session = Depends(get_db)):
+async def get_colleges(
+    skip: int = 0,
+    limit: int = 20,
+    q: Optional[str] = None,
+    location: Optional[str] = None,
+    min_jee_rank: Optional[str] = None,
+    min_cgpa: Optional[str] = None,
+    programs_min: Optional[str] = None,
+    sort: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     """Get all colleges with eligibility info"""
     from .db import CollegeEligibility, CollegeMetadata
     
     # Fetch all data in batch queries to avoid N+1
-    colleges = db.query(College).offset(skip).limit(limit).all()
-    total = db.query(College).count()
+    base_query = db.query(College)
+    if q:
+        like = f"%{q}%"
+        base_query = base_query.filter(College.name.ilike(like))
+    if location:
+        like_loc = f"%{location}%"
+        base_query = base_query.filter(
+            (College.location_city.ilike(like_loc)) | (College.location_state.ilike(like_loc))
+        )
+
+    # Pre-calc program counts for filtering by programs_min later
+    colleges_all = base_query.all()
+    college_ids_all = [c.id for c in colleges_all]
+    program_counts_all = {getattr(row[0], 'value', row[0]): int(row[1]) for row in db.query(CollegeProgram.college_id, func.count(CollegeProgram.id)).filter(CollegeProgram.college_id.in_(college_ids_all)).group_by(CollegeProgram.college_id).all()}  # type: ignore
+
+    # Eligibility filters (min_jee_rank, min_cgpa) need CollegeEligibility
+    from .db import CollegeEligibility, CollegeMetadata
+    elig_map = {getattr(e, 'college_id'): e for e in db.query(CollegeEligibility).filter(CollegeEligibility.college_id.in_(college_ids_all)).all()}
+    meta_map = {getattr(m, 'college_id'): m for m in db.query(CollegeMetadata).filter(CollegeMetadata.college_id.in_(college_ids_all)).all()}
+
+    # Normalize numeric query params (treat empty string as None)
+    try:
+        min_jee_rank_val = int(min_jee_rank) if (min_jee_rank is not None and str(min_jee_rank).strip() != "") else None
+    except ValueError:
+        min_jee_rank_val = None
+    try:
+        min_cgpa_val = float(min_cgpa) if (min_cgpa is not None and str(min_cgpa).strip() != "") else None
+    except ValueError:
+        min_cgpa_val = None
+    try:
+        programs_min_val = int(programs_min) if (programs_min is not None and str(programs_min).strip() != "") else None
+    except ValueError:
+        programs_min_val = None
+
+    # Apply server-side filtering using computed maps
+    filtered_ids: List[int] = []
+    for c in colleges_all:
+        cid = getattr(c, 'id')
+        e = elig_map.get(cid)
+        if min_jee_rank_val is not None:
+            # include if college cutoff is None or >= provided rank
+            if (e is not None) and (getattr(e, 'min_jee_rank', None) is not None) and (int(getattr(e, 'min_jee_rank')) < int(min_jee_rank_val)):
+                continue
+        if min_cgpa_val is not None:
+            ecg = getattr(e, 'min_cgpa', None) if e is not None else None
+            if (ecg is not None) and (float(ecg) > float(min_cgpa_val)):
+                continue
+        if programs_min_val is not None:
+            if program_counts_all.get(cid, 0) < int(programs_min_val):
+                continue
+        filtered_ids.append(cid)
+
+    # Sorting
+    sort_key = (sort or "popular").lower()
+    name_map = {getattr(x, 'id'): (getattr(x, 'name') or '') for x in colleges_all}
+    def sort_value(cid: int):
+        if sort_key == "name":
+            name = name_map.get(cid, "")
+            return (name or "").lower()
+        # default popularity
+        m = meta_map.get(cid)
+        pop = getattr(m, 'popularity_score', None) if m is not None else None
+        return float(pop) if pop is not None else 0.0
+
+    sorted_ids = sorted(filtered_ids, key=sort_value, reverse=(sort_key == "popular"))
+    total = len(sorted_ids)
+    ids_page = sorted_ids[skip:skip+limit]
+    colleges = [c for c in colleges_all if c.id in ids_page]
     
     college_ids = [c.id for c in colleges]
-    eligibilities = {e.college_id: e for e in db.query(CollegeEligibility).filter(CollegeEligibility.college_id.in_(college_ids)).all()}
-    metadatas = {m.college_id: m for m in db.query(CollegeMetadata).filter(CollegeMetadata.college_id.in_(college_ids)).all()}
-    program_counts = {row[0]: row[1] for row in db.query(CollegeProgram.college_id, func.count(CollegeProgram.id)).filter(CollegeProgram.college_id.in_(college_ids)).group_by(CollegeProgram.college_id).all()}  # type: ignore
+    eligibilities = {cid: elig_map.get(cid) for cid in college_ids}
+    metadatas = {cid: meta_map.get(cid) for cid in college_ids}
+    program_counts = {cid: program_counts_all.get(cid, 0) for cid in college_ids}
     
     result = []
     for college in colleges:
@@ -1191,7 +1267,17 @@ async def get_college_details(college_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/jobs")
-async def get_jobs(skip: int = 0, limit: int = 20, location: Optional[str] = None, work_type: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_jobs(
+    skip: int = 0,
+    limit: int = 20,
+    location: Optional[str] = None,
+    work_type: Optional[str] = None,
+    q: Optional[str] = None,
+    skills: Optional[str] = None,
+    min_popularity: Optional[str] = None,
+    sort: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     """Get all APPROVED jobs with filters, excluding expired jobs"""
     from datetime import datetime
     from .db import JobMetadata
@@ -1207,6 +1293,9 @@ async def get_jobs(skip: int = 0, limit: int = 20, location: Optional[str] = Non
         query = query.filter(Job.location_city.ilike(f"%{location}%"))
     if work_type:
         query = query.filter(Job.work_type == work_type)
+    if q:
+        like = f"%{q}%"
+        query = query.filter((Job.title.ilike(like)) | (Job.description.ilike(like)))
     
     jobs = query.offset(skip).limit(limit).all()
     total = query.count()
@@ -1216,6 +1305,48 @@ async def get_jobs(skip: int = 0, limit: int = 20, location: Optional[str] = Non
     employer_ids = list(set([j.employer_id for j in jobs]))
     employers = {e.id: e for e in db.query(Employer).filter(Employer.id.in_(employer_ids)).all()}
     metadatas = {m.job_id: m for m in db.query(JobMetadata).filter(JobMetadata.job_id.in_(job_ids)).all()}
+
+    # Filter by skills and min_popularity using loaded metadata and job fields
+    skills_list = []
+    if skills:
+        skills_list = [s.strip().lower() for s in skills.split(',') if s.strip()]
+    try:
+        min_popularity_val = float(min_popularity) if (min_popularity is not None and str(min_popularity).strip() != "") else None
+    except ValueError:
+        min_popularity_val = None
+    def job_matches(j):
+        if min_popularity_val is not None:
+            md = metadatas.get(j.id)
+            pop_val = getattr(md, 'popularity', None) if md is not None else None
+            pop = float(pop_val) if pop_val is not None else 0.0
+            if pop < float(min_popularity_val):
+                return False
+        if skills_list:
+            req = j.required_skills if isinstance(j.required_skills, list) else []
+            req_names = [(x.get('name', '') if isinstance(x, dict) else str(x)).lower() for x in req]
+            # require that each provided skill has a match in required
+            for s in skills_list:
+                if not any(s in rn for rn in req_names):
+                    return False
+        return True
+
+    jobs = [j for j in jobs if job_matches(j)]
+    total = len(jobs)
+
+    # Sorting
+    sort_key = (sort or "popular").lower()
+    def sort_val(j):
+        if sort_key == "recent":
+            ca = getattr(j, 'created_at', None)
+            return ca or dt.datetime.min
+        if sort_key == "title":
+            return (j.title or "").lower()
+        md = metadatas.get(j.id)
+        pop_val = getattr(md, 'popularity', None) if md is not None else None
+        return float(pop_val) if pop_val is not None else 0.0
+    reverse = sort_key in ("popular", "recent")
+    jobs = sorted(jobs, key=sort_val, reverse=reverse)
+    jobs = jobs[0:limit] if skip == 0 else jobs[skip:skip+limit]
     
     result = []
     for job in jobs:

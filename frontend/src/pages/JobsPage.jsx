@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Briefcase, MapPin, Clock, TrendingUp, Filter, AlertTriangle } from 'lucide-react'
+import { Briefcase, MapPin, Clock, TrendingUp, Filter, AlertTriangle, Search, SortAsc } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useDebounce } from '../hooks/useDebounce'
 import api from '../config/api'
@@ -15,10 +15,13 @@ export default function JobsPage() {
   const [pageSize] = useState(PAGINATION.JOBS_PAGE_SIZE)
   const [filters, setFilters] = useState({
     location: '',
-    work_type: ''
+    work_type: '',
+    q: '',
+    skills: '',
+    sort: 'popular',
+    min_popularity: ''
   })
 
-  // Debounce the filters to avoid spamming API on every keystroke
   const debouncedFilters = useDebounce(filters, DEBOUNCE_DELAYS.FILTER)
 
   useEffect(() => {
@@ -30,7 +33,7 @@ export default function JobsPage() {
       setError(null)
       setLoading(true)
       const response = await api.get('/api/jobs', {
-        params: { 
+        params: {
           skip: (page - 1) * pageSize,
           limit: pageSize,
           ...debouncedFilters
@@ -84,13 +87,26 @@ export default function JobsPage() {
             <h2 className="text-lg font-semibold">Filters</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-3">
+              <label className="block text-sm text-gray-400 mb-2">Search</label>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search title or company"
+                  value={filters.q}
+                  onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+                  className="input pl-9"
+                />
+              </div>
+            </div>
             <div>
               <label className="block text-sm text-gray-400 mb-2">Location</label>
               <input
                 type="text"
                 placeholder="e.g. Bangalore"
                 value={filters.location}
-                onChange={(e) => setFilters({...filters, location: e.target.value})}
+                onChange={(e) => setFilters({ ...filters, location: e.target.value })}
                 className="input"
               />
             </div>
@@ -98,7 +114,7 @@ export default function JobsPage() {
               <label className="block text-sm text-gray-400 mb-2">Work Type</label>
               <select
                 value={filters.work_type}
-                onChange={(e) => setFilters({...filters, work_type: e.target.value})}
+                onChange={(e) => setFilters({ ...filters, work_type: e.target.value })}
                 className="select"
               >
                 <option value="">All Types</option>
@@ -107,9 +123,45 @@ export default function JobsPage() {
                 <option value="hybrid">Hybrid</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Required Skills</label>
+              <input
+                type="text"
+                placeholder="e.g. Python, React"
+                value={filters.skills}
+                onChange={(e) => setFilters({ ...filters, skills: e.target.value })}
+                className="input"
+              />
+              <p className="text-xs text-gray-500 mt-1">Comma-separated for multiple skills</p>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Sort By</label>
+              <div className="relative">
+                <SortAsc className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <select
+                  value={filters.sort}
+                  onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
+                  className="select pl-9"
+                >
+                  <option value="popular">Popularity</option>
+                  <option value="recent">Recently Posted</option>
+                  <option value="title">Title</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Min Popularity</label>
+              <input
+                type="number"
+                placeholder="e.g. 50"
+                value={filters.min_popularity}
+                onChange={(e) => setFilters({ ...filters, min_popularity: e.target.value })}
+                className="input"
+              />
+            </div>
             <div className="flex items-end">
               <button
-                onClick={() => setFilters({ location: '', work_type: '' })}
+                onClick={() => setFilters({ location: '', work_type: '', q: '', skills: '', sort: 'popular', min_popularity: '' })}
                 className="btn-secondary w-full"
               >
                 Clear Filters

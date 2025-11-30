@@ -25,7 +25,14 @@ export default function StudentDashboard() {
   const [selectedResume, setSelectedResume] = useState(null)
   const [selectedMarksheets, setSelectedMarksheets] = useState([])
   const [recommendations, setRecommendations] = useState([])
+  const [easyApplyOpen, setEasyApplyOpen] = useState(false)
+  const [easyApplyRec, setEasyApplyRec] = useState(null)
+  const [easyApplyLoading, setEasyApplyLoading] = useState(false)
+  const [easyApplyError, setEasyApplyError] = useState(null)
   const [applicantId, setApplicantId] = useState(null)
+  const [noApplicantProfile, setNoApplicantProfile] = useState(false)
+  const uploadFormRef = React.useRef(null)
+  const recommendationsRef = React.useRef(null)
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -81,10 +88,28 @@ export default function StudentDashboard() {
       if (response.data.applicant_id) {
         setTimeout(async () => {
           try {
-            await api.post(`/parse/${response.data.applicant_id}`)
+            const parseRes = await api.post(`/parse/${response.data.applicant_id}`)
             alert('Resume uploaded and parsed successfully! Check your recommendations.')
             setShowUploadForm(false)
+            setNoApplicantProfile(false)
+            // Persist DB applicant id to avoid upload prompt on refresh
+            const dbId = parseRes.data?.db_applicant_id
+            if (dbId) {
+              localStorage.setItem('db_applicant_id', String(dbId))
+              setApplicantId(dbId)
+            }
             fetchDashboardData()
+            // After dashboard refresh, also fetch recommendations and scroll to section
+            try {
+              const targetId = dbId || response.data.db_id || applicantId
+              const recRes = await api.get(`/api/recommendations/${targetId}`)
+              setRecommendations(recRes.data.job_recommendations || [])
+            } catch {}
+            setTimeout(() => {
+              if (recommendationsRef.current) {
+                recommendationsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+            }, 200)
           } catch (parseErr) {
             console.error('Parse error:', parseErr)
             alert('Resume uploaded but parsing failed. Please contact support.')
@@ -105,16 +130,44 @@ export default function StudentDashboard() {
     const fetchAll = async () => {
       try {
         setLoading(true)
+        // Prefer persisted applicant id first (set after parse)
+        const storedId = localStorage.getItem('db_applicant_id')
+        if (storedId) {
+          setApplicantId(Number(storedId))
+          await fetchDashboardData()
+          try {
+            const recRes = await api.get(`/api/recommendations/${storedId}`)
+            setRecommendations(recRes.data.job_recommendations || [])
+            setNoApplicantProfile(false)
+            return
+          } catch {
+            // fall through to profile fetch
+          }
+        }
+
         // Get applicant profile (DB id)
         const profileRes = await api.get('/api/student/applicant')
         setApplicantId(profileRes.data.id)
+        localStorage.setItem('db_applicant_id', String(profileRes.data.id))
         // Fetch dashboard data
         await fetchDashboardData()
         // Fetch recommendations
         const recRes = await api.get(`/api/recommendations/${profileRes.data.id}`)
         setRecommendations(recRes.data.job_recommendations || [])
       } catch (err) {
-        setError(err.response?.data?.detail || 'Failed to load dashboard')
+        if (err.response?.status === 404) {
+          // If we have a stored applicant id or recommendations, don't prompt upload
+          const storedId = localStorage.getItem('db_applicant_id')
+          if (storedId || recommendations.length > 0) {
+            setNoApplicantProfile(false)
+          } else {
+            setNoApplicantProfile(true)
+            setShowUploadForm(true)
+          }
+          setError(null)
+        } else {
+          setError(err.response?.data?.detail || 'Failed to load dashboard')
+        }
       } finally {
         setLoading(false)
       }
@@ -144,6 +197,53 @@ export default function StudentDashboard() {
     }
   }
 
+  const handleApplyToJob = async (recId) => {
+    try {
+      await api.patch(`/api/job-recommendation/${recId}/status`, { status: 'applied' })
+      setRecommendations((prev) => prev.map((r) => r.id === recId ? { ...r, status: 'applied' } : r))
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to apply to job')
+    }
+  }
+
+  const openEasyApply = (rec) => {
+    setEasyApplyRec(rec)
+    setEasyApplyError(null)
+    setEasyApplyOpen(true)
+  }
+
+  const submitEasyApply = async (e) => {
+    e.preventDefault()
+    if (!easyApplyRec) return
+    setEasyApplyLoading(true)
+    setEasyApplyError(null)
+    try {
+      const form = e.currentTarget
+      const formData = new FormData(form)
+      // Attach recommendation id for backend
+      formData.append('recommendation_id', easyApplyRec.id)
+      // Try a dedicated apply endpoint if available
+      let ok = false
+      try {
+        const res = await api.post(`/api/job-recommendation/${easyApplyRec.id}/apply`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+        ok = res.status >= 200 && res.status < 300
+      } catch {
+        ok = false
+      }
+      if (!ok) {
+        // Fallback: mark recommendation as applied
+        await api.patch(`/api/job-recommendation/${easyApplyRec.id}/status`, { status: 'applied' })
+      }
+      setRecommendations((prev) => prev.map((r) => r.id === easyApplyRec.id ? { ...r, status: 'applied' } : r))
+      setEasyApplyOpen(false)
+      setEasyApplyRec(null)
+    } catch (err) {
+      setEasyApplyError(err.response?.data?.detail || 'Easy Apply failed')
+    } finally {
+      setEasyApplyLoading(false)
+    }
+  }
+
   const getStatusIcon = (status) => {
     switch (status) {
       case 'applied':
@@ -162,6 +262,13 @@ export default function StudentDashboard() {
         return <AlertTriangle className="w-5 h-5 text-gray-400" />
     }
   }
+
+  // When upload form opens, scroll it into view subtly
+  useEffect(() => {
+    if (showUploadForm && uploadFormRef.current) {
+      uploadFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [showUploadForm])
 
   if (loading) {
     return (
@@ -189,6 +296,26 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-dark-900 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
 
+        {noApplicantProfile && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="card mb-8 border border-yellow-500/30 bg-dark-800"
+          >
+            <h2 className="text-xl font-semibold mb-2 flex items-center space-x-2">
+              <Upload className="w-6 h-6 text-yellow-400" />
+              <span>Upload your resume to get personalized recommendations</span>
+            </h2>
+            <p className="text-gray-400 mb-4">We couldn’t find your profile yet. Upload your resume and optional marksheets to generate college and job recommendations tailored to you.</p>
+            <button
+              onClick={() => setShowUploadForm(true)}
+              className="btn-primary w-full sm:w-auto"
+            >
+              Upload Documents
+            </button>
+          </motion.div>
+        )}
+
         {/* Recommended Jobs Section */}
         {recommendations.length > 0 && (
           <motion.div
@@ -196,6 +323,7 @@ export default function StudentDashboard() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 1.5 }}
             className="card mb-8 border border-primary-500/30 bg-dark-800"
+            ref={recommendationsRef}
           >
             <h2 className="text-xl font-semibold mb-4 flex items-center space-x-2">
               <TrendingUp className="w-6 h-6 text-primary-400" />
@@ -216,8 +344,23 @@ export default function StudentDashboard() {
                       </p>
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-xs text-primary-400 mb-1 capitalize">{rec.status.replace('_', ' ')}</span>
-                      {/* Optionally, add a button to view or apply */}
+                        <span className="text-xs text-primary-400 mb-2 capitalize">{rec.status.replace('_', ' ')}</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEasyApply(rec)}
+                            disabled={rec.status === 'applied' || rec.status === 'accepted' || rec.status === 'offered'}
+                            className={`px-3 py-1 rounded-md text-sm border transition-colors ${rec.status === 'applied' ? 'border-green-500/40 text-green-400 bg-green-900/10' : 'border-primary-500/40 text-primary-400 hover:bg-primary-900/20'}`}
+                          >
+                            {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
+                          </button>
+                          <button
+                            onClick={() => handleApplyToJob(rec.id)}
+                            disabled={rec.status === 'applied' || rec.status === 'accepted' || rec.status === 'offered'}
+                            className="px-3 py-1 rounded-md text-sm border border-dark-600 hover:bg-dark-800 transition-colors"
+                          >
+                            Mark Applied
+                          </button>
+                        </div>
                     </div>
                   </div>
                   {rec.explain?.reasons && (
@@ -243,13 +386,6 @@ export default function StudentDashboard() {
           </div>
           <div className="flex items-center space-x-3">
             <button
-              onClick={() => setShowUploadForm(!showUploadForm)}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-900/20 border border-primary-500/30 rounded-lg hover:bg-primary-900/30 transition-colors text-primary-400"
-            >
-              <Upload className="w-5 h-5" />
-              <span className="hidden sm:inline">Upload Resume</span>
-            </button>
-            <button
               onClick={handleLogout}
               className="flex items-center space-x-2 px-4 py-2 bg-red-900/20 border border-red-500/30 rounded-lg hover:bg-red-900/30 transition-colors text-red-400"
             >
@@ -258,6 +394,47 @@ export default function StudentDashboard() {
             </button>
           </div>
         </motion.div>
+        {easyApplyOpen && easyApplyRec && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="w-full max-w-lg card border border-primary-500/30 bg-dark-800">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Easy Apply — {easyApplyRec.job?.title}</h3>
+                <button className="text-gray-400 hover:text-white" onClick={() => { setEasyApplyOpen(false); setEasyApplyRec(null) }}>✕</button>
+              </div>
+              {easyApplyError && (
+                <div className="mb-3 p-2 bg-red-900/20 border border-red-500/30 rounded text-red-400 text-sm">{easyApplyError}</div>
+              )}
+              <form onSubmit={submitEasyApply} encType="multipart/form-data" className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm mb-1">Full Name</label>
+                    <input name="full_name" required className="input" placeholder="Your name" />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Email</label>
+                    <input name="email" type="email" required className="input" placeholder="you@example.com" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Resume (PDF/DOCX)</label>
+                  <input name="resume" type="file" accept=".pdf,.doc,.docx" required className="input" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Quick Questions</label>
+                  <textarea name="questions" rows="3" className="input" placeholder="e.g., Notice period, current CTC, skills summary"></textarea>
+                </div>
+                <div className="flex gap-2">
+                  <button type="submit" disabled={easyApplyLoading} className="btn-primary flex-1">
+                    {easyApplyLoading ? 'Submitting...' : 'Submit Application'}
+                  </button>
+                  <button type="button" className="px-6 py-2 border border-dark-600 rounded-lg hover:bg-dark-800" onClick={() => { setEasyApplyOpen(false); setEasyApplyRec(null) }}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Upload Form */}
         {showUploadForm && (
@@ -265,6 +442,7 @@ export default function StudentDashboard() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="card mb-8"
+            ref={uploadFormRef}
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold flex items-center space-x-2">
@@ -441,7 +619,7 @@ export default function StudentDashboard() {
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 ${recommendations.length > 0 ? 'hidden' : ''}`}>
           {/* Job Applications */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}

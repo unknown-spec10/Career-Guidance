@@ -37,11 +37,8 @@ export default function Navbar() {
   // Define navigation links based on user role
   const getNavLinks = () => {
     if (!user) {
-      // Public navigation
-      return [
-        { to: '/colleges', label: 'Colleges', icon: Building2 },
-        { to: '/jobs', label: 'Jobs', icon: Briefcase },
-      ]
+      // Public navigation - empty before login
+      return []
     }
 
     switch (user.role) {
@@ -126,9 +123,9 @@ export default function Navbar() {
                 </button>
               </div>
             ) : (
-              <a href="/#upload" className="btn-primary ml-4">
-                Upload Resume
-              </a>
+              <Link to="/login" className="btn-primary ml-4">
+                Login
+              </Link>
             )}
           </div>
 
@@ -184,13 +181,13 @@ export default function Navbar() {
                     </button>
                   </div>
                 ) : (
-                  <a
-                    href="/#upload"
+                  <Link
+                    to="/login"
                     className="block btn-primary text-center mt-4"
                     onClick={() => setMobileMenuOpen(false)}
                   >
-                    Upload Resume
-                  </a>
+                    Login
+                  </Link>
                 )}
               </div>
             </motion.div>

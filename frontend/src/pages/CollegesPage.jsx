@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { GraduationCap, MapPin, TrendingUp, Users, ExternalLink, AlertTriangle } from 'lucide-react'
+import { GraduationCap, MapPin, TrendingUp, Users, ExternalLink, AlertTriangle, Filter, Search, SortAsc } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../config/api'
-import { PAGINATION, ANIMATION_DELAYS } from '../config/constants'
+import { PAGINATION, ANIMATION_DELAYS, DEBOUNCE_DELAYS } from '../config/constants'
+import { useDebounce } from '../hooks/useDebounce'
 
 export default function CollegesPage() {
   const [colleges, setColleges] = useState([])
@@ -12,17 +13,26 @@ export default function CollegesPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pageSize] = useState(PAGINATION.COLLEGES_PAGE_SIZE)
+  const [filters, setFilters] = useState({
+    location: '',
+    min_jee_rank: '',
+    min_cgpa: '',
+    programs_min: '',
+    q: '',
+    sort: 'popular'
+  })
+  const debouncedFilters = useDebounce(filters, DEBOUNCE_DELAYS.FILTER)
 
   useEffect(() => {
     fetchColleges()
-  }, [page])
+  }, [page, debouncedFilters])
 
   const fetchColleges = async () => {
     try {
       setError(null)
       setLoading(true)
       const response = await api.get('/api/colleges', {
-        params: { skip: (page - 1) * pageSize, limit: pageSize }
+        params: { skip: (page - 1) * pageSize, limit: pageSize, ...debouncedFilters }
       })
       setColleges(response.data.colleges)
       setTotal(response.data.total)
@@ -60,6 +70,96 @@ export default function CollegesPage() {
             <span>{error}</span>
           </div>
         )}
+
+        {/* Filters */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card mb-8"
+        >
+          <div className="flex items-center space-x-2 mb-4">
+            <Filter className="w-5 h-5 text-primary-400" />
+            <h2 className="text-lg font-semibold">Filters</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-3">
+              <label className="block text-sm text-gray-400 mb-2">Search</label>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search college name"
+                  value={filters.q}
+                  onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+                  className="input pl-9"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Location</label>
+              <input
+                type="text"
+                placeholder="e.g. Pune"
+                value={filters.location}
+                onChange={(e) => setFilters({ ...filters, location: e.target.value })}
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Min JEE Rank</label>
+              <input
+                type="number"
+                placeholder="e.g. 5000"
+                value={filters.min_jee_rank}
+                onChange={(e) => setFilters({ ...filters, min_jee_rank: e.target.value })}
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Min CGPA</label>
+              <input
+                type="number"
+                step="0.1"
+                placeholder="e.g. 7.5"
+                value={filters.min_cgpa}
+                onChange={(e) => setFilters({ ...filters, min_cgpa: e.target.value })}
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Min Programs</label>
+              <input
+                type="number"
+                placeholder="e.g. 5"
+                value={filters.programs_min}
+                onChange={(e) => setFilters({ ...filters, programs_min: e.target.value })}
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Sort By</label>
+              <div className="relative">
+                <SortAsc className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <select
+                  value={filters.sort}
+                  onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
+                  className="select pl-9"
+                >
+                  <option value="popular">Popularity</option>
+                  <option value="name">Name</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={() => setFilters({ location: '', min_jee_rank: '', min_cgpa: '', programs_min: '', q: '', sort: 'popular' })}
+                className="btn-secondary w-full"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {colleges.map((college, idx) => (
