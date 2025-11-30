@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -300,6 +300,7 @@ async def resend_verification_email(email: str = Body(..., embed=True), db: Sess
 
 @app.post("/upload")
 async def upload_resume(
+    request: Request,
     resume: UploadFile = File(...),
     marksheets: list[UploadFile] | None = None,
     jee_rank: int | None = Form(None),
@@ -310,7 +311,6 @@ async def upload_resume(
     twelfth_board: str | None = Form(None),
     twelfth_subjects: str | None = Form(None),  # JSON string
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user) if False else None  # Optional auth
 ):
     from .db import Applicant, Upload
     
@@ -402,7 +402,29 @@ async def upload_resume(
                 # If not JSON, treat as comma-separated string
                 preferred_locs = [loc.strip() for loc in preferences.split(',') if loc.strip()]
         
+        # If the request included an Authorization: Bearer <token> header, resolve the user
+        current_user = None
+        try:
+            auth_header = None
+            if request is not None:
+                auth_header = request.headers.get('authorization') or request.headers.get('Authorization')
+            if auth_header and auth_header.lower().startswith('bearer '):
+                token = auth_header.split(' ', 1)[1].strip()
+                from .auth import decode_access_token
+                from .db import User
+                try:
+                    payload = decode_access_token(token)
+                    user_id_raw = payload.get('sub')
+                    if user_id_raw is not None:
+                        user_id = int(user_id_raw)
+                        current_user = db.query(User).filter(User.id == user_id).first()
+                except Exception:
+                    current_user = None
+        except Exception:
+            current_user = None
+
         applicant = Applicant(
+            user_id=current_user.id if current_user else None,
             applicant_id=applicant_id,
             display_name=f"Applicant {applicant_id[:8]}",
             location_city=city,

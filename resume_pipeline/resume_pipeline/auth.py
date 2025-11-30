@@ -7,6 +7,8 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Optional
 from .config import settings
 
 # Password hashing
@@ -14,6 +16,32 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+# HTTP Bearer scheme with auto_error=False to allow optional tokens
+_optional_bearer = HTTPBearer(auto_error=False)
+
+
+async def get_current_user_optional(creds: Optional[HTTPAuthorizationCredentials] = Depends(_optional_bearer)):
+    """Optional current user dependency. Returns user object if a valid Bearer token is provided, else None."""
+    from .db import User, SessionLocal
+    if creds is None:
+        return None
+    token = creds.credentials
+    db = SessionLocal()
+    try:
+        payload = decode_access_token(token)
+        user_id_raw = payload.get("sub")
+        if user_id_raw is None:
+            return None
+        user_id = int(user_id_raw)
+        user = db.query(User).filter(User.id == user_id).first()
+        return user
+    except Exception:
+        return None
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 # JWT settings from config/env
 SECRET_KEY = settings.SECRET_KEY
