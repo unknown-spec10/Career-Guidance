@@ -20,6 +20,8 @@ import ResendVerificationPage from './pages/ResendVerificationPage'
 import VerifyCodePage from './pages/VerifyCodePage'
 import StudentDashboard from './pages/StudentDashboard'
 import EmployerDashboard from './pages/EmployerDashboard'
+import EmployerPostJob from './pages/EmployerPostJob'
+import EmployerJobDetails from './pages/EmployerJobDetails'
 import CollegeDashboard from './pages/CollegeDashboard'
 import AdminReviewsPage from './pages/AdminDashboard'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -86,6 +88,22 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['employer']}>
                   <EmployerDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/employer/post-job" 
+              element={
+                <ProtectedRoute allowedRoles={['employer']}>
+                  <EmployerPostJob />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/employer/jobs/:jobId" 
+              element={
+                <ProtectedRoute allowedRoles={['employer']}>
+                  <EmployerJobDetails />
                 </ProtectedRoute>
               } 
             />

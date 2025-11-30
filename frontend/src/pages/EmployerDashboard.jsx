@@ -19,6 +19,10 @@ export default function EmployerDashboard() {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalJob, setModalJob] = useState(null)
+  const [modalLoading, setModalLoading] = useState(false)
+  const [modalError, setModalError] = useState(null)
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -131,6 +135,57 @@ export default function EmployerDashboard() {
             </button>
           </div>
         </motion.div>
+        {/* Job Details Modal */}
+        {modalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="w-full max-w-3xl card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h1 className="text-2xl font-bold">{modalLoading ? 'Loading...' : modalJob?.title}</h1>
+                  <p className="text-sm text-gray-400">{modalJob?.location_city} • {modalJob?.work_type}</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-gray-400">Status</div>
+                  <div className="font-medium">{modalJob?.status}</div>
+                </div>
+              </div>
+
+              {modalError && (
+                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded text-red-400">{modalError}</div>
+              )}
+
+              <div className="mb-4">
+                <h3 className="text-sm text-gray-400 mb-2">Description</h3>
+                <div className="text-sm text-gray-200 whitespace-pre-wrap">{modalJob?.description}</div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <p className="text-sm text-gray-400">Min Experience</p>
+                  <p className="font-medium">{modalJob?.min_experience_years}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Min CGPA</p>
+                  <p className="font-medium">{modalJob?.min_cgpa ?? 'N/A'}</p>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <p className="text-sm text-gray-400 mb-2">Required Skills</p>
+                <div className="flex flex-wrap gap-2">
+                  {(modalJob?.required_skills || []).map((s, idx) => (
+                    <span key={idx} className="px-2 py-1 text-xs rounded border border-dark-700 bg-dark-800">{typeof s === 'string' ? s : s.name || JSON.stringify(s)}</span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => { setModalOpen(false); setModalJob(null) }} className="px-4 py-2 border border-dark-600 rounded">Close</button>
+                <button disabled={modalLoading} onClick={() => { if (modalJob?.id) navigate(`/employer/jobs/${modalJob.id}/applicants`) }} className="btn-primary">View Applicants</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -245,6 +300,24 @@ export default function EmployerDashboard() {
                         <span>View Applicants</span>
                       </button>
                     )}
+                    <button
+                      onClick={async () => {
+                        setModalError(null)
+                        setModalLoading(true)
+                        try {
+                          const res = await api.get(`/api/employer/jobs/${job.id}`)
+                          setModalJob(res.data.job)
+                          setModalOpen(true)
+                        } catch (err) {
+                          setModalError(err.response?.data?.detail || 'Failed to load job details')
+                        } finally {
+                          setModalLoading(false)
+                        }
+                      }}
+                      className="flex items-center space-x-1 text-gray-300 hover:text-white ml-3"
+                    >
+                      <span className="text-sm">Details</span>
+                    </button>
                   </div>
                   {job.status === 'rejected' && job.rejection_reason && (
                     <div className="mt-3 p-2 bg-red-900/10 border border-red-500/20 rounded text-sm text-red-400">

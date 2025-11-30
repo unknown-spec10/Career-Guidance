@@ -52,7 +52,6 @@ export default function Navbar() {
         return [
           { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { to: '/employer/post-job', label: 'Post Job', icon: PlusCircle },
-          { to: '/jobs', label: 'All Jobs', icon: Briefcase },
         ]
       case 'college':
         return [

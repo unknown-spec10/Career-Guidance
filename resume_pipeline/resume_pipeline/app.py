@@ -128,7 +128,7 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
         is_active=True,
         is_verified=False,
         verification_token=verification_secret,
-        verification_token_created_at=datetime.datetime.utcnow()
+        verification_token_created_at=dt.datetime.utcnow()
     )
     db.add(new_user)
     db.commit()
@@ -281,7 +281,7 @@ async def resend_verification_email(email: str = Body(..., embed=True), db: Sess
     # Generate new token/code depending on mode
     base_code = generate_verification_code(settings.VERIFICATION_CODE_LENGTH or 6, digits_only=True)
     user.verification_token = f"{base_code}-{secrets.token_hex(3)}"  # type: ignore
-    user.verification_token_created_at = datetime.datetime.utcnow()  # type: ignore
+    user.verification_token_created_at = dt.datetime.utcnow()  # type: ignore
     db.commit()
     
     # Send email
@@ -618,14 +618,31 @@ async def get_all_applicants(skip: int = 0, limit: int = 50, db: Session = Depen
 
 
 @app.get("/api/applicant/{applicant_id}")
-async def get_applicant_details(applicant_id: int, db: Session = Depends(get_db)):
-    """Get detailed applicant information"""
-    applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
+async def get_applicant_details(applicant_id: str, db: Session = Depends(get_db)):
+    """Get detailed applicant information.
+
+    This endpoint accepts either the numeric DB id (e.g. `1`) or the external applicant id
+    string (e.g. `app_7488d09...`). It resolves the DB id and returns parsed records.
+    """
+    # Resolve applicant identifier to DB id
+    applicant = None
+    try:
+        # If caller passed numeric id string, try integer lookup
+        if str(applicant_id).isdigit():
+            applicant = db.query(Applicant).filter(Applicant.id == int(applicant_id)).first()
+    except Exception:
+        applicant = None
+
+    if not applicant:
+        # Fallback: treat as external applicant_id string
+        applicant = db.query(Applicant).filter(Applicant.applicant_id == applicant_id).first()
+
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found")
-    
-    llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
-    
+
+    # Fetch parsed record using the resolved DB id
+    llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant.id).first()
+
     return {
         "applicant": {
             "id": applicant.id,
@@ -698,6 +715,58 @@ async def get_employer_jobs(
     
     jobs = db.query(Job).filter(Job.employer_id == employer.id).all()
     return {"jobs": jobs, "total": len(jobs)}
+
+
+@app.get("/api/employer/jobs/{job_id}")
+async def get_employer_job_details(
+    job_id: int,
+    current_user = Depends(require_role("employer")),
+    db: Session = Depends(get_db)
+):
+    """Get detailed information for a single job owned by the current employer"""
+    employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer profile not found")
+
+    job = db.query(Job).filter(Job.id == job_id, Job.employer_id == employer.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or access denied")
+
+    from .db import JobMetadata as _JobMetadata
+    metadata = db.query(_JobMetadata).filter(_JobMetadata.job_id == job_id).first()
+
+    def _safe_float(val, default=None):
+        try:
+            return float(val) if val is not None else default
+        except Exception:
+            return default
+
+    def _safe_iso(d):
+        return d.isoformat() if d is not None else None
+
+    return {
+        "job": {
+            "id": job.id,
+            "title": job.title,
+            "description": job.description,
+            "location_city": job.location_city,
+            "location_state": job.location_state,
+            "work_type": job.work_type,
+            "min_experience_years": _safe_float(getattr(job, 'min_experience_years', None), 0.0),
+            "min_cgpa": _safe_float(getattr(job, 'min_cgpa', None), None),
+            "required_skills": getattr(job, 'required_skills', None),
+            "optional_skills": getattr(job, 'optional_skills', None),
+            "status": getattr(job, 'status', None),
+            "rejection_reason": getattr(job, 'rejection_reason', None),
+            "created_at": _safe_iso(getattr(job, 'created_at', None)),
+            "updated_at": _safe_iso(getattr(job, 'updated_at', None)),
+            "expires_at": _safe_iso(getattr(job, 'expires_at', None))
+        },
+        "metadata": {
+            "tags": metadata.tags if metadata else [],
+            "popularity": _safe_float(getattr(metadata, 'popularity', None), 0.0)
+        } if metadata else None
+    }
 
 
 @app.get("/api/employer/jobs/{job_id}/applicants")
@@ -1014,12 +1083,12 @@ async def review_job_posting(
     if action.action == "approve":
         job.status = 'approved'  # type: ignore
         job.reviewed_by = current_user.id  # type: ignore
-        job.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+        job.reviewed_at = dt.datetime.utcnow()  # type: ignore
     elif action.action == "reject":
         job.status = 'rejected'  # type: ignore
         job.rejection_reason = action.reason  # type: ignore
         job.reviewed_by = current_user.id  # type: ignore
-        job.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+        job.reviewed_at = dt.datetime.utcnow()  # type: ignore
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     
@@ -1047,19 +1116,33 @@ async def review_college_program(
     if action.action == "approve":
         program.status = 'approved'  # type: ignore
         program.reviewed_by = current_user.id  # type: ignore
-        program.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+        program.reviewed_at = dt.datetime.utcnow()  # type: ignore
     elif action.action == "reject":
         program.status = 'rejected'  # type: ignore
         program.rejection_reason = action.reason  # type: ignore
         program.reviewed_by = current_user.id  # type: ignore
-        program.reviewed_at = datetime.datetime.utcnow()  # type: ignore
+        program.reviewed_at = dt.datetime.utcnow()  # type: ignore
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     
+    # Commit and ensure SQLAlchemy session state is refreshed so subsequent reads reflect the update
     db.commit()
-    db.refresh(program)
-    
-    logger.info(f"Program {program.program_name} {action.action}ed by admin {current_user.name}")
+    try:
+        db.refresh(program)
+    except Exception:
+        # If refresh fails for any reason, continue — the transaction is committed
+        pass
+    try:
+        # expire_all forces SQLAlchemy to reload state on next access
+        db.expire_all()
+    except Exception:
+        pass
+
+    logger.info(
+        f"Program {getattr(program, 'program_name', None)} (id={getattr(program,'id',None)}) "
+        f"{action.action}ed by admin {getattr(current_user, 'name', None)}; new status={getattr(program,'status',None)}"
+    )
+
     return {"status": "success", "program_status": program.status}
 
 
@@ -1096,7 +1179,10 @@ async def get_pending_reviews(
             "id": program.id,
             "program_name": program.program_name,
             "college": college.name,
-            "created_at": program.created_at.isoformat() if program.created_at else None
+            "created_at": program.created_at.isoformat() if program.created_at else None,
+            "status": getattr(program, 'status', None),
+            "rejection_reason": getattr(program, 'rejection_reason', None),
+            "reviewed_by": getattr(program, 'reviewed_by', None)
         })
     
     return {
@@ -1373,16 +1459,27 @@ async def get_jobs(
 
 @app.get("/api/job/{job_id}")
 async def get_job_details(job_id: int, db: Session = Depends(get_db)):
-    """Get detailed job information"""
+    """Get detailed job information.
+
+    Public: returns details for approved jobs.
+    Employers: may view their own jobs (including pending/rejected) via the employer dashboard endpoints.
+    Admins: can view any job.
+    """
     from .db import JobMetadata
-    
+
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail=API_MESSAGES['JOB_NOT_FOUND'])
-    
+
+    # Only approved jobs are visible publicly. Employer-specific views (pending/rejected) should be done through
+    # the employer endpoints which already enforce ownership. To keep the public job details endpoint simple and safe,
+    # we return details only for approved jobs here.
+    if getattr(job, 'status', None) != 'approved':
+        raise HTTPException(status_code=404, detail=API_MESSAGES['JOB_NOT_FOUND'])
+
     employer = db.query(Employer).filter(Employer.id == job.employer_id).first()
     metadata = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
-    
+
     return {
         "job": {
             "id": job.id,
@@ -1410,12 +1507,31 @@ async def get_job_details(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/recommendations/{applicant_id}")
-async def get_applicant_recommendations(applicant_id: int, db: Session = Depends(get_db)):
-    """Get college and job recommendations for an applicant"""
+async def get_applicant_recommendations(applicant_id: str, db: Session = Depends(get_db)):
+    """Get college and job recommendations for an applicant.
+
+    Accepts either DB numeric id or external applicant_id string and resolves to DB id.
+    """
+    # Resolve applicant identifier
+    applicant = None
+    try:
+        if str(applicant_id).isdigit():
+            applicant = db.query(Applicant).filter(Applicant.id == int(applicant_id)).first()
+    except Exception:
+        applicant = None
+
+    if not applicant:
+        applicant = db.query(Applicant).filter(Applicant.applicant_id == applicant_id).first()
+
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+
+    resolved_id = applicant.id
+
     # College recommendations
     college_recs = db.query(CollegeApplicabilityLog, College).join(
         College, CollegeApplicabilityLog.college_id == College.id
-    ).filter(CollegeApplicabilityLog.applicant_id == applicant_id).order_by(
+    ).filter(CollegeApplicabilityLog.applicant_id == resolved_id).order_by(
         desc(CollegeApplicabilityLog.recommend_score)
     ).all()
     
@@ -1424,7 +1540,7 @@ async def get_applicant_recommendations(applicant_id: int, db: Session = Depends
         Job, JobRecommendation.job_id == Job.id
     ).join(
         Employer, Job.employer_id == Employer.id
-    ).filter(JobRecommendation.applicant_id == applicant_id).order_by(
+    ).filter(JobRecommendation.applicant_id == resolved_id).order_by(
         desc(JobRecommendation.score)
     ).all()
     

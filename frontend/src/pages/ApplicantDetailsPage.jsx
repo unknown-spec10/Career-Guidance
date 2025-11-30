@@ -42,7 +42,8 @@ export default function ApplicantDetailsPage() {
 
   const applicant = data?.applicant
   const parsed = data?.parsed_data || {}
-  const personal = parsed.personal || {}
+  // Support both `personal` and `personal_info` keys from different parser outputs
+  const personal = parsed.personal || parsed.personal_info || {}
   const education = parsed.education || []
   const skills = parsed.skills || []
 

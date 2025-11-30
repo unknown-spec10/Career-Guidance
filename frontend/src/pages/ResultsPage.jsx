@@ -66,13 +66,17 @@ export default function ResultsPage() {
   }
 
   const parsed = data?.parsed_data || {}
-  const personal = parsed.personal || {}
+  // Parser schema uses `personal_info`; frontend historically used `personal`.
+  // Support both keys and provide sensible fallbacks so admin views work.
+  const personal = parsed.personal || parsed.personal_info || {}
   const education = parsed.education || []
   const skills = parsed.skills || []
   const experience = parsed.experience || []
   const projects = parsed.projects || []
-  const flags = data?.flags || []
-  const needsReview = data?.needs_review || false
+  // Flags may be returned at top-level or inside parsed_data depending on backend.
+  const flags = data?.flags || parsed.flags || data?.parse_flags || []
+  const needsReview = data?.needs_review || parsed.needs_review || false
+  const llm_confidence = parsed.llm_confidence ?? data?.llm_confidence ?? 0
 
   return (
     <div className="min-h-screen bg-dark-900 pt-24 pb-12">
@@ -209,7 +213,7 @@ export default function ResultsPage() {
               </div>
               <div className="text-center">
                 <div className="text-4xl font-bold text-primary-400 mb-2">
-                  {((data?.llm_confidence || 0) * 100).toFixed(0)}%
+                  {((llm_confidence || 0) * 100).toFixed(0)}%
                 </div>
                 <p className="text-sm text-gray-400">Overall Accuracy</p>
               </div>
