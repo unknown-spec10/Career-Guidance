@@ -876,8 +876,8 @@ async def get_all_applicants(
     db: Session = Depends(get_db)
 ):
     """Get all applicants with pagination (supports cursor-based)"""
-    # Use joinedload to prevent N+1 queries
-    query = db.query(Applicant).options(joinedload('*')).order_by(desc(Applicant.created_at))
+    # Query applicants ordered by creation date
+    query = db.query(Applicant).order_by(desc(Applicant.created_at))
     
     # Cursor-based pagination if cursor provided
     if cursor is not None:
