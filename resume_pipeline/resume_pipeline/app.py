@@ -183,12 +183,18 @@ DATA_ROOT = Path(settings.FILE_STORAGE_PATH)
 
 @app.post("/api/auth/register", response_model=UserResponse)
 async def register(
-    request: Request,
     user_data: UserRegister,
-    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=3, window=300)),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """Register a new user and send verification email"""
+    # Apply rate limiting
+    if request:
+        try:
+            rate_limit(request, max_requests=3, window=300)
+        except HTTPException:
+            raise
+    
     from .db import User, Employer, College
     from .email_verification import (
         generate_verification_token,
@@ -290,12 +296,17 @@ async def register(
 
 @app.post("/api/auth/login", response_model=Token)
 async def login(
-    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=5, window=60)),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """Login and receive access token"""
+    # Apply rate limiting
+    if request:
+        try:
+            rate_limit(request, max_requests=5, window=60)
+        except HTTPException:
+            raise
     from .db import User
     
     # Find user
@@ -385,12 +396,18 @@ async def verify_code(payload: VerifyCodeRequest, db: Session = Depends(get_db))
 
 @app.post("/api/auth/forgot-password")
 async def forgot_password(
-    request: Request,
     email: str = Body(..., embed=True),
-    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=3, window=300)),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """Request password reset - sends reset code to email"""
+    # Apply rate limiting
+    if request:
+        try:
+            rate_limit(request, max_requests=3, window=300)
+        except HTTPException:
+            raise
+    
     from .db import User
     from .email_verification import generate_verification_code, send_password_reset_code_email
     
@@ -434,13 +451,19 @@ async def forgot_password(
 
 @app.post("/api/auth/reset-password")
 async def reset_password(
-    request: Request,
     code: str = Body(...),
     new_password: str = Body(...),
-    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=5, window=300)),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """Reset password using reset code"""
+    # Apply rate limiting
+    if request:
+        try:
+            rate_limit(request, max_requests=5, window=300)
+        except HTTPException:
+            raise
+    
     from .db import User
     
     try:
@@ -528,9 +551,14 @@ async def upload_resume(
     twelfth_board: str | None = Form(None),
     twelfth_subjects: str | None = Form(None),  # JSON string
     current_user = Depends(get_current_user),  # Authentication required
-    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=5, window=300)),  # 5 uploads per 5 min
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
+    # Apply rate limiting (5 uploads per 5 min)
+    try:
+        rate_limit(request, max_requests=5, window=300)
+    except HTTPException:
+        raise
+    
     from .db import Applicant, Upload
     
     # Validate file type using constants
