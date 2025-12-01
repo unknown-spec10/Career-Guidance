@@ -184,16 +184,9 @@ DATA_ROOT = Path(settings.FILE_STORAGE_PATH)
 @app.post("/api/auth/register", response_model=UserResponse)
 async def register(
     user_data: UserRegister,
-    db: Session = Depends(get_db),
-    request: Request = None
+    db: Session = Depends(get_db)
 ):
     """Register a new user and send verification email"""
-    # Apply rate limiting
-    if request:
-        try:
-            rate_limit(request, max_requests=3, window=300)
-        except HTTPException:
-            raise
     
     from .db import User, Employer, College
     from .email_verification import (
@@ -297,16 +290,9 @@ async def register(
 @app.post("/api/auth/login", response_model=Token)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-    request: Request = None
+    db: Session = Depends(get_db)
 ):
     """Login and receive access token"""
-    # Apply rate limiting
-    if request:
-        try:
-            rate_limit(request, max_requests=5, window=60)
-        except HTTPException:
-            raise
     from .db import User
     
     # Find user
@@ -397,16 +383,9 @@ async def verify_code(payload: VerifyCodeRequest, db: Session = Depends(get_db))
 @app.post("/api/auth/forgot-password")
 async def forgot_password(
     email: str = Body(..., embed=True),
-    db: Session = Depends(get_db),
-    request: Request = None
+    db: Session = Depends(get_db)
 ):
     """Request password reset - sends reset code to email"""
-    # Apply rate limiting
-    if request:
-        try:
-            rate_limit(request, max_requests=3, window=300)
-        except HTTPException:
-            raise
     
     from .db import User
     from .email_verification import generate_verification_code, send_password_reset_code_email
@@ -453,16 +432,9 @@ async def forgot_password(
 async def reset_password(
     code: str = Body(...),
     new_password: str = Body(...),
-    db: Session = Depends(get_db),
-    request: Request = None
+    db: Session = Depends(get_db)
 ):
     """Reset password using reset code"""
-    # Apply rate limiting
-    if request:
-        try:
-            rate_limit(request, max_requests=5, window=300)
-        except HTTPException:
-            raise
     
     from .db import User
     
