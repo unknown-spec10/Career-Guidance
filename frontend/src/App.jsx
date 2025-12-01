@@ -21,10 +21,13 @@ import VerifyCodePage from './pages/VerifyCodePage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import StudentDashboard from './pages/StudentDashboard'
+import StudentProfile from './pages/StudentProfile'
 import EmployerDashboard from './pages/EmployerDashboard'
+import EmployerProfile from './pages/EmployerProfile'
 import EmployerPostJob from './pages/EmployerPostJob'
 import EmployerJobDetails from './pages/EmployerJobDetails'
 import CollegeDashboard from './pages/CollegeDashboard'
+import CollegeProfile from './pages/CollegeProfile'
 import AdminReviewsPage from './pages/AdminDashboard'
 import ProtectedRoute from './components/ProtectedRoute'
 import Footer from './components/Footer'
@@ -84,6 +87,14 @@ function App() {
               } 
             />
             <Route 
+              path="/student/profile" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <StudentProfile />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
               path="/results/:applicantId" 
               element={
                 <ProtectedRoute allowedRoles={['student', 'admin']}>
@@ -98,6 +109,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['employer']}>
                   <EmployerDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/employer/profile" 
+              element={
+                <ProtectedRoute allowedRoles={['employer']}>
+                  <EmployerProfile />
                 </ProtectedRoute>
               } 
             />
@@ -124,6 +143,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['college']}>
                   <CollegeDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/college/profile" 
+              element={
+                <ProtectedRoute allowedRoles={['college']}>
+                  <CollegeProfile />
                 </ProtectedRoute>
               } 
             />

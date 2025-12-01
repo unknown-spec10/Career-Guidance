@@ -338,6 +338,52 @@ async def get_current_user_info(current_user = Depends(get_current_user)):
     return current_user
 
 
+@app.patch("/api/auth/profile")
+async def update_profile(
+    full_name: str = Body(...),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update user profile (name only)"""
+    from .db import User
+    
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    setattr(user, 'full_name', full_name)
+    db.commit()
+    
+    return {"status": "success", "message": "Profile updated successfully"}
+
+
+@app.patch("/api/auth/change-password")
+async def change_password(
+    current_password: str = Body(...),
+    new_password: str = Body(...),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Change user password"""
+    from .db import User
+    
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    password_hash = getattr(user, 'password_hash', '')
+    if not verify_password(current_password, password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    
+    # Update password
+    new_hash = get_password_hash(new_password)
+    setattr(user, 'password_hash', new_hash)
+    db.commit()
+    
+    return {"status": "success", "message": "Password changed successfully"}
+
+
 @app.post("/api/auth/verify-email")
 async def verify_email_disabled(token: str = Body(..., embed=True)):
     """Link-based verification disabled in this deployment."""
@@ -1002,6 +1048,54 @@ async def create_job_posting(
     return job
 
 
+@app.get("/api/employer/profile")
+async def get_employer_profile(
+    current_user = Depends(require_role("employer")),
+    db: Session = Depends(get_db)
+):
+    """Get employer profile information"""
+    from .db import Employer
+    
+    employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer profile not found")
+    
+    return employer
+
+
+@app.patch("/api/employer/profile")
+async def update_employer_profile(
+    company_name: str = Body(...),
+    company_description: str = Body(None),
+    company_website: str = Body(None),
+    location: str = Body(None),
+    contact_phone: str = Body(None),
+    current_user = Depends(require_role("employer")),
+    db: Session = Depends(get_db)
+):
+    """Update employer profile information"""
+    from .db import Employer
+    
+    employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer profile not found")
+    
+    setattr(employer, 'company_name', company_name)
+    if company_description is not None:
+        setattr(employer, 'company_description', company_description)
+    if company_website is not None:
+        setattr(employer, 'company_website', company_website)
+    if location is not None:
+        setattr(employer, 'location', location)
+    if contact_phone is not None:
+        setattr(employer, 'contact_phone', contact_phone)
+    
+    db.commit()
+    db.refresh(employer)
+    
+    return {"status": "success", "message": "Profile updated successfully"}
+
+
 @app.get("/api/employer/jobs")
 async def get_employer_jobs(
     current_user = Depends(require_role("employer")),
@@ -1151,6 +1245,60 @@ async def create_college_program(
     
     logger.info(f"Program created by college {college.name}: {program.program_name} (ID: {program.id})")
     return program
+
+
+@app.get("/api/college/profile")
+async def get_college_profile(
+    current_user = Depends(require_role("college")),
+    db: Session = Depends(get_db)
+):
+    """Get college profile information"""
+    from .db import College
+    
+    college = db.query(College).filter(College.user_id == current_user.id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College profile not found")
+    
+    return college
+
+
+@app.patch("/api/college/profile")
+async def update_college_profile(
+    name: str = Body(...),
+    description: str = Body(None),
+    website: str = Body(None),
+    location_city: str = Body(None),
+    location_state: str = Body(None),
+    contact_phone: str = Body(None),
+    contact_email: str = Body(None),
+    current_user = Depends(require_role("college")),
+    db: Session = Depends(get_db)
+):
+    """Update college profile information"""
+    from .db import College
+    
+    college = db.query(College).filter(College.user_id == current_user.id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College profile not found")
+    
+    setattr(college, 'name', name)
+    if description is not None:
+        setattr(college, 'description', description)
+    if website is not None:
+        setattr(college, 'website', website)
+    if location_city is not None:
+        setattr(college, 'location_city', location_city)
+    if location_state is not None:
+        setattr(college, 'location_state', location_state)
+    if contact_phone is not None:
+        setattr(college, 'contact_phone', contact_phone)
+    if contact_email is not None:
+        setattr(college, 'contact_email', contact_email)
+    
+    db.commit()
+    db.refresh(college)
+    
+    return {"status": "success", "message": "Profile updated successfully"}
 
 
 @app.get("/api/college/programs")
