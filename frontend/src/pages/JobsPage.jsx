@@ -43,8 +43,8 @@ export default function JobsPage() {
           ...debouncedFilters
         }
       })
-      setJobs(response.data.jobs)
-      setTotal(response.data.total)
+      setJobs(response.data?.jobs || [])
+      setTotal(response.data?.total || 0)
     } catch (error) {
       console.error('Error fetching jobs:', error)
       setError(error.response?.data?.detail || 'Failed to load jobs. Please try again.')

@@ -38,8 +38,8 @@ export default function CollegesPage() {
       const response = await api.get('/api/colleges', {
         params: { skip: (page - 1) * pageSize, limit: pageSize, ...debouncedFilters }
       })
-      setColleges(response.data.colleges)
-      setTotal(response.data.total)
+      setColleges(response.data?.colleges || [])
+      setTotal(response.data?.total || 0)
     } catch (error) {
       console.error('Error fetching colleges:', error)
       setError(error.response?.data?.detail || 'Failed to load colleges. Please try again.')

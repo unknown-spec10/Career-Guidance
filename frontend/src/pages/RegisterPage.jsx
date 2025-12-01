@@ -251,7 +251,7 @@ export default function RegisterPage() {
           )}
         </div>
       </motion.div>
-      <ToastContainer />
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
 }

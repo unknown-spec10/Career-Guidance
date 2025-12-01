@@ -331,7 +331,7 @@ export default function EmployerPostJob() {
           </div>
         </motion.form>
       </div>
-      <ToastContainer />
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
 }

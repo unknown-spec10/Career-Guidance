@@ -28,14 +28,14 @@ export default function ApplicantsPage() {
       const response = await api.get('/api/applicants', {
         params: { skip: (page - 1) * pageSize, limit: pageSize }
       })
-      let data = response.data.applicants
+      let data = response.data?.applicants || []
       
       if (reviewFilter) {
         data = data.filter(a => a.needs_review)
       }
       
       setApplicants(data)
-      setTotal(response.data.total)
+      setTotal(response.data?.total || 0)
     } catch (error) {
       console.error('Error fetching applicants:', error)
       setError(error.response?.data?.detail || 'Failed to load applicants. Please try again.')

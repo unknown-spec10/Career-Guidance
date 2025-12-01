@@ -151,7 +151,7 @@ export default function ForgotPasswordPage() {
           </div>
         </div>
       </motion.div>
-      <ToastContainer />
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
 }

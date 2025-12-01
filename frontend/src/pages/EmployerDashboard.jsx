@@ -44,7 +44,7 @@ export default function EmployerDashboard() {
     try {
       setLoading(true)
       const response = await api.get('/api/employer/jobs')
-      const jobsData = response.data.jobs
+      const jobsData = response.data?.jobs || []
 
       setJobs(jobsData)
       setStats({

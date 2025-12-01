@@ -195,12 +195,12 @@ export default function StudentDashboard() {
         api.get('/api/student/applications/colleges')
       ])
 
-      setJobApplications(jobApps.data.applications)
-      setCollegeApplications(collegeApps.data.applications)
+      setJobApplications(jobApps.data?.applications || [])
+      setCollegeApplications(collegeApps.data?.applications || [])
       setStats({
-        jobApplications: jobApps.data.total,
-        collegeApplications: collegeApps.data.total,
-        recommendations: jobApps.data.total + collegeApps.data.total
+        jobApplications: jobApps.data?.total || 0,
+        collegeApplications: collegeApps.data?.total || 0,
+        recommendations: (jobApps.data?.total || 0) + (collegeApps.data?.total || 0)
       })
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load dashboard')
