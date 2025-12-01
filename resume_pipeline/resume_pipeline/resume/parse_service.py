@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 from typing import Tuple
 from jsonschema import validate, ValidationError
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..config import settings
 from ..core.interfaces import ParserService
@@ -202,6 +205,33 @@ class ResumeParserService(ParserService):
                 if added:
                     # Reload mapper and re-map skills to include newly assigned canonical IDs
                     self.skills.reload_taxonomy()
+                    
+                    # Sync new skills to database
+                    try:
+                        from ..db import SessionLocal, CanonicalSkill
+                        db_session = SessionLocal()
+                        try:
+                            for skill_key, metadata in added.items():
+                                existing = db_session.query(CanonicalSkill).filter(
+                                    CanonicalSkill.skill_id == metadata['skill_id']
+                                ).first()
+                                if not existing:
+                                    canonical_skill = CanonicalSkill(
+                                        skill_id=metadata['skill_id'],
+                                        name=metadata.get('display_name', skill_key),
+                                        category=metadata.get('category', 'other'),
+                                        aliases=[skill_key] if skill_key != metadata.get('display_name', '').lower() else [],
+                                        market_demand=metadata.get('market_demand', 'unknown'),
+                                        related_skills=metadata.get('related_skills', [])
+                                    )
+                                    db_session.add(canonical_skill)
+                            db_session.commit()
+                            logger.info(f"Synced {len(added)} new skills to database")
+                        finally:
+                            db_session.close()
+                    except Exception as db_err:
+                        logger.error(f"Failed to sync skills to database: {db_err}")
+                    
                     names_for_map = []
                     for s in skills_list:
                         if isinstance(s, dict):
@@ -214,7 +244,8 @@ class ResumeParserService(ParserService):
                     normalized['skills'] = remapped
                     result['taxonomy_updates'] = {
                         'added_count': len(added),
-                        'added': added
+                        'added': added,
+                        'db_synced': True
                     }
         except Exception as e:
             # Non-fatal; include note in result

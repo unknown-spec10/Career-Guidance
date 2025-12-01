@@ -1,12 +1,14 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 from uuid import uuid4
 from typing import Optional, List
+from collections import defaultdict
+from time import time
 import os
-from .utils import save_upload, sha256_file
+from .utils import save_upload, sha256_file, sanitize_text, sanitize_dict, validate_email, sanitize_filename
 from .config import settings
 from .constants import (
     ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB,
@@ -37,6 +39,72 @@ import datetime as dt
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Rate limiting storage (in-memory, consider Redis for production)
+rate_limiting_storage = defaultdict(list)
+
+def validate_env():
+    """Validate critical environment variables on startup"""
+    errors = []
+    warnings = []
+    
+    # Critical: Database configuration
+    if not settings.MYSQL_HOST and not settings.MYSQL_DSN:
+        errors.append("MYSQL_HOST or MYSQL_DSN must be set")
+    if not settings.MYSQL_USER and not settings.MYSQL_DSN:
+        errors.append("MYSQL_USER or MYSQL_DSN must be set")
+    if not settings.MYSQL_DB and not settings.MYSQL_DSN:
+        errors.append("MYSQL_DB or MYSQL_DSN must be set")
+    
+    # Critical: JWT Secret Key
+    if settings.SECRET_KEY == "change-this-secret-key-in-production-use-openssl-rand-hex-32":
+        errors.append("SECRET_KEY must be changed from default value in production")
+    if len(settings.SECRET_KEY) < 32:
+        errors.append("SECRET_KEY must be at least 32 characters long")
+    
+    # Important: Gemini API (warn if not set, as it may use mock mode)
+    if not settings.GEMINI_API_KEY:
+        warnings.append("GEMINI_API_KEY not set - using mock/stub parsing mode")
+    
+    # Important: Email configuration (warn if missing)
+    if not settings.GMAIL_USER or not settings.GMAIL_APP_PASSWORD:
+        warnings.append("GMAIL_USER or GMAIL_APP_PASSWORD not set - email verification disabled")
+    
+    # Log results
+    if errors:
+        error_msg = "\n".join([f"  ❌ {err}" for err in errors])
+        logger.error(f"Environment validation failed:\n{error_msg}")
+        raise RuntimeError(f"Critical environment variables missing:\n{error_msg}")
+    
+    if warnings:
+        warning_msg = "\n".join([f"  ⚠️  {warn}" for warn in warnings])
+        logger.warning(f"Environment warnings:\n{warning_msg}")
+    
+    logger.info("✓ Environment validation passed")
+
+def rate_limit(request: Request, max_requests: int = 5, window: int = 60) -> bool:
+    """Simple rate limiting middleware"""
+    client_ip = request.client.host if request.client else "unknown"
+    endpoint = request.url.path
+    key = f"{client_ip}:{endpoint}"
+    
+    current_time = time()
+    # Clean old requests outside the window
+    rate_limiting_storage[key] = [
+        req_time for req_time in rate_limiting_storage[key]
+        if current_time - req_time < window
+    ]
+    
+    # Check if limit exceeded
+    if len(rate_limiting_storage[key]) >= max_requests:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded. Max {max_requests} requests per {window} seconds."
+        )
+    
+    # Add current request
+    rate_limiting_storage[key].append(current_time)
+    return True
+
 # Database dependency
 def get_db():
     """FastAPI dependency for database sessions"""
@@ -46,6 +114,21 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# File size validation
+async def validate_file_size(file: UploadFile, max_size_mb: int = MAX_FILE_SIZE_MB):
+    """Validate uploaded file size"""
+    file.file.seek(0, 2)  # Seek to end
+    file_size = file.file.tell()  # Get size in bytes
+    file.file.seek(0)  # Reset to beginning
+    
+    max_size_bytes = max_size_mb * 1024 * 1024
+    if file_size > max_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File size exceeds maximum allowed size of {max_size_mb}MB"
+        )
+    return True
 
 app = FastAPI(
     title="Career Guidance AI API",
@@ -66,6 +149,9 @@ app.add_middleware(
 async def startup_event():
     """Initialize database on startup"""
     try:
+        # Validate environment variables first
+        validate_env()
+        
         # Create database if not exists
         conn = pymysql.connect(
             host=settings.MYSQL_HOST or 'localhost',
@@ -96,7 +182,12 @@ DATA_ROOT = Path(settings.FILE_STORAGE_PATH)
 # ============================================================
 
 @app.post("/api/auth/register", response_model=UserResponse)
-async def register(user_data: UserRegister, db: Session = Depends(get_db)):
+async def register(
+    request: Request,
+    user_data: UserRegister,
+    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=3, window=300)),
+    db: Session = Depends(get_db)
+):
     """Register a new user and send verification email"""
     from .db import User, Employer, College
     from .email_verification import (
@@ -107,10 +198,28 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     )
     import datetime
     
+    # Validate and sanitize email
+    if not validate_email(user_data.email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    
+    # Sanitize text inputs
+    name = sanitize_text(user_data.name, max_length=200)
+    email = user_data.email.strip().lower()
+    
     # Check if email already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    try:
+        existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Database error during registration: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Registration failed. Please try again."
+        )
     
     # Always generate a verification CODE (link flow disabled)
     base_code = generate_verification_code(settings.VERIFICATION_CODE_LENGTH or 6, digits_only=True)
@@ -118,21 +227,29 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     verification_secret = f"{base_code}-{secrets.token_hex(3)}"
     
     # Create user
-    hashed_password = get_password_hash(user_data.password)
-    new_user = User(
-        email=user_data.email,
-        password_hash=hashed_password,
-        name=user_data.name,
-        role=user_data.role.value,
-        phone=user_data.phone,
-        is_active=True,
-        is_verified=False,
-        verification_token=verification_secret,
-        verification_token_created_at=dt.datetime.utcnow()
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    try:
+        hashed_password = get_password_hash(user_data.password)
+        new_user = User(
+            email=email,
+            password_hash=hashed_password,
+            name=name,
+            role=user_data.role.value,
+            phone=sanitize_text(user_data.phone or "", max_length=20) if user_data.phone else None,
+            is_active=True,
+            is_verified=False,
+            verification_token=verification_secret,
+            verification_token_created_at=dt.datetime.utcnow()
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+    except Exception as e:
+        logger.error(f"Failed to create user: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user account"
+        )
     
     # Send verification email (non-blocking - don't fail registration if email fails)
     try:
@@ -172,7 +289,12 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
 
 
 @app.post("/api/auth/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=5, window=60)),
+    db: Session = Depends(get_db)
+):
     """Login and receive access token"""
     from .db import User
     
@@ -261,6 +383,101 @@ async def verify_code(payload: VerifyCodeRequest, db: Session = Depends(get_db))
     return {"status": "success", "message": "Email verified successfully"}
 
 
+@app.post("/api/auth/forgot-password")
+async def forgot_password(
+    request: Request,
+    email: str = Body(..., embed=True),
+    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=3, window=300)),
+    db: Session = Depends(get_db)
+):
+    """Request password reset - sends reset code to email"""
+    from .db import User
+    from .email_verification import generate_verification_code, send_password_reset_code_email
+    
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            # Don't reveal if email exists (security best practice)
+            return {"message": "If the email exists, a password reset code has been sent"}
+        
+        # Generate 6-digit reset code
+        reset_code = generate_verification_code(length=6, digits_only=True)
+        reset_expires = dt.datetime.utcnow() + dt.timedelta(minutes=settings.VERIFICATION_CODE_TTL_MINUTES or 30)
+        
+        # Set reset code (use setattr to avoid type checker issues)
+        setattr(user, 'password_reset_token', reset_code)
+        setattr(user, 'password_reset_expires', reset_expires)
+        db.commit()
+        
+        # Send email with reset code
+        email_sent = send_password_reset_code_email(
+            to_email=email,
+            code=reset_code,
+            user_name=getattr(user, 'name', 'User')
+        )
+        
+        if not email_sent:
+            logger.warning(f"Password reset code generated but email failed for {email}")
+            # Still return success to not reveal if email exists
+        else:
+            logger.info(f"Password reset code sent to {email}")
+        
+        return {"message": "If the email exists, a password reset code has been sent"}
+    except Exception as e:
+        logger.error(f"Password reset request failed: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process password reset request"
+        )
+
+
+@app.post("/api/auth/reset-password")
+async def reset_password(
+    request: Request,
+    code: str = Body(...),
+    new_password: str = Body(...),
+    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=5, window=300)),
+    db: Session = Depends(get_db)
+):
+    """Reset password using reset code"""
+    from .db import User
+    
+    try:
+        # Find user by reset code
+        user = db.query(User).filter(User.password_reset_token == code).first()
+        
+        if not user:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+        
+        # Check code expiration (use getattr to avoid type checker issues)
+        expires = getattr(user, 'password_reset_expires', None)
+        if expires is None or expires < dt.datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Reset code has expired")
+        
+        # Validate password strength
+        if len(new_password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        
+        # Update password (use setattr to avoid type checker issues)
+        setattr(user, 'password_hash', get_password_hash(new_password))
+        setattr(user, 'password_reset_token', None)
+        setattr(user, 'password_reset_expires', None)
+        db.commit()
+        
+        logger.info(f"Password reset successful for user {user.email}")
+        return {"message": "Password reset successful"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password reset failed: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password"
+        )
+
+
 @app.post("/api/auth/resend-verification")
 async def resend_verification_email(email: str = Body(..., embed=True), db: Session = Depends(get_db)):
     """Resend verification email"""
@@ -310,6 +527,8 @@ async def upload_resume(
     twelfth_percentage: float | None = Form(None),
     twelfth_board: str | None = Form(None),
     twelfth_subjects: str | None = Form(None),  # JSON string
+    current_user = Depends(get_current_user),  # Authentication required
+    rate_limited: bool = Depends(lambda r: rate_limit(r, max_requests=5, window=300)),  # 5 uploads per 5 min
     db: Session = Depends(get_db),
 ):
     from .db import Applicant, Upload
@@ -325,17 +544,33 @@ async def upload_resume(
             detail=API_MESSAGES['INVALID_FILE_TYPE']
         )
     
+    # Validate file size
+    await validate_file_size(resume, MAX_FILE_SIZE_MB)
+    
+    # Validate marksheets if provided
+    if marksheets:
+        for marksheet in marksheets:
+            await validate_file_size(marksheet, MAX_FILE_SIZE_MB)
+    
     # save files
     applicant_id = f"app_{uuid4().hex}"
     applicant_dir = DATA_ROOT / applicant_id
-    applicant_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        applicant_dir.mkdir(parents=True, exist_ok=True)
 
-    res_name = resume.filename or "resume_upload"
-    resume_path = applicant_dir / res_name
-    # read and write
-    with open(resume_path, "wb") as f:
-        content = await resume.read()
-        f.write(content)
+        res_name = resume.filename or "resume_upload"
+        resume_path = applicant_dir / res_name
+        # read and write
+        with open(resume_path, "wb") as f:
+            content = await resume.read()
+            f.write(content)
+    except Exception as e:
+        logger.error(f"Failed to save resume file: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save uploaded file"
+        )
 
     resume_hash = sha256_file(str(resume_path))
     
@@ -493,7 +728,8 @@ async def parse_applicant(applicant_id: str, db: Session = Depends(get_db)):
         
         # Update display name from parsed data if available
         normalized = result.get('normalized', {})
-        personal_info = normalized.get('personal_info', {})
+        # Try both 'personal_info' and 'personal' for backwards compatibility
+        personal_info = normalized.get('personal_info') or normalized.get('personal', {})
         if personal_info.get('name'):
             applicant.display_name = personal_info['name']
         if personal_info.get('location'):
@@ -612,15 +848,46 @@ async def get_current_student_applicant(current_user = Depends(require_role("stu
     }
 from sqlalchemy import desc, func
 
+# Status transition validation
+VALID_JOB_STATUS_TRANSITIONS = {
+    'recommended': ['applied', 'withdrawn'],
+    'applied': ['interviewing', 'rejected', 'withdrawn'],
+    'interviewing': ['offered', 'rejected', 'withdrawn'],
+    'offered': ['accepted', 'rejected', 'withdrawn'],
+    'accepted': [],  # terminal
+    'rejected': [],  # terminal
+    'withdrawn': []  # terminal
+}
+
+VALID_COLLEGE_STATUS_TRANSITIONS = {
+    'recommended': ['applied', 'withdrawn'],
+    'applied': ['accepted', 'rejected', 'withdrawn'],
+    'accepted': [],  # terminal
+    'rejected': [],  # terminal
+    'withdrawn': []  # terminal
+}
+
 
 @app.get("/api/applicants")
-async def get_all_applicants(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
-    """Get all applicants with pagination"""
+async def get_all_applicants(
+    skip: int = 0, 
+    limit: int = 50, 
+    cursor: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """Get all applicants with pagination (supports cursor-based)"""
     # Use joinedload to prevent N+1 queries
-    applicants = db.query(Applicant).options(
-        joinedload('*')  # Load all relationships
-    ).offset(skip).limit(limit).all()
-    total = db.query(Applicant).count()
+    query = db.query(Applicant).options(joinedload('*')).order_by(desc(Applicant.created_at))
+    
+    # Cursor-based pagination if cursor provided
+    if cursor is not None:
+        query = query.filter(Applicant.id < cursor)
+    else:
+        # Offset-based pagination (backward compatibility)
+        query = query.offset(skip)
+    
+    applicants = query.limit(limit).all()
+    next_cursor = applicants[-1].id if applicants and len(applicants) == limit else None
     
     result = []
     for app in applicants:
@@ -636,7 +903,13 @@ async def get_all_applicants(skip: int = 0, limit: int = 50, db: Session = Depen
             "needs_review": llm_record.needs_review if llm_record else False
         })
     
-    return {"applicants": result, "total": total, "skip": skip, "limit": limit}
+    return {
+        "applicants": result, 
+        "total": db.query(Applicant).count() if cursor is None else None,
+        "skip": skip, 
+        "limit": limit,
+        "next_cursor": next_cursor
+    }
 
 
 @app.get("/api/applicant/{applicant_id}")
@@ -700,13 +973,19 @@ async def create_job_posting(
     if not employer:
         raise HTTPException(status_code=404, detail="Employer profile not found")
     
+    # Sanitize text inputs to prevent XSS
+    title = sanitize_text(job_data.title, max_length=200)
+    description = sanitize_text(job_data.description, max_length=10000)
+    location_city = sanitize_text(job_data.location_city or "", max_length=100)
+    location_state = sanitize_text(job_data.location_state or "", max_length=100)
+    
     # Create job posting
     job = Job(
         employer_id=employer.id,
-        title=job_data.title,
-        description=job_data.description,
-        location_city=job_data.location_city,
-        location_state=job_data.location_state,
+        title=title,
+        description=description,
+        location_city=location_city,
+        location_state=location_state,
         work_type=job_data.work_type,
         min_experience_years=job_data.min_experience_years,
         min_cgpa=job_data.min_cgpa,
@@ -853,13 +1132,17 @@ async def create_college_program(
     if not college:
         raise HTTPException(status_code=404, detail="College profile not found")
     
+    # Sanitize text inputs
+    program_name = sanitize_text(program_data.program_name, max_length=200)
+    program_description = sanitize_text(program_data.program_description or "", max_length=5000)
+    
     # Create program
     program = CollegeProgram(
         college_id=college.id,
-        program_name=program_data.program_name,
+        program_name=program_name,
         duration_months=program_data.duration_months,
         required_skills=program_data.required_skills,
-        program_description=program_data.program_description,
+        program_description=program_description,
         status='pending'
     )
     db.add(program)
@@ -1096,12 +1379,13 @@ async def review_job_posting(
     db: Session = Depends(get_db)
 ):
     """Admin approves or rejects a job posting"""
-    from .db import Job
+    from .db import Job, AuditLog
     
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    old_status = job.status
     if action.action == "approve":
         job.status = 'approved'  # type: ignore
         job.reviewed_by = current_user.id  # type: ignore
@@ -1117,6 +1401,20 @@ async def review_job_posting(
     db.commit()
     db.refresh(job)
     
+    # Audit log
+    try:
+        audit = AuditLog(
+            action=f"job_{action.action}",
+            target_type="Job",
+            target_id=job_id,
+            user_id=current_user.id,
+            details={"old_status": old_status, "new_status": job.status, "reason": action.reason}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log: {e}")
+    
     logger.info(f"Job {job.title} {action.action}ed by admin {current_user.name}")
     return {"status": "success", "job_status": job.status}
 
@@ -1129,12 +1427,13 @@ async def review_college_program(
     db: Session = Depends(get_db)
 ):
     """Admin approves or rejects a college program"""
-    from .db import CollegeProgram
+    from .db import CollegeProgram, AuditLog
     
     program = db.query(CollegeProgram).filter(CollegeProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
     
+    old_status = program.status
     if action.action == "approve":
         program.status = 'approved'  # type: ignore
         program.reviewed_by = current_user.id  # type: ignore
@@ -1159,6 +1458,20 @@ async def review_college_program(
         db.expire_all()
     except Exception:
         pass
+    
+    # Audit log
+    try:
+        audit = AuditLog(
+            action=f"program_{action.action}",
+            target_type="CollegeProgram",
+            target_id=program_id,
+            user_id=current_user.id,
+            details={"old_status": old_status, "new_status": program.status, "reason": action.reason}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log: {e}")
 
     logger.info(
         f"Program {getattr(program, 'program_name', None)} (id={getattr(program,'id',None)}) "
@@ -1218,6 +1531,7 @@ async def get_pending_reviews(
 async def get_colleges(
     skip: int = 0,
     limit: int = 20,
+    cursor: Optional[int] = None,
     q: Optional[str] = None,
     location: Optional[str] = None,
     min_jee_rank: Optional[str] = None,
@@ -1226,7 +1540,7 @@ async def get_colleges(
     sort: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get all colleges with eligibility info"""
+    """Get all colleges with eligibility info. Supports cursor-based pagination."""
     from .db import CollegeEligibility, CollegeMetadata
     
     # Fetch all data in batch queries to avoid N+1
@@ -1239,6 +1553,10 @@ async def get_colleges(
         base_query = base_query.filter(
             (College.location_city.ilike(like_loc)) | (College.location_state.ilike(like_loc))
         )
+    
+    # Apply cursor for pagination
+    if cursor is not None:
+        base_query = base_query.filter(College.id > cursor)
 
     # Pre-calc program counts for filtering by programs_min later
     colleges_all = base_query.all()
@@ -1325,7 +1643,12 @@ async def get_colleges(
             "popularity_score": float(metadata.popularity_score) if metadata and metadata.popularity_score is not None else 0.0  # type: ignore
         })
     
-    return {"colleges": result, "total": total}
+    next_cursor = result[-1]["id"] if result and cursor is not None else None
+    return {
+        "colleges": result,
+        "total": total if cursor is None else None,
+        "next_cursor": next_cursor
+    }
 
 
 @app.get("/api/college/{college_id}")
@@ -1378,6 +1701,7 @@ async def get_college_details(college_id: int, db: Session = Depends(get_db)):
 async def get_jobs(
     skip: int = 0,
     limit: int = 20,
+    cursor: Optional[int] = None,
     location: Optional[str] = None,
     work_type: Optional[str] = None,
     q: Optional[str] = None,
@@ -1386,7 +1710,7 @@ async def get_jobs(
     sort: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get all APPROVED jobs with filters, excluding expired jobs"""
+    """Get all APPROVED jobs with filters, excluding expired jobs. Supports cursor-based pagination."""
     from datetime import datetime
     from .db import JobMetadata
     
@@ -1405,8 +1729,18 @@ async def get_jobs(
         like = f"%{q}%"
         query = query.filter((Job.title.ilike(like)) | (Job.description.ilike(like)))
     
-    jobs = query.offset(skip).limit(limit).all()
-    total = query.count()
+    # Apply cursor or offset
+    if cursor is not None:
+        query = query.filter(Job.id < cursor)
+    else:
+        query = query.offset(skip)
+    
+    jobs = query.limit(limit + 1).all()  # Fetch one extra to check if there's more
+    has_more = len(jobs) > limit
+    if has_more:
+        jobs = jobs[:limit]
+    
+    total = None if cursor is not None else query.count()
     
     # Batch fetch employers and metadata
     job_ids = [j.id for j in jobs]
@@ -1476,7 +1810,12 @@ async def get_jobs(
             "popularity": float(metadata.popularity) if metadata and metadata.popularity is not None else 0.0  # type: ignore
         })
     
-    return {"jobs": result, "total": total}
+    next_cursor = result[-1]["id"] if result and (cursor is not None or has_more) else None
+    return {
+        "jobs": result,
+        "total": total,
+        "next_cursor": next_cursor
+    }
 
 
 @app.get("/api/job/{job_id}")
@@ -1633,10 +1972,11 @@ async def get_statistics(db: Session = Depends(get_db)):
 def update_college_recommendation_status(
     rec_id: int,
     status: str = Body(..., embed=True),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """Update the status of a college recommendation"""
-    from .db import CollegeApplicabilityLog
+    from .db import CollegeApplicabilityLog, AuditLog
     from .constants import API_MESSAGES
     
     valid_statuses = ['recommended', 'applied', 'accepted', 'rejected', 'withdrawn']
@@ -1647,9 +1987,33 @@ def update_college_recommendation_status(
     if not rec:
         raise HTTPException(status_code=404, detail=API_MESSAGES["applicant_not_found"])
     
+    # Validate status transition
+    current_status = str(rec.status) if rec.status is not None else 'recommended'
+    allowed_transitions = VALID_COLLEGE_STATUS_TRANSITIONS.get(current_status, [])
+    if status != current_status and status not in allowed_transitions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status transition: {current_status} → {status}. Allowed: {', '.join(allowed_transitions) if allowed_transitions else 'none (terminal state)'}"
+        )
+    
+    old_status = rec.status
     rec.status = status  # type: ignore
     db.commit()
     db.refresh(rec)
+    
+    # Audit log
+    try:
+        audit = AuditLog(
+            action="college_recommendation_status_update",
+            target_type="CollegeRecommendation",
+            target_id=rec_id,
+            user_id=current_user.id,
+            details={"old_status": old_status, "new_status": status}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log: {e}")
     
     return {"id": rec.id, "status": rec.status, "message": "Status updated successfully"}
 
@@ -1658,10 +2022,11 @@ def update_college_recommendation_status(
 def update_job_recommendation_status(
     rec_id: int,
     status: str = Body(..., embed=True),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """Update the status of a job recommendation"""
-    from .db import JobRecommendation
+    from .db import JobRecommendation, AuditLog
     from .constants import API_MESSAGES
     
     valid_statuses = ['recommended', 'applied', 'interviewing', 'offered', 'accepted', 'rejected', 'withdrawn']
@@ -1672,9 +2037,33 @@ def update_job_recommendation_status(
     if not rec:
         raise HTTPException(status_code=404, detail=API_MESSAGES["applicant_not_found"])
     
+    # Validate status transition
+    current_status = str(rec.status) if rec.status is not None else 'recommended'
+    allowed_transitions = VALID_JOB_STATUS_TRANSITIONS.get(current_status, [])
+    if status != current_status and status not in allowed_transitions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status transition: {current_status} → {status}. Allowed: {', '.join(allowed_transitions) if allowed_transitions else 'none (terminal state)'}"
+        )
+    
+    old_status = rec.status
     rec.status = status  # type: ignore
     db.commit()
     db.refresh(rec)
+    
+    # Audit log
+    try:
+        audit = AuditLog(
+            action="job_recommendation_status_update",
+            target_type="JobRecommendation",
+            target_id=rec_id,
+            user_id=current_user.id,
+            details={"old_status": old_status, "new_status": status}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log: {e}")
     
     return {"id": rec.id, "status": rec.status, "message": "Status updated successfully"}
 

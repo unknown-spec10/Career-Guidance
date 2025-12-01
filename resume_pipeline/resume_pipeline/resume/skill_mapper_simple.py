@@ -1,5 +1,6 @@
 from typing import List, Dict
 import json
+from difflib import SequenceMatcher
 from ..core.interfaces import SkillMapper
 from ..config import settings
 from pathlib import Path
@@ -59,10 +60,37 @@ class SimpleSkillMapper(SkillMapper):
         mapped = []
         for s in skills:
             ss = s.lower().strip()
-            best = None
+            best_match = None
+            best_score = 0
+            match_type = None
+            
             for k, vid in self.canonical.items():
-                if k in ss or ss in k:
-                    best = vid
+                # Exact match (highest priority)
+                if k == ss:
+                    best_match = vid
+                    best_score = 1.0
+                    match_type = 'exact'
                     break
-            mapped.append({"name": s, "canonical_id": best})
+                
+                # Substring match (high priority)
+                if k in ss or ss in k:
+                    if best_score < 0.95:
+                        best_match = vid
+                        best_score = 0.95
+                        match_type = 'substring'
+                    continue
+                
+                # Fuzzy match (threshold: 0.85)
+                score = SequenceMatcher(None, k, ss).ratio()
+                if score > best_score and score >= 0.85:
+                    best_score = score
+                    best_match = vid
+                    match_type = 'fuzzy'
+            
+            mapped.append({
+                "name": s,
+                "canonical_id": best_match,
+                "match_confidence": round(best_score, 2) if best_score > 0 else None,
+                "match_type": match_type
+            })
         return mapped

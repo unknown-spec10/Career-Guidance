@@ -1,9 +1,15 @@
 import requests
 import json
 import re
+import hashlib
 from typing import List, Dict, Tuple
 from pathlib import Path
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class SkillTaxonomyBuilder:
@@ -13,11 +19,21 @@ class SkillTaxonomyBuilder:
         self.api_key = settings.GOOGLE_API_KEY
         self.search_engine_id = settings.GOOGLE_SEARCH_ENGINE_ID
         self.base_url = "https://www.googleapis.com/customsearch/v1"
+        self.cache = {}
+        self.cache_ttl = timedelta(days=30)
     
     def search_skill_relevance(self, skill: str) -> Dict:
         """Search Google for skill to determine market relevance and category."""
         if not self.api_key or not self.search_engine_id:
             return {"relevance_score": 0, "category": "uncategorized", "related": []}
+        
+        # Check cache first
+        cache_key = hashlib.md5(skill.lower().encode()).hexdigest()
+        if cache_key in self.cache:
+            cached = self.cache[cache_key]
+            if datetime.now() - cached['timestamp'] < self.cache_ttl:
+                logger.info(f"Cache hit for skill: {skill}")
+                return cached['data']
         
         try:
             # Search for skill + jobs/careers to gauge market demand
@@ -46,15 +62,23 @@ class SkillTaxonomyBuilder:
             # Extract related skills
             related = self._extract_related_skills(snippets)
             
-            return {
+            result = {
                 "relevance_score": round(relevance_score, 2),
                 "category": category,
                 "related": related[:5],
                 "total_results": total_results
             }
+            
+            # Cache the result
+            self.cache[cache_key] = {
+                'data': result,
+                'timestamp': datetime.now()
+            }
+            
+            return result
         
         except Exception as e:
-            print(f"Search error for '{skill}': {e}")
+            logger.error(f"Search error for '{skill}': {e}")
             return {"relevance_score": 0, "category": "uncategorized", "related": []}
     
     def _extract_category(self, skill: str, snippets: List[str]) -> str:
@@ -203,14 +227,36 @@ class SkillTaxonomyBuilder:
             max_id_num = max(max_id_num, _extract_num(sid))
 
         added: Dict[str, Dict] = {}
-        for skill in new_skills:
+        skills_to_process = [s for s in new_skills if s.lower().strip() not in existing_keys]
+        
+        if not skills_to_process:
+            return added
+        
+        # Process skills in parallel
+        skill_info_map = {}
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_skill = {
+                executor.submit(self.search_skill_relevance, skill): skill 
+                for skill in skills_to_process
+            }
+            
+            for future in as_completed(future_to_skill):
+                skill = future_to_skill[future]
+                try:
+                    info = future.result()
+                    skill_info_map[skill] = info
+                except Exception as e:
+                    logger.error(f"Failed to process skill '{skill}': {e}")
+                    skill_info_map[skill] = {"relevance_score": 0.0, "category": "other", "related": []}
+        
+        # Assign IDs sequentially after all searches complete
+        for skill in skills_to_process:
             key = skill.lower().strip()
             if key in existing_keys:
                 continue
-
-            # Query relevance
-            info = self.search_skill_relevance(skill)
-
+            
+            info = skill_info_map.get(skill, {"relevance_score": 0.0, "category": "other", "related": []})
+            
             # Next id
             max_id_num += 1
             skill_id = f"skill_{str(max_id_num).zfill(3)}"

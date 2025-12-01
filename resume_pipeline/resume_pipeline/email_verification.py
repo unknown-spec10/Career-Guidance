@@ -172,6 +172,74 @@ def send_verification_code_email(to_email: str, code: str, user_name: str) -> bo
         return False
 
 
+def send_password_reset_code_email(to_email: str, code: str, user_name: str) -> bool:
+    """Send a password reset CODE email via Gmail SMTP."""
+    try:
+        gmail_user = settings.GMAIL_USER
+        gmail_password = settings.GMAIL_APP_PASSWORD
+
+        if not gmail_user or not gmail_password:
+            logger.error("Gmail credentials not configured in environment")
+            return False
+
+        ttl_min = settings.VERIFICATION_CODE_TTL_MINUTES or 30
+
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = 'Your Career Guidance Password Reset Code'
+        msg['From'] = f"Career Guidance <{gmail_user}>"
+        msg['To'] = to_email
+
+        html = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #6366f1;">Password Reset Request</h2>
+                    <p>Hello {user_name},</p>
+                    <p>You requested a password reset for your Career Guidance account. Use the code below to reset your password:</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <div style="display: inline-block; padding: 14px 24px; font-size: 24px; letter-spacing: 6px; font-weight: 700; background: #fef3c7; border-radius: 8px; border: 1px solid #fbbf24;">
+                            {code}
+                        </div>
+                    </div>
+                    <p style="color: #666; font-size: 14px;">This code expires in {ttl_min} minutes.</p>
+                    <p style="color: #dc2626; font-size: 14px; font-weight: 600;">⚠️ If you didn't request this password reset, please ignore this email and ensure your account is secure.</p>
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                    <p style="color: #999; font-size: 12px;">For security reasons, never share this code with anyone.</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        text = f"""
+        Password Reset Request
+
+        Hello {user_name},
+
+        You requested a password reset for your Career Guidance account.
+        
+        Your reset code is: {code}
+
+        This code expires in {ttl_min} minutes.
+
+        If you didn't request this password reset, please ignore this email and ensure your account is secure.
+        """
+
+        part1 = MIMEText(text, 'plain')
+        part2 = MIMEText(html, 'html')
+        msg.attach(part1)
+        msg.attach(part2)
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(gmail_user, gmail_password)
+            server.send_message(msg)
+
+        logger.info(f"Password reset code email sent to {to_email}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send password reset code to {to_email}: {e}")
+        return False
+
+
 def is_token_expired(created_at: datetime, expiry_hours: int = 24) -> bool:
     """Check if verification token has expired"""
     expiry_time = created_at + timedelta(hours=expiry_hours)
