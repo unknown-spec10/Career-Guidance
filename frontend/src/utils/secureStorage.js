@@ -3,17 +3,15 @@
  * Provides encrypted storage for sensitive data with automatic cleanup
  */
 
-// Simple encryption using base64 encoding with a rotating key
+// Simple encryption using base64 encoding
 // Note: For production, consider using a proper encryption library like crypto-js
 const STORAGE_KEY_PREFIX = '_secure_'
-const ROTATION_KEY = () => new Date().toISOString().split('T')[0] // Rotates daily
 
 // Simple obfuscation (not true encryption, but better than plain text)
 const encode = (data) => {
   try {
     const json = JSON.stringify(data)
-    const key = ROTATION_KEY()
-    return btoa(json + key)
+    return btoa(json)
   } catch (err) {
     console.error('Encoding error:', err)
     return null
@@ -23,9 +21,7 @@ const encode = (data) => {
 const decode = (encoded) => {
   try {
     const decoded = atob(encoded)
-    const key = ROTATION_KEY()
-    const json = decoded.replace(key, '')
-    return JSON.parse(json)
+    return JSON.parse(decoded)
   } catch (err) {
     console.error('Decoding error:', err)
     return null

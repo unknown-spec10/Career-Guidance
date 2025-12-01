@@ -9,8 +9,11 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
   const [redirectPath, setRedirectPath] = useState(null)
 
   useEffect(() => {
+    console.log('[ProtectedRoute] Checking authentication...')
+    
     // Check session validity
     if (!checkSessionValidity()) {
+      console.log('[ProtectedRoute] Session expired')
       secureStorage.clear()
       setRedirectPath('/login')
       setLoading(false)
@@ -20,7 +23,12 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
     const token = secureStorage.getItem('token')
     const user = secureStorage.getItem('user')
     
+    console.log('[ProtectedRoute] Token exists:', !!token)
+    console.log('[ProtectedRoute] User exists:', !!user)
+    console.log('[ProtectedRoute] User data:', user)
+    
     if (!token || !user) {
+      console.log('[ProtectedRoute] Missing token or user, redirecting to login')
       setRedirectPath('/login')
       setLoading(false)
       return
@@ -31,16 +39,23 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
       const payload = JSON.parse(atob(token.split('.')[1]))
       const exp = payload.exp * 1000
       
+      console.log('[ProtectedRoute] Token expires at:', new Date(exp))
+      console.log('[ProtectedRoute] Current time:', new Date())
+      
       if (Date.now() >= exp) {
-        console.warn('Token expired')
+        console.warn('[ProtectedRoute] Token expired')
         secureStorage.clear()
         setRedirectPath('/login')
         setLoading(false)
         return
       }
 
+      console.log('[ProtectedRoute] User role:', user.role)
+      console.log('[ProtectedRoute] Allowed roles:', allowedRoles)
+
       // Check if user has required role
       if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+        console.log('[ProtectedRoute] User role not allowed, redirecting to appropriate dashboard')
         // Wrong role, redirect to appropriate dashboard
         switch (user.role) {
           case 'admin':
@@ -60,11 +75,12 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
       }
 
       // All checks passed
+      console.log('[ProtectedRoute] All checks passed, rendering protected content')
       setIsValid(true)
       setLoading(false)
     } catch (err) {
       // Invalid user data, clear and redirect
-      console.error('Auth validation error:', err)
+      console.error('[ProtectedRoute] Auth validation error:', err)
       secureStorage.clear()
       setRedirectPath('/login')
       setLoading(false)
