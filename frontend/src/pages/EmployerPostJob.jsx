@@ -3,9 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Briefcase, PlusCircle, Trash2, LogOut, AlertTriangle, CheckCircle } from 'lucide-react'
 import api from '../config/api'
+import secureStorage from '../utils/secureStorage'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
+import { sanitizeInput } from '../utils/sanitize'
 
 export default function EmployerPostJob() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [locationCity, setLocationCity] = useState('')
@@ -22,16 +27,16 @@ export default function EmployerPostJob() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
 
-  const logout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+  const handleLogout = () => {
+    secureStorage.clear()
     delete api.defaults.headers.common['Authorization']
     navigate('/login')
   }
 
   const addRequiredSkill = () => {
     if (!reqSkillDraft.name.trim()) return
-    setRequiredSkills(prev => [...prev, { name: reqSkillDraft.name.trim(), level: reqSkillDraft.level || 'basic' }])
+    const sanitizedName = sanitizeInput(reqSkillDraft.name.trim())
+    setRequiredSkills(prev => [...prev, { name: sanitizedName, level: reqSkillDraft.level || 'basic' }])
     setReqSkillDraft({ name: '', level: '' })
   }
 
@@ -41,7 +46,8 @@ export default function EmployerPostJob() {
 
   const addOptionalSkill = () => {
     if (!optSkillDraft.name.trim()) return
-    setOptionalSkills(prev => [...prev, { name: optSkillDraft.name.trim(), level: optSkillDraft.level || 'basic' }])
+    const sanitizedName = sanitizeInput(optSkillDraft.name.trim())
+    setOptionalSkills(prev => [...prev, { name: sanitizedName, level: optSkillDraft.level || 'basic' }])
     setOptSkillDraft({ name: '', level: '' })
   }
 
@@ -63,10 +69,10 @@ export default function EmployerPostJob() {
 
     try {
       const payload = {
-        title,
-        description,
-        location_city: locationCity,
-        location_state: locationState || null,
+        title: sanitizeInput(title),
+        description: sanitizeInput(description),
+        location_city: sanitizeInput(locationCity),
+        location_state: locationState ? sanitizeInput(locationState) : null,
         work_type: workType,
         min_experience_years: Number(minExperienceYears) || 0,
         min_cgpa: minCgpa ? Number(minCgpa) : null,
@@ -77,11 +83,14 @@ export default function EmployerPostJob() {
 
       const res = await api.post('/api/employer/jobs', payload)
       setSuccess(true)
+      toast.success('Job posted successfully! Pending admin approval.')
       setTimeout(() => {
         navigate('/employer/dashboard')
-      }, 1000)
+      }, 1500)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to create job')
+      const errorMsg = err.response?.data?.detail || 'Failed to create job'
+      setError(errorMsg)
+      toast.error(errorMsg)
     } finally {
       setSubmitting(false)
     }
@@ -100,7 +109,7 @@ export default function EmployerPostJob() {
             <p className="text-gray-400">Fill out the details below. Job will be pending admin approval.</p>
           </div>
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="flex items-center space-x-2 px-4 py-2 bg-red-900/20 border border-red-500/30 rounded-lg hover:bg-red-900/30 transition-colors text-red-400"
           >
             <LogOut className="w-5 h-5" />
@@ -322,6 +331,7 @@ export default function EmployerPostJob() {
           </div>
         </motion.form>
       </div>
+      <ToastContainer />
     </div>
   )
 }

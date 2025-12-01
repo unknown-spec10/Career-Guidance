@@ -1,20 +1,20 @@
 import React, { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import secureStorage from '../utils/secureStorage'
 
 export default function DashboardRouter() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user')
+    const user = secureStorage.getItem('user')
     
-    if (!userStr) {
+    if (!user) {
       // Not logged in, redirect to login
       navigate('/login')
       return
     }
 
     try {
-      const user = JSON.parse(userStr)
       
       // Redirect to role-specific dashboard
       switch (user.role) {
@@ -35,7 +35,7 @@ export default function DashboardRouter() {
       }
     } catch (err) {
       // Invalid user data
-      localStorage.clear()
+      secureStorage.clear()
       navigate('/login')
     }
   }, [navigate])

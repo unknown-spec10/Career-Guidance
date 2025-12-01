@@ -7,9 +7,13 @@ import {
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
+import ScrollToTop from '../components/ScrollToTop'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
 
 export default function EmployerDashboard() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [stats, setStats] = useState({
     totalJobs: 0,
     pendingJobs: 0,
@@ -17,6 +21,8 @@ export default function EmployerDashboard() {
     totalApplicants: 0
   })
   const [jobs, setJobs] = useState([])
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(10)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -25,8 +31,7 @@ export default function EmployerDashboard() {
   const [modalError, setModalError] = useState(null)
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    secureStorage.clear()
     delete api.defaults.headers.common['Authorization']
     navigate('/login')
   }
@@ -107,6 +112,7 @@ export default function EmployerDashboard() {
 
   return (
     <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -257,7 +263,14 @@ export default function EmployerDashboard() {
           transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 5 }}
           className="card"
         >
-          <h2 className="text-xl font-semibold mb-4">Your Job Postings</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Your Job Postings</h2>
+            {jobs.length > 0 && (
+              <span className="text-sm text-gray-400">
+                Showing {((page - 1) * pageSize) + 1}-{Math.min(page * pageSize, jobs.length)} of {jobs.length}
+              </span>
+            )}
+          </div>
           {jobs.length === 0 ? (
             <div className="text-center py-12">
               <Briefcase className="w-16 h-16 text-gray-600 mx-auto mb-4" />
@@ -270,8 +283,9 @@ export default function EmployerDashboard() {
               </button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {jobs.map((job, idx) => (
+            <>
+              <div className="space-y-4">
+                {jobs.slice((page - 1) * pageSize, page * pageSize).map((job, idx) => (
                 <motion.div
                   key={job.id}
                   initial={{ opacity: 0, x: -20 }}
@@ -305,12 +319,14 @@ export default function EmployerDashboard() {
                         setModalError(null)
                         setModalLoading(true)
                         try {
-                          const res = await api.get(`/api/employer/jobs/${job.id}`)
-                          setModalJob(res.data.job)
-                          setModalOpen(true)
-                        } catch (err) {
-                          setModalError(err.response?.data?.detail || 'Failed to load job details')
-                        } finally {
+                        const res = await api.get(`/api/employer/jobs/${job.id}`)
+                        setModalJob(res.data.job)
+                        setModalOpen(true)
+                      } catch (err) {
+                        const errorMsg = err.response?.data?.detail || 'Failed to load job details'
+                        setModalError(errorMsg)
+                        toast.error(errorMsg)
+                      } finally {
                           setModalLoading(false)
                         }
                       }}
@@ -327,8 +343,33 @@ export default function EmployerDashboard() {
                 </motion.div>
               ))}
             </div>
+              
+              {/* Pagination */}
+              {Math.ceil(jobs.length / pageSize) > 1 && (
+                <div className="flex justify-center items-center space-x-2 mt-6 pt-4 border-t border-dark-700">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-4 py-2 btn-secondary disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-gray-400 text-sm">
+                    Page {page} of {Math.ceil(jobs.length / pageSize)}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(Math.ceil(jobs.length / pageSize), p + 1))}
+                    disabled={page === Math.ceil(jobs.length / pageSize)}
+                    className="px-4 py-2 btn-primary disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </motion.div>
+        <ScrollToTop />
       </div>
     </div>
   )

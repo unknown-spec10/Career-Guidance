@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { 
   ArrowLeft, Briefcase, MapPin, Clock, TrendingUp, Award, Building2, ExternalLink 
 } from 'lucide-react'
-import axios from 'axios'
+import api from '../config/api'
 
 export default function JobDetailsPage() {
   const { jobId } = useParams()

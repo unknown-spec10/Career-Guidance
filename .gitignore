@@ -44,8 +44,19 @@ frontend/.cache/
 Thumbs.db
 desktop.ini
 
+# Test & Coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs (production)
+*.log.*
+logs/
+
 # Misc
 *.bak
 *.tmp
-.coverage
-htmlcov/

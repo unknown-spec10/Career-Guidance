@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { 
   ArrowLeft, GraduationCap, MapPin, Users, Award, TrendingUp, ExternalLink, BookOpen 
 } from 'lucide-react'
-import axios from 'axios'
+import api from '../config/api'
 
 export default function CollegeDetailsPage() {
   const { collegeId } = useParams()

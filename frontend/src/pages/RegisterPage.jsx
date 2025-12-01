@@ -3,9 +3,13 @@ import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Mail, Lock, User, Phone, Briefcase, GraduationCap, UserCircle, AlertTriangle, CheckCircle, KeyRound } from 'lucide-react'
 import api from '../config/api'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
+import { sanitizeInput } from '../utils/sanitize'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -63,7 +67,7 @@ export default function RegisterPage() {
     
     try {
       await api.post('/api/auth/resend-code', { email: formData.email })
-      alert('Verification code resent! Check your email.')
+      toast.success('Verification code resent! Check your email.')
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to resend code')
     } finally {
@@ -247,6 +251,7 @@ export default function RegisterPage() {
           )}
         </div>
       </motion.div>
+      <ToastContainer />
     </div>
   )
 }

@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AlertTriangle, LogOut } from 'lucide-react'
 import api from '../config/api'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
 
 export default function EmployerJobDetails(){
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const toast = useToast()
   const [job, setJob] = useState(null)
   const [metadata, setMetadata] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -19,7 +22,9 @@ export default function EmployerJobDetails(){
         setJob(res.data.job)
         setMetadata(res.data.metadata)
       } catch (err){
-        setError(err.response?.data?.detail || 'Failed to load job details')
+        const errorMsg = err.response?.data?.detail || 'Failed to load job details'
+        setError(errorMsg)
+        toast.error(errorMsg)
       } finally {
         setLoading(false)
       }
@@ -32,6 +37,7 @@ export default function EmployerJobDetails(){
 
   return (
     <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-3xl">
         <div className="card p-6">
           <div className="flex items-center justify-between mb-4">

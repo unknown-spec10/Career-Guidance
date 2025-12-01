@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { GraduationCap, MapPin, TrendingUp, Users, ExternalLink, AlertTriangle, Filter, Search, SortAsc } from 'lucide-react'
+import { GraduationCap, MapPin, TrendingUp, Users, ExternalLink, AlertTriangle, Filter, Search, SortAsc, Award, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../config/api'
 import { PAGINATION, ANIMATION_DELAYS, DEBOUNCE_DELAYS } from '../config/constants'
 import { useDebounce } from '../hooks/useDebounce'
+import ScrollToTop from '../components/ScrollToTop'
+import { GridSkeleton } from '../components/Skeleton'
+import EmptyState from '../components/EmptyState'
+import { NewBadge } from '../components/StatusBadge'
 
 export default function CollegesPage() {
   const [colleges, setColleges] = useState([])
@@ -44,10 +48,16 @@ export default function CollegesPage() {
     }
   }
 
-  if (loading) {
+  if (loading && colleges.length === 0) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
-        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-8">
+            <div className="h-10 bg-dark-800 rounded w-80 mb-2 animate-pulse"></div>
+            <div className="h-6 bg-dark-800 rounded w-96 animate-pulse"></div>
+          </div>
+          <GridSkeleton count={9} columns={3} />
+        </div>
       </div>
     )
   }
@@ -75,87 +85,68 @@ export default function CollegesPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="card mb-8"
+          className="mb-6"
         >
-          <div className="flex items-center space-x-2 mb-4">
-            <Filter className="w-5 h-5 text-primary-400" />
-            <h2 className="text-lg font-semibold">Filters</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-3">
-              <label className="block text-sm text-gray-400 mb-2">Search</label>
-              <div className="relative">
-                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search college name"
-                  value={filters.q}
-                  onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-                  className="input pl-9"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Location</label>
+          <div className="bg-dark-800/50 backdrop-blur-sm border border-dark-700/50 rounded-xl p-4">
+            {/* Search Bar */}
+            <div className="relative mb-4">
+              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="e.g. Pune"
+                placeholder="Search college name..."
+                value={filters.q}
+                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+                className="w-full bg-dark-900/80 border border-dark-600 rounded-lg px-10 py-2.5 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
+              />
+            </div>
+            
+            {/* Inline Filters */}
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                placeholder="Location"
                 value={filters.location}
                 onChange={(e) => setFilters({ ...filters, location: e.target.value })}
-                className="input"
+                className="flex-1 min-w-[130px] bg-dark-900/60 border border-dark-600/60 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
               />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Min JEE Rank</label>
               <input
                 type="number"
-                placeholder="e.g. 5000"
+                placeholder="Max JEE Rank"
                 value={filters.min_jee_rank}
                 onChange={(e) => setFilters({ ...filters, min_jee_rank: e.target.value })}
-                className="input"
+                className="flex-1 min-w-[130px] bg-dark-900/60 border border-dark-600/60 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
               />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Min CGPA</label>
               <input
                 type="number"
                 step="0.1"
-                placeholder="e.g. 7.5"
+                placeholder="Min CGPA"
                 value={filters.min_cgpa}
                 onChange={(e) => setFilters({ ...filters, min_cgpa: e.target.value })}
-                className="input"
+                className="flex-1 min-w-[110px] bg-dark-900/60 border border-dark-600/60 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
               />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Min Programs</label>
               <input
                 type="number"
-                placeholder="e.g. 5"
+                placeholder="Min Programs"
                 value={filters.programs_min}
                 onChange={(e) => setFilters({ ...filters, programs_min: e.target.value })}
-                className="input"
+                className="flex-1 min-w-[130px] bg-dark-900/60 border border-dark-600/60 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
               />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Sort By</label>
-              <div className="relative">
-                <SortAsc className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <div className="relative flex-1 min-w-[110px]">
+                <SortAsc className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <select
                   value={filters.sort}
                   onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
-                  className="select pl-9"
+                  className="w-full bg-dark-900/60 border border-dark-600/60 rounded-lg pl-8 pr-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors appearance-none"
                 >
-                  <option value="popular">Popularity</option>
-                  <option value="name">Name</option>
+                  <option value="popular">Popular</option>
+                  <option value="name">A-Z</option>
                 </select>
               </div>
-            </div>
-            <div className="flex items-end">
               <button
                 onClick={() => setFilters({ location: '', min_jee_rank: '', min_cgpa: '', programs_min: '', q: '', sort: 'popular' })}
-                className="btn-secondary w-full"
+                className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-dark-600/60 hover:border-dark-500 rounded-lg transition-colors"
               >
-                Clear Filters
+                Reset
               </button>
             </div>
           </div>
@@ -227,17 +218,32 @@ export default function CollegesPage() {
         </div>
 
         {colleges.length === 0 && !loading && (
-          <div className="text-center py-12">
-            <GraduationCap className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 text-lg">No colleges found</p>
-          </div>
+          <EmptyState
+            icon="search"
+            title="No Colleges Found"
+            message={filters.q || filters.location || filters.min_jee_rank
+              ? "Try adjusting your filters to discover more institutions."
+              : "No colleges are currently listed. Check back soon!"}
+            actionLabel={filters.q || filters.location || filters.min_jee_rank ? "Clear Filters" : undefined}
+            onAction={filters.q || filters.location || filters.min_jee_rank ? () => {
+              setFilters({
+                location: '',
+                min_jee_rank: '',
+                min_cgpa: '',
+                programs_min: '',
+                q: '',
+                sort: 'popular'
+              })
+              setPage(1)
+            } : undefined}
+          />
         )}
 
         {/* Pagination */}
         {Math.ceil(total / pageSize) > 1 && (
           <div className="flex justify-center items-center space-x-2 mt-8">
             <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
+              onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
               disabled={page === 1}
               className="px-4 py-2 btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -247,7 +253,7 @@ export default function CollegesPage() {
               Page {page} of {Math.ceil(total / pageSize)}
             </span>
             <button
-              onClick={() => setPage(p => Math.min(Math.ceil(total / pageSize), p + 1))}
+              onClick={() => { setPage(p => Math.min(Math.ceil(total / pageSize), p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
               disabled={page === Math.ceil(total / pageSize)}
               className="px-4 py-2 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -255,6 +261,7 @@ export default function CollegesPage() {
             </button>
           </div>
         )}
+        <ScrollToTop />
       </div>
     </div>
   )

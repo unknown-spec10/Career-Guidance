@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Briefcase, MapPin, Clock, TrendingUp, Filter, AlertTriangle, Search, SortAsc } from 'lucide-react'
+import { Briefcase, MapPin, Clock, TrendingUp, Filter, AlertTriangle, Search, SortAsc, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useDebounce } from '../hooks/useDebounce'
 import api from '../config/api'
 import { PAGINATION, DEBOUNCE_DELAYS, ANIMATION_DELAYS } from '../config/constants'
+import ScrollToTop from '../components/ScrollToTop'
+import { ListSkeleton } from '../components/Skeleton'
+import EmptyState from '../components/EmptyState'
+import { NewBadge } from '../components/StatusBadge'
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState([])
@@ -49,10 +53,16 @@ export default function JobsPage() {
     }
   }
 
-  if (loading) {
+  if (loading && jobs.length === 0) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
-        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-8">
+            <div className="h-10 bg-dark-800 rounded w-64 mb-2 animate-pulse"></div>
+            <div className="h-6 bg-dark-800 rounded w-96 animate-pulse"></div>
+          </div>
+          <ListSkeleton count={5} />
+        </div>
       </div>
     )
   }
@@ -80,91 +90,66 @@ export default function JobsPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="card mb-8"
+          className="mb-6"
         >
-          <div className="flex items-center space-x-2 mb-4">
-            <Filter className="w-5 h-5 text-primary-400" />
-            <h2 className="text-lg font-semibold">Filters</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-3">
-              <label className="block text-sm text-gray-400 mb-2">Search</label>
-              <div className="relative">
-                <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search title or company"
-                  value={filters.q}
-                  onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-                  className="input pl-9"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Location</label>
+          <div className="bg-dark-800/50 backdrop-blur-sm border border-dark-700/50 rounded-xl p-4">
+            {/* Search Bar */}
+            <div className="relative mb-4">
+              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="e.g. Bangalore"
-                value={filters.location}
-                onChange={(e) => setFilters({ ...filters, location: e.target.value })}
-                className="input"
+                placeholder="Search title or company..."
+                value={filters.q}
+                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+                className="w-full bg-dark-900/80 border border-dark-600 rounded-lg px-10 py-2.5 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
               />
             </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Work Type</label>
+            
+            {/* Inline Filters */}
+            <div className="flex flex-wrap gap-2">
+              <div className="flex-1 min-w-[140px]">
+                <input
+                  type="text"
+                  placeholder="Location"
+                  value={filters.location}
+                  onChange={(e) => setFilters({ ...filters, location: e.target.value })}
+                  className="w-full bg-dark-900/60 border border-dark-600/60 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
+                />
+              </div>
               <select
                 value={filters.work_type}
                 onChange={(e) => setFilters({ ...filters, work_type: e.target.value })}
-                className="select"
+                className="flex-1 min-w-[120px] bg-dark-900/60 border border-dark-600/60 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
               >
                 <option value="">All Types</option>
                 <option value="remote">Remote</option>
                 <option value="on-site">On-site</option>
                 <option value="hybrid">Hybrid</option>
               </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Required Skills</label>
               <input
                 type="text"
-                placeholder="e.g. Python, React"
+                placeholder="Skills (comma separated)"
                 value={filters.skills}
                 onChange={(e) => setFilters({ ...filters, skills: e.target.value })}
-                className="input"
+                className="flex-1 min-w-[180px] bg-dark-900/60 border border-dark-600/60 rounded-lg px-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors"
               />
-              <p className="text-xs text-gray-500 mt-1">Comma-separated for multiple skills</p>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Sort By</label>
-              <div className="relative">
-                <SortAsc className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <div className="relative flex-1 min-w-[120px]">
+                <SortAsc className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <select
                   value={filters.sort}
                   onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
-                  className="select pl-9"
+                  className="w-full bg-dark-900/60 border border-dark-600/60 rounded-lg pl-8 pr-3 py-2 text-sm focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 transition-colors appearance-none"
                 >
-                  <option value="popular">Popularity</option>
-                  <option value="recent">Recently Posted</option>
-                  <option value="title">Title</option>
+                  <option value="popular">Popular</option>
+                  <option value="recent">Recent</option>
+                  <option value="title">A-Z</option>
                 </select>
               </div>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Min Popularity</label>
-              <input
-                type="number"
-                placeholder="e.g. 50"
-                value={filters.min_popularity}
-                onChange={(e) => setFilters({ ...filters, min_popularity: e.target.value })}
-                className="input"
-              />
-            </div>
-            <div className="flex items-end">
               <button
                 onClick={() => setFilters({ location: '', work_type: '', q: '', skills: '', sort: 'popular', min_popularity: '' })}
-                className="btn-secondary w-full"
+                className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-dark-600/60 hover:border-dark-500 rounded-lg transition-colors"
               >
-                Clear Filters
+                Reset
               </button>
             </div>
           </div>
@@ -186,7 +171,18 @@ export default function JobsPage() {
                         <Briefcase className="w-6 h-6 text-green-400" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-semibold text-xl mb-1">{job.title}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-xl">{job.title}</h3>
+                          {idx < 3 && job.popularity >= 0.7 && <NewBadge />}
+                          {job.popularity >= 0.8 && (
+                            <motion.div
+                              animate={{ rotate: [0, 10, -10, 0] }}
+                              transition={{ duration: 2, repeat: Infinity }}
+                            >
+                              <Sparkles className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                            </motion.div>
+                          )}
+                        </div>
                         <p className="text-gray-400 mb-3">{job.company}</p>
                         
                         <div className="flex flex-wrap gap-4 text-sm text-gray-400">
@@ -245,17 +241,32 @@ export default function JobsPage() {
         </div>
 
         {jobs.length === 0 && !loading && (
-          <div className="text-center py-12">
-            <Briefcase className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 text-lg">No jobs found</p>
-          </div>
+          <EmptyState
+            icon="search"
+            title="No Jobs Found"
+            message={filters.q || filters.location || filters.skills 
+              ? "Try adjusting your filters or search terms to find more opportunities."
+              : "No job opportunities are currently available. Check back soon!"}
+            actionLabel={filters.q || filters.location || filters.skills ? "Clear Filters" : undefined}
+            onAction={filters.q || filters.location || filters.skills ? () => {
+              setFilters({
+                location: '',
+                work_type: '',
+                q: '',
+                skills: '',
+                sort: 'popular',
+                min_popularity: ''
+              })
+              setPage(1)
+            } : undefined}
+          />
         )}
 
         {/* Pagination */}
         {Math.ceil(total / pageSize) > 1 && (
           <div className="flex justify-center items-center space-x-2 mt-8">
             <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
+              onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
               disabled={page === 1}
               className="px-4 py-2 btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -265,7 +276,7 @@ export default function JobsPage() {
               Page {page} of {Math.ceil(total / pageSize)}
             </span>
             <button
-              onClick={() => setPage(p => Math.min(Math.ceil(total / pageSize), p + 1))}
+              onClick={() => { setPage(p => Math.min(Math.ceil(total / pageSize), p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
               disabled={page === Math.ceil(total / pageSize)}
               className="px-4 py-2 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -273,6 +284,7 @@ export default function JobsPage() {
             </button>
           </div>
         )}
+        <ScrollToTop />
       </div>
     </div>
   )

@@ -18,6 +18,8 @@ import RegisterPage from './pages/RegisterPage'
 import EmailVerificationPage from './pages/EmailVerificationPage'
 import ResendVerificationPage from './pages/ResendVerificationPage'
 import VerifyCodePage from './pages/VerifyCodePage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import StudentDashboard from './pages/StudentDashboard'
 import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerPostJob from './pages/EmployerPostJob'
@@ -26,7 +28,9 @@ import CollegeDashboard from './pages/CollegeDashboard'
 import AdminReviewsPage from './pages/AdminDashboard'
 import ProtectedRoute from './components/ProtectedRoute'
 import Footer from './components/Footer'
+import ErrorBoundary from './components/ErrorBoundary'
 import api from './config/api'
+import secureStorage from './utils/secureStorage'
 
 function HomePage() {
   return (
@@ -39,17 +43,21 @@ function HomePage() {
 
 function App() {
   useEffect(() => {
+    // Migrate from localStorage to secureStorage on first load
+    secureStorage.migrateFromLocalStorage()
+    
     // Set authorization header if token exists
-    const token = localStorage.getItem('token')
+    const token = secureStorage.getItem('token')
     if (token) {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`
     }
   }, [])
 
   return (
-    <Router>
-      <div className="min-h-screen flex flex-col">
-        <Navbar />
+    <ErrorBoundary>
+      <Router>
+        <div className="min-h-screen flex flex-col">
+          <Navbar />
         <main className="flex-grow">
           <Routes>
             {/* Public Routes */}
@@ -59,6 +67,8 @@ function App() {
             <Route path="/verify-email" element={<EmailVerificationPage />} />
             <Route path="/verify-code" element={<VerifyCodePage />} />
             <Route path="/resend-verification" element={<ResendVerificationPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/colleges" element={<CollegesPage />} />
             <Route path="/college/:collegeId" element={<CollegeDetailsPage />} />
             <Route path="/jobs" element={<JobsPage />} />
@@ -145,11 +155,7 @@ function App() {
             />
             <Route 
               path="/applicant/:applicantId" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <ApplicantDetailsPage />
-                </ProtectedRoute>
-              } 
+              element={<ApplicantDetailsPage />} 
             />
 
             {/* Smart Dashboard Router - redirects to role-specific dashboard */}
@@ -157,8 +163,9 @@ function App() {
           </Routes>
         </main>
         <Footer />
-      </div>
-    </Router>
+        </div>
+      </Router>
+    </ErrorBoundary>
   )
 }
 

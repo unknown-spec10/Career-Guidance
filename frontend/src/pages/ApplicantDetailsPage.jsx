@@ -13,24 +13,45 @@ export default function ApplicantDetailsPage() {
   const [recommendations, setRecommendations] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchData()
-  }, [applicantId])
-
   const fetchData = async () => {
     try {
-      const [detailsRes, recsRes] = await Promise.all([
-        api.get(`/api/applicant/${applicantId}`),
-        api.get(`/api/recommendations/${applicantId}`)
-      ])
+      setLoading(true)
+      const apiUrl = `/api/applicant/${applicantId}`
+      console.log('Fetching applicant details from:', apiUrl)
+      console.log('API base URL:', api.defaults.baseURL)
+
+      // First fetch applicant details to get the DB ID
+      const detailsRes = await api.get(apiUrl)
+      console.log('Applicant details received:', detailsRes.data)
       setData(detailsRes.data)
-      setRecommendations(recsRes.data)
+      
+      // Then fetch recommendations using the numeric DB ID
+      const dbId = detailsRes.data?.applicant?.id
+      console.log('Using DB ID for recommendations:', dbId)
+      
+      if (dbId) {
+        const recsRes = await api.get(`/api/recommendations/${dbId}`)
+        console.log('Recommendations received:', recsRes.data)
+        setRecommendations(recsRes.data)
+      } else {
+        console.warn('No DB ID found, skipping recommendations')
+        setRecommendations({ college_recommendations: [], job_recommendations: [] })
+      }
     } catch (error) {
-      console.error('Error fetching data:', error)
+      console.error('Error fetching applicant data:', error)
+      console.error('Error details:', error.response?.data || error.message)
+      // Set null data to trigger error UI
+      setData(null)
+      setRecommendations({ college_recommendations: [], job_recommendations: [] })
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicantId])
 
   if (loading) {
     return (
@@ -40,8 +61,35 @@ export default function ApplicantDetailsPage() {
     )
   }
 
-  const applicant = data?.applicant
-  const parsed = data?.parsed_data || {}
+  // Add null check for data and applicant
+  if (!data || !data.applicant) {
+    return (
+      <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <button
+            onClick={() => navigate('/applicants')}
+            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors duration-200 mb-4"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span>Back to Applicants</span>
+          </button>
+          <div className="text-center py-12">
+            <p className="text-gray-400 text-lg mb-2">Unable to load applicant data.</p>
+            <p className="text-gray-500 text-sm">The applicant may not exist or there was an error fetching the data.</p>
+            <button
+              onClick={() => navigate('/applicants')}
+              className="mt-4 btn-primary"
+            >
+              Back to Applicants List
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const applicant = data.applicant
+  const parsed = data.parsed_data || {}
   // Support both `personal` and `personal_info` keys from different parser outputs
   const personal = parsed.personal || parsed.personal_info || {}
   const education = parsed.education || []
@@ -117,8 +165,10 @@ export default function ApplicantDetailsPage() {
                     <div key={idx} className="pb-4 border-b border-dark-700 last:border-0 last:pb-0">
                       <p className="font-medium">{edu.institution}</p>
                       <p className="text-sm text-gray-400">{edu.degree}</p>
-                      {edu.cgpa && (
-                        <p className="text-sm text-primary-400 mt-1">CGPA: {edu.cgpa}</p>
+                      {(edu.cgpa || edu.grade) && (
+                        <p className="text-sm text-primary-400 mt-1">
+                          {edu.cgpa ? `CGPA: ${edu.cgpa}` : `Grade: ${edu.grade}`}
+                        </p>
                       )}
                     </div>
                   ))}
@@ -191,7 +241,9 @@ export default function ApplicantDetailsPage() {
                     </div>
                     {rec.explain && (
                       <p className="text-sm text-gray-400 mt-2">
-                        {rec.explain.reasoning || 'Good match based on profile'}
+                        {Array.isArray(rec.explain.reasons) 
+                          ? rec.explain.reasons.join(', ') 
+                          : rec.explain.reasoning || rec.explain.match_details || 'Good match based on profile'}
                       </p>
                     )}
                   </Link>
@@ -239,7 +291,11 @@ export default function ApplicantDetailsPage() {
                       </div>
                     </div>
                     {rec.explain && (
-                      <p className="text-sm text-gray-400 mt-2">{rec.explain}</p>
+                      <p className="text-sm text-gray-400 mt-2">
+                        {typeof rec.explain === 'string' 
+                          ? rec.explain 
+                          : (rec.explain.reasons?.join(', ') || rec.explain.reasoning || rec.explain.match_details || 'Good match')}
+                      </p>
                     )}
                   </Link>
                 ))}

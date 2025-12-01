@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { GraduationCap, Menu, X, LayoutDashboard, Users, Building2, Briefcase, LogOut, Shield, PlusCircle, FileText } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import api from '../config/api'
+import secureStorage from '../utils/secureStorage'
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -17,18 +18,17 @@ export default function Navbar() {
     }
     window.addEventListener('scroll', handleScroll)
     
-    // Check if user is logged in
-    const storedUser = localStorage.getItem('user')
+    // Check if user is logged in from secure storage
+    const storedUser = secureStorage.getItem('user')
     if (storedUser) {
-      setUser(JSON.parse(storedUser))
+      setUser(storedUser)
     }
     
     return () => window.removeEventListener('scroll', handleScroll)
   }, [location])
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    secureStorage.clear()
     delete api.defaults.headers.common['Authorization']
     setUser(null)
     navigate('/login')

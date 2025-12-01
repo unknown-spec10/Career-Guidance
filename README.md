@@ -4,12 +4,28 @@ An AI-powered career guidance platform that provides intelligent resume parsing,
 
 ## 🚀 Features
 
+### Core Functionality
 - **AI Resume Parsing**: Extract structured data from resumes using Google Gemini AI
 - **Smart College Recommendations**: Match applicants with suitable colleges based on eligibility and profile
 - **Job Matching**: Intelligent job recommendations with skill-based scoring
 - **Modern Web Interface**: React-based dashboard with real-time data visualization
 - **Comprehensive Database**: Track applicants, colleges, jobs, and recommendations
 - **RESTful API**: FastAPI backend with complete CRUD operations
+
+### Security & Authentication
+- **User Authentication**: JWT-based authentication with role-based access control
+- **Email Verification**: Gmail SMTP integration with HTML email templates
+- **Password Reset**: Secure password reset with 6-digit verification codes
+- **XSS Protection**: Comprehensive input sanitization on both client and server
+- **Rate Limiting**: Protection against brute force attacks on sensitive endpoints
+
+### UX Enhancements
+- **Skeleton Loaders**: Smooth loading states with 6 variants (Stats, Card, Table, List, Profile, Dashboard)
+- **Error Boundaries**: Graceful error handling with recovery options
+- **Toast Notifications**: Consistent, accessible notifications across all actions
+- **Optimistic Updates**: Instant UI feedback with automatic rollback on errors
+- **Progressive Loading**: Paginated lists with smooth load-more functionality
+- **Loading Animations**: Framer Motion animations for better perceived performance
 
 ## 📋 System Architecture
 
@@ -55,19 +71,24 @@ Career Guidance/
 ## 🛠️ Technology Stack
 
 ### Backend
-- **FastAPI**: High-performance web framework
+- **FastAPI**: High-performance web framework with async support
 - **SQLAlchemy**: ORM for database operations
 - **PyMySQL**: MySQL database driver
 - **Google Gemini**: LLM for resume parsing
-- **Pydantic**: Data validation
+- **Pydantic**: Data validation and serialization
+- **JWT**: Token-based authentication
+- **bcrypt**: Password hashing
+- **smtplib**: Gmail SMTP email integration
 
 ### Frontend
-- **React 18**: UI library
+- **React 18**: UI library with hooks
 - **Vite**: Build tool and dev server
 - **Tailwind CSS**: Utility-first CSS framework
-- **Framer Motion**: Animation library
-- **Axios**: HTTP client
+- **Framer Motion**: Animation library for smooth transitions
+- **Axios**: HTTP client with interceptors
 - **React Router**: Client-side routing
+- **Lucide React**: Modern icon library
+- **Custom Hooks**: useToast, useOptimistic, useAuth for state management
 
 ### Database
 - **MySQL**: Relational database with 18 tables
@@ -250,11 +271,24 @@ pytest tests/test_api.py -v
 
 ## 🔒 Security
 
-- API keys stored in `.env` (never commit)
-- CORS configured for frontend origins
-- Input validation with Pydantic
-- SQL injection protection via SQLAlchemy ORM
-- File upload validation (type, size)
+### Authentication & Authorization
+- **JWT Tokens**: Secure bearer token authentication
+- **Password Hashing**: bcrypt with salt for password storage
+- **Role-Based Access**: Student, College, Employer, Admin roles
+- **Email Verification**: Mandatory email verification with 6-digit codes
+- **Password Reset**: Secure reset flow with time-limited codes (30-minute expiry)
+- **Rate Limiting**: Protection on login, register, and password reset endpoints
+
+### Data Protection
+- **XSS Prevention**: Client-side and server-side input sanitization
+  - HTML escape for text fields
+  - Tag removal for rich text
+  - URL protocol validation
+  - Filename path traversal protection
+- **SQL Injection**: SQLAlchemy ORM with parameterized queries
+- **CSRF Protection**: Token validation for state-changing operations
+- **File Upload Validation**: Type checking, size limits, secure storage
+- **Environment Variables**: Sensitive data in `.env` (never committed)
 
 ## 📦 Project Statistics
 
@@ -313,7 +347,31 @@ For issues or questions, check the logs:
 - [ ] Skills gap analysis
 - [ ] Integration with job boards
 
+## 📚 Key Components
+
+### Frontend Components
+- **ErrorBoundary**: Catches React errors with recovery UI
+- **SkeletonLoader**: Loading states (Stats, Card, Table, List, Profile, Dashboard)
+- **ProgressiveList**: Paginated lists with smooth loading
+- **ToastContainer**: Consistent notification system
+- **Protected Routes**: Authentication-gated pages
+
+### Backend Utilities
+- **sanitize_text()**: Server-side XSS prevention
+- **validate_email()**: RFC-compliant email validation
+- **send_verification_code_email()**: HTML email templates
+- **send_password_reset_code_email()**: Password reset emails
+- **validate_env()**: Startup environment validation
+
+### Security Utilities
+- **sanitizeInput()**: HTML escape for text
+- **sanitizeHTML()**: Tag removal
+- **sanitizeURL()**: Protocol validation
+- **sanitizeEmail()**: Email normalization
+- **sanitizeFilename()**: Path traversal prevention
+- **sanitizeObject()**: Recursive object sanitization
+
 ---
 
-**Last Updated**: November 26, 2025
-**Version**: 1.0.0
+**Last Updated**: December 2, 2025
+**Version**: 2.0.0

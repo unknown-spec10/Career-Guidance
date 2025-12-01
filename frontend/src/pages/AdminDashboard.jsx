@@ -7,9 +7,12 @@ import {
 } from 'lucide-react'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
 
 export default function AdminReviewsPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [stats, setStats] = useState({
     pendingJobs: 0,
     pendingPrograms: 0,
@@ -22,8 +25,7 @@ export default function AdminReviewsPage() {
   const [actionLoading, setActionLoading] = useState(null)
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    secureStorage.clear()
     delete api.defaults.headers.common['Authorization']
     navigate('/login')
   }
@@ -55,9 +57,20 @@ export default function AdminReviewsPage() {
     try {
       setActionLoading(`job-${jobId}`)
       await api.patch(`/api/admin/jobs/${jobId}/review`, { action, reason })
-      await fetchPendingReviews()
+      
+      // Optimistic update: remove from pending list
+      setPendingJobs(prev => prev.filter(j => j.id !== jobId))
+      setStats(prev => ({
+        ...prev,
+        pendingJobs: Math.max(0, prev.pendingJobs - 1),
+        totalPending: Math.max(0, prev.totalPending - 1)
+      }))
+      
+      toast.success(`Job ${action === 'approve' ? 'approved' : 'rejected'} successfully`)
     } catch (err) {
-      alert(err.response?.data?.detail || 'Action failed')
+      toast.error(err.response?.data?.detail || 'Action failed')
+      // Reload on error to restore accurate state
+      await fetchPendingReviews()
     } finally {
       setActionLoading(null)
     }
@@ -67,9 +80,20 @@ export default function AdminReviewsPage() {
     try {
       setActionLoading(`program-${programId}`)
       await api.patch(`/api/admin/programs/${programId}/review`, { action, reason })
-      await fetchPendingReviews()
+      
+      // Optimistic update: remove from pending list
+      setPendingPrograms(prev => prev.filter(p => p.id !== programId))
+      setStats(prev => ({
+        ...prev,
+        pendingPrograms: Math.max(0, prev.pendingPrograms - 1),
+        totalPending: Math.max(0, prev.totalPending - 1)
+      }))
+      
+      toast.success(`Program ${action === 'approve' ? 'approved' : 'rejected'} successfully`)
     } catch (err) {
-      alert(err.response?.data?.detail || 'Action failed')
+      toast.error(err.response?.data?.detail || 'Action failed')
+      // Reload on error to restore accurate state
+      await fetchPendingReviews()
     } finally {
       setActionLoading(null)
     }
@@ -99,6 +123,7 @@ export default function AdminReviewsPage() {
 
   return (
     <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { User, MapPin, Calendar, AlertTriangle, Eye } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../config/api'
+import { GridSkeleton } from '../components/Skeleton'
 import { PAGINATION, ANIMATION_DELAYS } from '../config/constants'
 
 export default function ApplicantsPage() {
@@ -49,10 +50,16 @@ export default function ApplicantsPage() {
 
   const totalPages = Math.ceil(total / pageSize)
 
-  if (loading) {
+  if (loading && applicants.length === 0) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
-        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-8">
+            <div className="h-10 bg-dark-800 rounded w-64 mb-2 animate-pulse"></div>
+            <div className="h-6 bg-dark-800 rounded w-96 animate-pulse"></div>
+          </div>
+          <GridSkeleton count={9} columns={3} />
+        </div>
       </div>
     )
   }

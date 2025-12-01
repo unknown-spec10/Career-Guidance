@@ -3,13 +3,24 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { 
   Briefcase, Building2, FileText, TrendingUp, Clock, 
-  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, GraduationCap 
+  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, GraduationCap, Target 
 } from 'lucide-react'
 import api from '../config/api'
+import secureStorage from '../utils/secureStorage'
 import { ANIMATION_DELAYS } from '../config/constants'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
+import StatCard from '../components/StatCard'
+import EmptyState from '../components/EmptyState'
+import StatusBadge, { NewBadge } from '../components/StatusBadge'
+import MatchScore from '../components/MatchScore'
+import ProgressBar from '../components/ProgressBar'
+import { SkeletonStats, SkeletonCard } from '../components/SkeletonLoader'
+import useOptimistic from '../hooks/useOptimistic'
 
 export default function StudentDashboard() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [stats, setStats] = useState({
     jobApplications: 0,
     collegeApplications: 0,
@@ -37,8 +48,7 @@ export default function StudentDashboard() {
   const recommendationsRef = React.useRef(null)
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    secureStorage.clear()
     delete api.defaults.headers.common['Authorization']
     navigate('/login')
   }
@@ -91,13 +101,13 @@ export default function StudentDashboard() {
         setTimeout(async () => {
           try {
             const parseRes = await api.post(`/parse/${response.data.applicant_id}`)
-            alert('Resume uploaded and parsed successfully! Check your recommendations.')
+            toast.success('Resume uploaded and parsed successfully! Check your recommendations.')
             setShowUploadForm(false)
             setNoApplicantProfile(false)
             // Persist DB applicant id to avoid upload prompt on refresh
             const dbId = parseRes.data?.db_applicant_id
             if (dbId) {
-              localStorage.setItem('db_applicant_id', String(dbId))
+              secureStorage.setItem('db_applicant_id', String(dbId))
               setApplicantId(dbId)
             }
             fetchDashboardData()
@@ -114,7 +124,7 @@ export default function StudentDashboard() {
             }, 200)
           } catch (parseErr) {
             console.error('Parse error:', parseErr)
-            alert('Resume uploaded but parsing failed. Please contact support.')
+            toast.error('Resume uploaded but parsing failed. Please contact support.')
           }
         }, 1000)
       }
@@ -133,7 +143,7 @@ export default function StudentDashboard() {
       try {
         setLoading(true)
         // Prefer persisted applicant id first (set after parse)
-        const storedId = localStorage.getItem('db_applicant_id')
+        const storedId = secureStorage.getItem('db_applicant_id')
         if (storedId) {
           setApplicantId(Number(storedId))
           await fetchDashboardData()
@@ -150,7 +160,7 @@ export default function StudentDashboard() {
         // Get applicant profile (DB id)
         const profileRes = await api.get('/api/student/applicant')
         setApplicantId(profileRes.data.id)
-        localStorage.setItem('db_applicant_id', String(profileRes.data.id))
+        secureStorage.setItem('db_applicant_id', String(profileRes.data.id))
         // Fetch dashboard data
         await fetchDashboardData()
         // Fetch recommendations
@@ -159,7 +169,7 @@ export default function StudentDashboard() {
       } catch (err) {
         if (err.response?.status === 404) {
           // If we have a stored applicant id or recommendations, don't prompt upload
-          const storedId = localStorage.getItem('db_applicant_id')
+          const storedId = secureStorage.getItem('db_applicant_id')
           if (storedId || recommendations.length > 0) {
             setNoApplicantProfile(false)
           } else {
@@ -199,12 +209,24 @@ export default function StudentDashboard() {
     }
   }
 
+  const {
+    data: optimisticRecs,
+    update: updateRecStatus,
+    isPending: statusUpdatePending,
+  } = useOptimistic(recommendations, setRecommendations)
+
   const handleApplyToJob = async (recId) => {
     try {
-      await api.patch(`/api/job-recommendation/${recId}/status`, { status: 'applied' })
-      setRecommendations((prev) => prev.map((r) => r.id === recId ? { ...r, status: 'applied' } : r))
+      // Optimistically update UI
+      updateRecStatus(
+        async () => {
+          await api.patch(`/api/job-recommendation/${recId}/status`, { status: 'applied' })
+        },
+        (prev) => prev.map((r) => r.id === recId ? { ...r, status: 'applied' } : r)
+      )
+      toast.success('Applied to job successfully!')
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to apply to job')
+      toast.error(err.response?.data?.detail || 'Failed to apply to job')
     }
   }
 
@@ -229,23 +251,32 @@ export default function StudentDashboard() {
       const formData = new FormData(form)
       // Attach recommendation id for backend
       formData.append('recommendation_id', easyApplyRec.id)
-      // Try a dedicated apply endpoint if available
-      let ok = false
-      try {
-        const res = await api.post(`/api/job-recommendation/${easyApplyRec.id}/apply`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-        ok = res.status >= 200 && res.status < 300
-      } catch {
-        ok = false
-      }
-      if (!ok) {
-        // Fallback: mark recommendation as applied
-        await api.patch(`/api/job-recommendation/${easyApplyRec.id}/status`, { status: 'applied' })
-      }
-      setRecommendations((prev) => prev.map((r) => r.id === easyApplyRec.id ? { ...r, status: 'applied' } : r))
+      
+      // Optimistically update UI before API call
+      updateRecStatus(
+        async () => {
+          // Try a dedicated apply endpoint if available
+          let ok = false
+          try {
+            const res = await api.post(`/api/job-recommendation/${easyApplyRec.id}/apply`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+            ok = res.status >= 200 && res.status < 300
+          } catch {
+            ok = false
+          }
+          if (!ok) {
+            // Fallback: mark recommendation as applied
+            await api.patch(`/api/job-recommendation/${easyApplyRec.id}/status`, { status: 'applied' })
+          }
+        },
+        (prev) => prev.map((r) => r.id === easyApplyRec.id ? { ...r, status: 'applied' } : r)
+      )
+      
       setEasyApplyOpen(false)
       setEasyApplyRec(null)
+      toast.success('Application submitted successfully!')
     } catch (err) {
       setEasyApplyError(err.response?.data?.detail || 'Easy Apply failed')
+      toast.error(err.response?.data?.detail || 'Easy Apply failed')
     } finally {
       setEasyApplyLoading(false)
     }
@@ -279,10 +310,16 @@ export default function StudentDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading dashboard...</p>
+      <div className="min-h-screen bg-dark-900 pt-24 px-4">
+        <div className="max-w-7xl mx-auto py-8 space-y-8">
+          <div className="animate-pulse">
+            <div className="h-8 bg-dark-800 rounded w-64 mb-2"></div>
+            <div className="h-4 bg-dark-800 rounded w-96"></div>
+          </div>
+          <SkeletonStats />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <SkeletonCard count={2} />
+          </div>
         </div>
       </div>
     )
@@ -301,6 +338,7 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
 
         {noApplicantProfile && (
@@ -337,53 +375,79 @@ export default function StudentDashboard() {
               <span>Recommended Jobs For You</span>
             </h2>
             <div className="space-y-3">
-              {recommendations.slice(0, 5).map((rec) => (
-                <div key={rec.id} className="p-4 bg-dark-900 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-colors">
-                  <div className="flex items-start justify-between">
+              {optimisticRecs.slice(0, 5).map((rec, idx) => (
+                <motion.div 
+                  key={rec.id} 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  className={`p-4 bg-dark-900 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg hover:shadow-primary-500/10 group ${
+                    statusUpdatePending ? 'opacity-70' : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
-                      <h3 className="font-medium mb-1">{rec.job.title}</h3>
-                      <p className="text-sm text-gray-400">{rec.job.company}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Location: {rec.job.location_city || 'N/A'} | Type: {rec.job.work_type || 'N/A'}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Score: <span className="text-primary-400 font-semibold">{rec.score?.toFixed(1)}</span>
-                      </p>
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-medium">{rec.job.title}</h3>
+                        {idx < 3 && <NewBadge />}
+                      </div>
+                      <p className="text-sm text-gray-400 mb-2">{rec.job.company}</p>
+                      <div className="flex flex-wrap gap-2 text-xs text-gray-500 mb-2">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {rec.job.location_city || 'N/A'}
+                        </span>
+                        <span>•</span>
+                        <span>{rec.job.work_type || 'N/A'}</span>
+                      </div>
+                      <div className="mt-2">
+                        <StatusBadge status={rec.status} size="sm" />
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end">
-                        <span className="text-xs text-primary-400 mb-2 capitalize">{rec.status.replace('_', ' ')}</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => openDetails(rec)}
-                            className="px-3 py-1 rounded-md text-sm border border-dark-600 hover:bg-dark-800 transition-colors"
-                          >
-                            View Details
-                          </button>
-                          <button
-                            onClick={() => openEasyApply(rec)}
-                            disabled={rec.status === 'applied' || rec.status === 'accepted' || rec.status === 'offered'}
-                            className={`px-3 py-1 rounded-md text-sm border transition-colors ${rec.status === 'applied' ? 'border-green-500/40 text-green-400 bg-green-900/10' : 'border-primary-500/40 text-primary-400 hover:bg-primary-900/20'}`}
-                          >
-                            {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
-                          </button>
-                          <button
-                            onClick={() => handleApplyToJob(rec.id)}
-                            disabled={rec.status === 'applied' || rec.status === 'accepted' || rec.status === 'offered'}
-                            className="px-3 py-1 rounded-md text-sm border border-dark-600 hover:bg-dark-800 transition-colors"
-                          >
-                            Mark Applied
-                          </button>
-                        </div>
+                    
+                    <div className="flex flex-col items-center gap-3">
+                      <MatchScore score={rec.score || 0.5} size="sm" showLabel={false} />
+                      
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={() => openDetails(rec)}
+                          className="px-3 py-1.5 rounded-md text-sm border border-dark-600 hover:bg-dark-800 hover:border-primary-500/50 transition-all whitespace-nowrap"
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => openEasyApply(rec)}
+                          disabled={rec.status === 'applied' || rec.status === 'accepted' || rec.status === 'offered'}
+                          className={`px-3 py-1.5 rounded-md text-sm border transition-all whitespace-nowrap ${
+                            rec.status === 'applied' 
+                              ? 'border-green-500/40 text-green-400 bg-green-900/10 cursor-not-allowed' 
+                              : 'border-primary-500/40 text-primary-400 hover:bg-primary-900/20 hover:border-primary-500'
+                          }`}
+                        >
+                          {rec.status === 'applied' ? 'Applied ✓' : 'Apply'}
+                        </button>
+                      </div>
                     </div>
                   </div>
+                  
                   {rec.explain?.reasons && (
-                    <ul className="text-xs text-gray-400 mt-2 list-disc list-inside">
-                      {rec.explain.reasons.map((reason, idx) => (
-                        <li key={idx}>{reason}</li>
-                      ))}
-                    </ul>
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      className="mt-3 pt-3 border-t border-dark-700"
+                    >
+                      <p className="text-xs text-gray-500 mb-1">Why recommended:</p>
+                      <ul className="text-xs text-gray-400 space-y-1">
+                        {rec.explain.reasons.slice(0, 2).map((reason, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <CheckCircle className="w-3 h-3 text-green-400 mt-0.5 flex-shrink-0" />
+                            <span>{reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </motion.div>
                   )}
-                </div>
+                </motion.div>
               ))}
             </div>
           </motion.div>
@@ -666,51 +730,40 @@ export default function StudentDashboard() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER }}
-            className="card"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 mb-1">Job Applications</p>
-                <p className="text-3xl font-bold">{stats.jobApplications}</p>
-              </div>
-              <Briefcase className="w-12 h-12 text-primary-400 opacity-50" />
-            </div>
-          </motion.div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <StatCard
+            title="Job Applications"
+            value={stats.jobApplications}
+            icon={Briefcase}
+            color="blue"
+            delay={ANIMATION_DELAYS.CARD_STAGGER}
+          />
+          
+          <StatCard
+            title="College Applications"
+            value={stats.collegeApplications}
+            icon={Building2}
+            color="purple"
+            delay={ANIMATION_DELAYS.CARD_STAGGER * 2}
+          />
+          
+          <StatCard
+            title="Recommendations"
+            value={stats.recommendations}
+            icon={Target}
+            color="green"
+            trend={stats.recommendations > 0 ? 'up' : undefined}
+            trendValue={stats.recommendations > 0 ? `${stats.recommendations} new` : undefined}
+            delay={ANIMATION_DELAYS.CARD_STAGGER * 3}
+          />
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 2 }}
-            className="card"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 mb-1">College Applications</p>
-                <p className="text-3xl font-bold">{stats.collegeApplications}</p>
-              </div>
-              <Building2 className="w-12 h-12 text-primary-400 opacity-50" />
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 3 }}
-            className="card"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 mb-1">Total Applications</p>
-                <p className="text-3xl font-bold">{stats.recommendations}</p>
-              </div>
-              <FileText className="w-12 h-12 text-primary-400 opacity-50" />
-            </div>
-          </motion.div>
+          <StatCard
+            title="Profile Strength"
+            value={applicantId ? '85%' : '10%'}
+            icon={User}
+            color={applicantId ? 'green' : 'red'}
+            delay={ANIMATION_DELAYS.CARD_STAGGER * 4}
+          />
         </div>
 
         <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 ${recommendations.length > 0 ? 'hidden' : ''}`}>
@@ -726,11 +779,23 @@ export default function StudentDashboard() {
               <span>Job Applications</span>
             </h2>
             {jobApplications.length === 0 ? (
-              <p className="text-gray-400 text-center py-8">No job applications yet</p>
+              <EmptyState
+                icon="briefcase"
+                title="No Job Applications"
+                message="Start exploring job opportunities and apply to positions that match your skills and interests."
+                actionLabel="Browse Jobs"
+                onAction={() => navigate('/jobs')}
+              />
             ) : (
               <div className="space-y-3">
-                {jobApplications.slice(0, 5).map((app) => (
-                  <div key={app.application_id} className="p-4 bg-dark-800 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-colors">
+                {jobApplications.slice(0, 5).map((app, idx) => (
+                  <motion.div 
+                    key={app.application_id} 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="p-4 bg-dark-800 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg"
+                  >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <h3 className="font-medium mb-1">{app.job_title}</h3>
@@ -739,12 +804,9 @@ export default function StudentDashboard() {
                           Applied: {new Date(app.applied_at).toLocaleDateString()}
                         </p>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        {getStatusIcon(app.status)}
-                        <span className="text-sm capitalize">{app.status.replace('_', ' ')}</span>
-                      </div>
+                      <StatusBadge status={app.status} size="sm" />
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             )}
@@ -762,11 +824,23 @@ export default function StudentDashboard() {
               <span>College Applications</span>
             </h2>
             {collegeApplications.length === 0 ? (
-              <p className="text-gray-400 text-center py-8">No college applications yet</p>
+              <EmptyState
+                icon="building"
+                title="No College Applications"
+                message="Discover colleges and programs that align with your academic profile and career goals."
+                actionLabel="Explore Colleges"
+                onAction={() => navigate('/colleges')}
+              />
             ) : (
               <div className="space-y-3">
-                {collegeApplications.slice(0, 5).map((app) => (
-                  <div key={app.application_id} className="p-4 bg-dark-800 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-colors">
+                {collegeApplications.slice(0, 5).map((app, idx) => (
+                  <motion.div 
+                    key={app.application_id}
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="p-4 bg-dark-800 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg"
+                  >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <h3 className="font-medium mb-1">{app.college_name}</h3>
@@ -775,12 +849,9 @@ export default function StudentDashboard() {
                           Applied: {new Date(app.applied_at).toLocaleDateString()}
                         </p>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        {getStatusIcon(app.status)}
-                        <span className="text-sm capitalize">{app.status.replace('_', ' ')}</span>
-                      </div>
+                      <StatusBadge status={app.status} size="sm" />
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             )}

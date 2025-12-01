@@ -3,10 +3,15 @@ import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Mail, Lock, AlertTriangle, CheckCircle } from 'lucide-react'
 import api from '../config/api'
+import secureStorage from '../utils/secureStorage'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
+import { sanitizeEmail } from '../utils/sanitize'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const toast = useToast()
   const [formData, setFormData] = useState({
     username: '', // OAuth2PasswordRequestForm expects 'username' field
     password: ''
@@ -22,8 +27,9 @@ export default function LoginPage() {
 
     try {
       // Send as form data (OAuth2 format)
+      const sanitizedEmail = sanitizeEmail(formData.username)
       const formBody = new URLSearchParams()
-      formBody.append('username', formData.username)
+      formBody.append('username', sanitizedEmail)
       formBody.append('password', formData.password)
 
       const response = await api.post('/api/auth/login', formBody, {
@@ -34,9 +40,10 @@ export default function LoginPage() {
 
       const { access_token, user } = response.data
 
-      // Store token and user data
-      localStorage.setItem('token', access_token)
-      localStorage.setItem('user', JSON.stringify(user))
+      // Store in secure storage
+      secureStorage.setItem('token', access_token)
+      secureStorage.setItem('user', user)
+      secureStorage.setItem('login_time', Date.now())
 
       // Set default authorization header
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
@@ -55,8 +62,11 @@ export default function LoginPage() {
         default:
           navigate('/student/dashboard')
       }
+      toast.success('Login successful!')
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed')
+      const errorMsg = err.response?.data?.detail || 'Login failed'
+      setError(errorMsg)
+      toast.error(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -118,6 +128,16 @@ export default function LoginPage() {
               </div>
             </div>
 
+            <div className="flex items-center justify-between mb-4">
+              <label className="flex items-center">
+                <input type="checkbox" className="rounded border-dark-600 bg-dark-900 text-primary-500" />
+                <span className="ml-2 text-sm text-gray-400">Remember me</span>
+              </label>
+              <Link to="/forgot-password" className="text-sm text-primary-400 hover:text-primary-300">
+                Forgot password?
+              </Link>
+            </div>
+
             <button
               type="submit"
               disabled={loading}
@@ -147,6 +167,7 @@ export default function LoginPage() {
           </div>
         </div>
       </motion.div>
+      <ToastContainer />
     </div>
   )
 }

@@ -7,9 +7,12 @@ import {
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
 
 export default function CollegeDashboard() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [stats, setStats] = useState({
     totalPrograms: 0,
     pendingPrograms: 0,
@@ -22,8 +25,7 @@ export default function CollegeDashboard() {
   const [error, setError] = useState(null)
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    secureStorage.clear()
     delete api.defaults.headers.common['Authorization']
     navigate('/login')
   }
@@ -110,6 +112,7 @@ export default function CollegeDashboard() {
 
   return (
     <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}

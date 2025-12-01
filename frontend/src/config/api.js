@@ -1,4 +1,6 @@
 import axios from 'axios'
+import secureStorage from '../utils/secureStorage'
+import { makeRetryable } from '../utils/apiRetry'
 
 // API Base URL configuration
 // In development: uses Vite proxy (/api -> http://localhost:8000/api)
@@ -11,13 +13,14 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000, // 30 second timeout
 })
 
 // Request interceptor for adding auth tokens
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available
-    const token = localStorage.getItem('token')
+    // Add auth token if available from secure storage
+    const token = secureStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -39,10 +42,19 @@ api.interceptors.response.use(
       const message = error.response.data?.detail || error.message
       
       if (status === 401) {
-        // Handle unauthorized (future: redirect to login)
+        // Token expired or invalid - clear auth and redirect
         console.error('Unauthorized:', message)
+        secureStorage.clear()
+        
+        // Only redirect if not already on login/register pages
+        if (window.location.pathname !== '/login' && 
+            window.location.pathname !== '/register') {
+          window.location.href = '/login'
+        }
       } else if (status === 404) {
         console.error('Not found:', message)
+      } else if (status === 429) {
+        console.error('Rate limit exceeded:', message)
       } else if (status >= 500) {
         console.error('Server error:', message)
       }
@@ -56,5 +68,11 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// Add retry logic for network failures
+makeRetryable(api, {
+  maxRetries: 3,
+  retryableStatuses: [408, 429, 500, 502, 503, 504]
+})
 
 export default api
