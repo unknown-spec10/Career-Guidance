@@ -42,43 +42,79 @@ logger = logging.getLogger(__name__)
 # Rate limiting storage (in-memory, consider Redis for production)
 rate_limiting_storage = defaultdict(list)
 
+DEFAULT_SECRET = "change-this-secret-key-in-production-use-openssl-rand-hex-32"
+
+def _mask(val: Optional[str], keep: int = 4) -> str:
+    if not val:
+        return "<unset>"
+    try:
+        s = str(val)
+        if len(s) <= keep:
+            return "*" * len(s)
+        return ("*" * (len(s) - keep)) + s[-keep:]
+    except Exception:
+        return "<hidden>"
+
 def validate_env():
-    """Validate critical environment variables on startup"""
-    errors = []
-    warnings = []
-    
+    """Validate critical environment variables on startup and print a clear summary."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # Raw env values (so we can show what app actually sees)
+    env = os.environ
+
     # Critical: Database configuration
-    if not settings.MYSQL_HOST and not settings.MYSQL_DSN:
-        errors.append("MYSQL_HOST or MYSQL_DSN must be set")
-    if not settings.MYSQL_USER and not settings.MYSQL_DSN:
-        errors.append("MYSQL_USER or MYSQL_DSN must be set")
-    if not settings.MYSQL_DB and not settings.MYSQL_DSN:
-        errors.append("MYSQL_DB or MYSQL_DSN must be set")
-    
+    mysql_dsn = settings.MYSQL_DSN
+    mysql_host = settings.MYSQL_HOST
+    mysql_user = settings.MYSQL_USER
+    mysql_db = settings.MYSQL_DB
+
+    if not mysql_host and not mysql_dsn:
+        errors.append("MYSQL_HOST is missing (or provide MYSQL_DSN)")
+    if not mysql_user and not mysql_dsn:
+        errors.append("MYSQL_USER is missing (or provide MYSQL_DSN)")
+    if not mysql_db and not mysql_dsn:
+        errors.append("MYSQL_DB is missing (or provide MYSQL_DSN)")
+
     # Critical: JWT Secret Key
-    if settings.SECRET_KEY == "change-this-secret-key-in-production-use-openssl-rand-hex-32":
-        errors.append("SECRET_KEY must be changed from default value in production")
-    if len(settings.SECRET_KEY) < 32:
+    secret = settings.SECRET_KEY or ""
+    if secret == DEFAULT_SECRET:
+        errors.append("SECRET_KEY equals the sample default; generate a new 64-hex value")
+    if len(secret) < 32:
         errors.append("SECRET_KEY must be at least 32 characters long")
-    
+
     # Important: Gemini API (warn if not set, as it may use mock mode)
     if not settings.GEMINI_API_KEY:
         warnings.append("GEMINI_API_KEY not set - using mock/stub parsing mode")
-    
+
     # Important: Email configuration (warn if missing)
     if not settings.GMAIL_USER or not settings.GMAIL_APP_PASSWORD:
         warnings.append("GMAIL_USER or GMAIL_APP_PASSWORD not set - email verification disabled")
-    
+
+    # Always print a masked summary for quick diagnosis
+    summary_lines = [
+        f"MYSQL_DSN:       {'<set>' if mysql_dsn else '<unset>'}",
+        f"MYSQL_HOST:      {_mask(env.get('MYSQL_HOST'))}",
+        f"MYSQL_PORT:      {_mask(env.get('MYSQL_PORT'))}",
+        f"MYSQL_USER:      {_mask(env.get('MYSQL_USER'))}",
+        f"MYSQL_DB:        {_mask(env.get('MYSQL_DB'))}",
+        f"SECRET_KEY:      length={len(secret) if secret else 0} {_mask(secret)}",
+        f"GEMINI_API_KEY:  {'<set>' if env.get('GEMINI_API_KEY') else '<unset>'}",
+        f"GMAIL_USER:      {_mask(env.get('GMAIL_USER'))}",
+        f"APP_ENV:         {env.get('APP_ENV', 'production')}",
+    ]
+    logger.info("Environment summary (masked):\n" + "\n".join(["  • " + s for s in summary_lines]))
+
     # Log results
     if errors:
         error_msg = "\n".join([f"  ❌ {err}" for err in errors])
-        logger.error(f"Environment validation failed:\n{error_msg}")
-        raise RuntimeError(f"Critical environment variables missing:\n{error_msg}")
-    
+        logger.error(f"Environment validation failed with {len(errors)} error(s):\n{error_msg}")
+        raise RuntimeError(f"Critical environment variables missing or invalid:\n{error_msg}")
+
     if warnings:
         warning_msg = "\n".join([f"  ⚠️  {warn}" for warn in warnings])
         logger.warning(f"Environment warnings:\n{warning_msg}")
-    
+
     logger.info("✓ Environment validation passed")
 
 def rate_limit(request: Request, max_requests: int = 5, window: int = 60) -> bool:
