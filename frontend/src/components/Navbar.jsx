@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { GraduationCap, Menu, X, LayoutDashboard, Users, Building2, Briefcase, LogOut, Shield, PlusCircle, FileText } from 'lucide-react'
+import { GraduationCap, Menu, X, LayoutDashboard, Users, Building2, Briefcase, LogOut, Shield, PlusCircle, FileText, User } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -112,7 +112,13 @@ export default function Navbar() {
             })}
             {user ? (
               <div className="flex items-center space-x-2 ml-4">
-                <span className="text-sm text-gray-400">{user.email}</span>
+                <button
+                  onClick={() => navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : user.role === 'college' ? '/college/profile' : '/dashboard')}
+                  className="flex items-center space-x-2 px-4 py-2 bg-primary-900/20 border border-primary-500/30 rounded-lg hover:bg-primary-900/30 transition-colors text-primary-400"
+                >
+                  <User className="w-4 h-4" />
+                  <span>My Profile</span>
+                </button>
                 <button
                   onClick={handleLogout}
                   className="flex items-center space-x-2 px-4 py-2 bg-red-900/20 border border-red-500/30 rounded-lg hover:bg-red-900/30 transition-colors text-red-400"
@@ -166,8 +172,17 @@ export default function Navbar() {
                   )
                 })}
                 {user ? (
-                  <div className="pt-4 border-t border-dark-700">
-                    <p className="text-sm text-gray-400 px-4 mb-2">{user.email}</p>
+                  <div className="pt-4 border-t border-dark-700 space-y-2">
+                    <button
+                      onClick={() => {
+                        navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : user.role === 'college' ? '/college/profile' : '/dashboard')
+                        setMobileMenuOpen(false)
+                      }}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-primary-900/20 border border-primary-500/30 rounded-lg hover:bg-primary-900/30 transition-colors text-primary-400"
+                    >
+                      <User className="w-4 h-4" />
+                      <span>My Profile</span>
+                    </button>
                     <button
                       onClick={() => {
                         handleLogout()

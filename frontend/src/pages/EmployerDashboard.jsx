@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Briefcase, Users, Eye, CheckCircle, XCircle, 
-  Clock, PlusCircle, AlertTriangle, LogOut 
+  Clock, PlusCircle, AlertTriangle, LogOut, User 
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
@@ -10,6 +10,7 @@ import { ANIMATION_DELAYS } from '../config/constants'
 import ScrollToTop from '../components/ScrollToTop'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import secureStorage from '../utils/secureStorage'
 
 export default function EmployerDashboard() {
   const navigate = useNavigate()

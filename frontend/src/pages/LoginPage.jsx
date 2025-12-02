@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Mail, Lock, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Mail, Lock, AlertTriangle, CheckCircle, GraduationCap, ArrowRight } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
@@ -73,41 +73,60 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-dark-900 flex items-center justify-center p-8">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md"
       >
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2">Welcome Back</h1>
-          <p className="text-gray-400">Login to your account</p>
-        </div>
+        {/* Logo */}
+        <Link to="/" className="flex items-center justify-center space-x-3 mb-8 hover:opacity-80 transition-opacity">
+          <div className="bg-gradient-to-br from-primary-500 to-primary-700 p-2 rounded-lg">
+            <GraduationCap className="w-6 h-6 text-white" />
+          </div>
+          <span className="text-xl font-bold">Career AI</span>
+        </Link>
 
-        <div className="card">
+        <div className="bg-dark-800 border border-dark-700 rounded-xl p-8 shadow-xl">
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold mb-2">Sign In</h2>
+            <p className="text-gray-400">Enter your credentials to access your account</p>
+          </div>
+
           {message && (
-            <div className="mb-4 p-3 bg-green-900/20 border border-green-500/30 rounded-lg flex items-center space-x-2">
-              <CheckCircle className="w-5 h-5 text-green-400" />
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 bg-green-900/20 border border-green-500/30 rounded-lg flex items-start space-x-3"
+            >
+              <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
               <span className="text-green-400 text-sm">{message}</span>
-            </div>
+            </motion.div>
           )}
 
           {error && (
-            <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg flex items-center space-x-2">
-              <AlertTriangle className="w-5 h-5 text-red-400" />
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 bg-red-900/20 border border-red-500/30 rounded-lg flex items-start space-x-3"
+            >
+              <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
               <span className="text-red-400 text-sm">{error}</span>
-            </div>
+            </motion.div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium mb-2">Email</label>
+              <label className="block text-sm font-medium mb-2 text-gray-300">
+                Email Address
+              </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="email"
                   required
-                  className="input pl-10"
+                  placeholder="you@example.com"
+                  className="input pl-11 w-full h-12"
                   value={formData.username}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                 />
@@ -115,25 +134,34 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Password</label>
+              <label className="block text-sm font-medium mb-2 text-gray-300">
+                Password
+              </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="password"
                   required
-                  className="input pl-10"
+                  placeholder="Enter your password"
+                  className="input pl-11 w-full h-12"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between mb-4">
-              <label className="flex items-center">
-                <input type="checkbox" className="rounded border-dark-600 bg-dark-900 text-primary-500" />
+            <div className="flex items-center justify-between">
+              <label className="flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-primary-500 focus:ring-offset-0 cursor-pointer" 
+                />
                 <span className="ml-2 text-sm text-gray-400">Remember me</span>
               </label>
-              <Link to="/forgot-password" className="text-sm text-primary-400 hover:text-primary-300">
+              <Link 
+                to="/forgot-password" 
+                className="text-sm text-primary-400 hover:text-primary-300 transition-colors"
+              >
                 Forgot password?
               </Link>
             </div>
@@ -141,32 +169,42 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full"
+              className="btn-primary w-full h-12 flex items-center justify-center space-x-2 text-base font-semibold group"
             >
-              {loading ? 'Logging in...' : 'Login'}
+              <span>{loading ? 'Signing in...' : 'Sign In'}</span>
+              {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
             </button>
           </form>
 
-          <div className="mt-6 space-y-2">
-            <div className="text-center text-sm text-gray-400">
-              Don't have an account?{' '}
-              <Link to="/register" className="text-primary-400 hover:text-primary-300">
-                Register here
-              </Link>
+          <div className="mt-8 space-y-4">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-dark-700"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-4 bg-dark-900 text-gray-400">New to Career AI?</span>
+              </div>
             </div>
-            <div className="text-center text-sm text-gray-400">
-              Need to verify?{' '}
-              <Link to="/verify-code" className="text-primary-400 hover:text-primary-300">
-                Enter verification code
-              </Link>
-              {' '}or{' '}
-              <Link to="/resend-verification" className="text-primary-400 hover:text-primary-300">
-                resend code
-              </Link>
+
+            <Link 
+              to="/register"
+              className="block w-full text-center px-4 py-3 border border-dark-600 rounded-lg hover:bg-dark-800 hover:border-primary-500/30 transition-all text-gray-300 font-medium"
+            >
+              Create an Account
+            </Link>
+
+            <div className="text-center mt-4">
+              <a 
+                href="mailto:support@careerai.com" 
+                className="text-sm text-primary-400 hover:text-primary-300 transition-colors inline-flex items-center space-x-1"
+              >
+                <span>Need help? Contact Support</span>
+              </a>
             </div>
           </div>
         </div>
       </motion.div>
+
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )

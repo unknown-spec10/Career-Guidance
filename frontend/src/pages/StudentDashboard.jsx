@@ -174,7 +174,6 @@ export default function StudentDashboard() {
             setNoApplicantProfile(false)
           } else {
             setNoApplicantProfile(true)
-            setShowUploadForm(true)
           }
           setError(null)
         } else {
@@ -601,26 +600,29 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* Upload Form */}
+        {/* Upload Modal */}
         {showUploadForm && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="card mb-8"
-            ref={uploadFormRef}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold flex items-center space-x-2">
-                <Upload className="w-6 h-6 text-primary-400" />
-                <span>Upload Your Documents</span>
-              </h2>
-              <button
-                onClick={() => setShowUploadForm(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowUploadForm(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="card max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              ref={uploadFormRef}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-dark-700">
+                <h2 className="text-2xl font-bold flex items-center space-x-2">
+                  <Upload className="w-6 h-6 text-primary-400" />
+                  <span>Upload Your Documents</span>
+                </h2>
+                <button
+                  onClick={() => setShowUploadForm(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-400 hover:text-white transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
 
             {error && (
               <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg flex items-center space-x-2">
@@ -733,7 +735,8 @@ export default function StudentDashboard() {
                 </button>
               </div>
             </form>
-          </motion.div>
+            </motion.div>
+          </div>
         )}
 
         {/* Stats Cards */}

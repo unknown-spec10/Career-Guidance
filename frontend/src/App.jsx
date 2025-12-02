@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Features from './components/Features'
@@ -44,24 +44,15 @@ function HomePage() {
   )
 }
 
-function App() {
-  useEffect(() => {
-    // Migrate from localStorage to secureStorage on first load
-    secureStorage.migrateFromLocalStorage()
-    
-    // Set authorization header if token exists
-    const token = secureStorage.getItem('token')
-    if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-    }
-  }, [])
+function AppContent() {
+  const location = useLocation()
+  const hideNavbarPaths = ['/login', '/register', '/verify-email', '/verify-code', '/resend-verification', '/forgot-password', '/reset-password']
+  const showNavbar = !hideNavbarPaths.includes(location.pathname)
 
   return (
-    <ErrorBoundary>
-      <Router>
-        <div className="min-h-screen flex flex-col">
-          <Navbar />
-        <main className="flex-grow">
+    <div className="min-h-screen flex flex-col">
+      {showNavbar && <Navbar />}
+      <main className="flex-grow">
           <Routes>
             {/* Public Routes */}
             <Route path="/" element={<HomePage />} />
@@ -190,7 +181,26 @@ function App() {
           </Routes>
         </main>
         <Footer />
-        </div>
+      </div>
+  )
+}
+
+function App() {
+  useEffect(() => {
+    // Migrate from localStorage to secureStorage on first load
+    secureStorage.migrateFromLocalStorage()
+    
+    // Set authorization header if token exists
+    const token = secureStorage.getItem('token')
+    if (token) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    }
+  }, [])
+
+  return (
+    <ErrorBoundary>
+      <Router>
+        <AppContent />
       </Router>
     </ErrorBoundary>
   )

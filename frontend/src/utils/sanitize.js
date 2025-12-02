@@ -138,8 +138,12 @@ export function useSanitizedForm(initialValues = {}) {
   return { values, handleChange, reset, sanitize: sanitizeObject }
 }
 
+// Alias for backward compatibility
+export const sanitizeText = sanitizeInput
+
 export default {
   sanitizeInput,
+  sanitizeText,
   sanitizeHTML,
   sanitizeURL,
   sanitizeObject,

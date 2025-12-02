@@ -340,7 +340,7 @@ async def get_current_user_info(current_user = Depends(get_current_user)):
 
 @app.patch("/api/auth/profile")
 async def update_profile(
-    full_name: str = Body(...),
+    name: str = Body(...),
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -351,7 +351,7 @@ async def update_profile(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    setattr(user, 'full_name', full_name)
+    setattr(user, 'name', name)
     db.commit()
     
     return {"status": "success", "message": "Profile updated successfully"}
