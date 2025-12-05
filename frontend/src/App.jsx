@@ -22,6 +22,12 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import StudentDashboard from './pages/StudentDashboard'
 import StudentProfile from './pages/StudentProfile'
+import InterviewPage from './pages/InterviewPage'
+import InterviewSessionPage from './pages/InterviewSessionPage'
+import InterviewResultsPage from './pages/InterviewResultsPage'
+import LearningPathPage from './pages/LearningPathPage'
+import TransactionHistoryPage from './pages/TransactionHistoryPage'
+import AdminCreditManagement from './pages/AdminCreditManagement'
 import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerProfile from './pages/EmployerProfile'
 import EmployerPostJob from './pages/EmployerPostJob'
@@ -93,6 +99,46 @@ function AppContent() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path="/dashboard/interview" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <InterviewPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/dashboard/interview/:sessionId" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <InterviewSessionPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/dashboard/interview/results/:sessionId" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <InterviewResultsPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/dashboard/learning-path/:pathId" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <LearningPathPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/dashboard/credits/transactions" 
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <TransactionHistoryPage />
+                </ProtectedRoute>
+              } 
+            />
 
             {/* Employer Routes */}
             <Route 
@@ -160,6 +206,14 @@ function AppContent() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <AdminReviewsPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/admin/credits" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminCreditManagement />
                 </ProtectedRoute>
               } 
             />

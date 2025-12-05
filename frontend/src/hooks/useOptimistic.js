@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 /**
  * Hook for optimistic updates with automatic rollback on error
@@ -26,16 +26,16 @@ export const useOptimistic = (initialData) => {
     try {
       // Make API call
       const result = await apiCall()
-      
+
       // Success - commit the update
       setIsOptimistic(false)
       setPreviousData(null)
-      
+
       // Update with server response if provided
       if (result && result.data) {
         setData(result.data)
       }
-      
+
       return result
     } catch (error) {
       // Failure - rollback to previous state
@@ -43,7 +43,7 @@ export const useOptimistic = (initialData) => {
       setData(previousData)
       setIsOptimistic(false)
       setPreviousData(null)
-      
+
       throw error
     }
   }, [data, previousData])
@@ -76,6 +76,13 @@ export const useOptimistic = (initialData) => {
     setPreviousData(null)
   }, [])
 
+  // Sync internal state when initialData changes
+  useEffect(() => {
+    if (initialData !== undefined) {
+      setData(initialData)
+    }
+  }, [initialData])
+
   return {
     data,
     isOptimistic,
@@ -83,7 +90,10 @@ export const useOptimistic = (initialData) => {
     rollback,
     commit,
     reset,
-    setData
+    setData,
+    // Aliases for compatibility
+    update: performOptimisticUpdate,
+    isPending: isOptimistic
   }
 }
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { User, Mail, Lock, Calendar, Save, AlertTriangle, CheckCircle, Shield, ArrowLeft } from 'lucide-react'
+import { User, Mail, Lock, Calendar, Save, AlertTriangle, CheckCircle, Shield, ArrowLeft, Briefcase, GraduationCap, Code, Award, Plus, X, Edit2, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -16,9 +16,21 @@ export default function StudentProfile() {
   const [activeTab, setActiveTab] = useState('profile')
   const [error, setError] = useState(null)
   const [user, setUser] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [editingResume, setEditingResume] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const fileInputRef = React.useRef(null)
   const [formData, setFormData] = useState({
     name: '',
     email: ''
+  })
+  const [resumeData, setResumeData] = useState({
+    skills: [],
+    education: [],
+    experience: [],
+    projects: [],
+    certifications: []
   })
   const [passwordData, setPasswordData] = useState({
     current_password: '',
@@ -28,6 +40,7 @@ export default function StudentProfile() {
 
   useEffect(() => {
     fetchProfile()
+    fetchResumeData()
   }, [])
 
   const fetchProfile = async () => {
@@ -47,9 +60,122 @@ export default function StudentProfile() {
     }
   }
 
+  const fetchResumeData = async () => {
+    try {
+      const response = await api.get('/api/student/profile')
+      console.log('📋 Profile API Response:', response.data)
+      setProfile(response.data)
+
+      console.log('Skills from API:', response.data.skills)
+      console.log('Education from API:', response.data.education)
+      console.log('Experience from API:', response.data.experience)
+
+      setResumeData({
+        skills: response.data.skills || [],
+        education: response.data.education || [],
+        experience: response.data.experience || [],
+        projects: response.data.projects || [],
+        certifications: response.data.certifications || []
+      })
+    } catch (err) {
+      console.error('Failed to load resume data:', err)
+    }
+  }
+
+  const handleSaveResumeData = async () => {
+    try {
+      setSaving(true)
+      await api.put('/api/student/profile', resumeData)
+      toast.success('Resume details updated successfully')
+      setEditingResume(false)
+      fetchResumeData()
+    } catch (err) {
+      toast.error('Failed to update resume details')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleResumeUpload = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Please upload a PDF or Word document')
+      return
+    }
+
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be less than 10MB')
+      return
+    }
+
+    try {
+      setUploading(true)
+      setUploadProgress(0)
+
+      const formData = new FormData()
+      formData.append('file', file)
+
+      // Upload with progress tracking
+      const response = await api.post('/api/upload/resume', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 90000, // 90 seconds for upload + parsing
+        onUploadProgress: (progressEvent) => {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          setUploadProgress(progress)
+        }
+      })
+
+      toast.success('Resume uploaded successfully! Parsing in progress...')
+
+      // Wait a bit for parsing to complete
+      setTimeout(() => {
+        fetchResumeData()
+        toast.success('Resume parsed successfully!')
+      }, 2000)
+
+    } catch (error) {
+      console.error('Upload error:', error)
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to upload resume'
+      toast.error(errorMsg)
+    } finally {
+      setUploading(false)
+      setUploadProgress(0)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const addSkill = () => {
+    setResumeData({
+      ...resumeData,
+      skills: [...resumeData.skills, { name: '', proficiency: 'intermediate' }]
+    })
+  }
+
+  const removeSkill = (index) => {
+    setResumeData({
+      ...resumeData,
+      skills: resumeData.skills.filter((_, i) => i !== index)
+    })
+  }
+
+  const updateSkill = (index, field, value) => {
+    const newSkills = [...resumeData.skills]
+    newSkills[index] = { ...newSkills[index], [field]: value }
+    setResumeData({ ...resumeData, skills: newSkills })
+  }
+
   const handleUpdateProfile = async (e) => {
     e.preventDefault()
-    
+
     if (!formData.name.trim()) {
       setError('Full name is required')
       return
@@ -61,10 +187,10 @@ export default function StudentProfile() {
 
       const sanitizedName = sanitizeText(formData.name)
       await api.patch('/api/auth/profile', { name: sanitizedName })
-      
+
       toast.success('Profile updated successfully')
       setUser({ ...user, name: sanitizedName })
-      
+
       const storedUser = secureStorage.getItem('user')
       if (storedUser) {
         storedUser.name = sanitizedName
@@ -80,7 +206,7 @@ export default function StudentProfile() {
 
   const handleChangePassword = async (e) => {
     e.preventDefault()
-    
+
     if (!passwordData.current_password || !passwordData.new_password || !passwordData.confirm_password) {
       setError('All password fields are required')
       return
@@ -104,7 +230,7 @@ export default function StudentProfile() {
         current_password: passwordData.current_password,
         new_password: passwordData.new_password
       })
-      
+
       toast.success('Password changed successfully')
       setPasswordData({
         current_password: '',
@@ -121,6 +247,7 @@ export default function StudentProfile() {
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User },
+    { id: 'resume', label: 'Resume Details', icon: Briefcase },
     { id: 'security', label: 'Security', icon: Shield }
   ]
 
@@ -172,11 +299,10 @@ export default function StudentProfile() {
                       setActiveTab(tab.id)
                       setError(null)
                     }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
-                      activeTab === tab.id
-                        ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                        : 'text-gray-400 hover:text-white hover:bg-dark-800'
-                    }`}
+                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${activeTab === tab.id
+                      ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                      : 'text-gray-400 hover:text-white hover:bg-dark-800'
+                      }`}
                   >
                     <Icon className="w-5 h-5" />
                     <span className="font-medium">{tab.label}</span>
@@ -280,10 +406,10 @@ export default function StudentProfile() {
                           <span>Member Since</span>
                         </label>
                         <div className="px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-gray-300">
-                          {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
+                          {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
                           }) : 'N/A'}
                         </div>
                       </div>
@@ -300,6 +426,239 @@ export default function StudentProfile() {
                       </button>
                     </div>
                   </form>
+                </motion.div>
+              )}
+
+              {/* Resume Details Tab */}
+              {activeTab === 'resume' && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                >
+                  <div className="mb-6 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold mb-2">Resume Details</h2>
+                      <p className="text-gray-400">View and edit your parsed resume information</p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {/* Re-upload Resume Button */}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        onChange={handleResumeUpload}
+                        className="hidden"
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center space-x-2 disabled:opacity-50"
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>{uploading ? `Uploading ${uploadProgress}%` : 'Re-upload Resume'}</span>
+                      </button>
+
+                      {/* Edit/Save Buttons */}
+                      {!editingResume ? (
+                        <button
+                          onClick={() => setEditingResume(true)}
+                          className="btn-primary flex items-center space-x-2"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          <span>Edit</span>
+                        </button>
+                      ) : (
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => {
+                              setEditingResume(false)
+                              fetchResumeData()
+                            }}
+                            className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleSaveResumeData}
+                            disabled={saving}
+                            className="btn-primary flex items-center space-x-2"
+                          >
+                            <Save className="w-4 h-4" />
+                            <span>{saving ? 'Saving...' : 'Save Changes'}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-8">
+                    {/* Skills Section */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
+                        <Code className="w-5 h-5 text-primary-400" />
+                        <span>Skills</span>
+                      </h3>
+                      <div className="space-y-3">
+                        {resumeData.skills.map((skill, index) => (
+                          <div key={index} className="flex items-center space-x-3">
+                            {editingResume ? (
+                              <>
+                                <input
+                                  type="text"
+                                  value={skill.name || ''}
+                                  onChange={(e) => updateSkill(index, 'name', e.target.value)}
+                                  className="input flex-1"
+                                  placeholder="Skill name"
+                                />
+                                <select
+                                  value={skill.proficiency || 'intermediate'}
+                                  onChange={(e) => updateSkill(index, 'proficiency', e.target.value)}
+                                  className="input w-40"
+                                >
+                                  <option value="beginner">Beginner</option>
+                                  <option value="intermediate">Intermediate</option>
+                                  <option value="advanced">Advanced</option>
+                                  <option value="expert">Expert</option>
+                                </select>
+                                <button
+                                  onClick={() => removeSkill(index)}
+                                  className="p-2 text-red-400 hover:text-red-300"
+                                >
+                                  <X className="w-5 h-5" />
+                                </button>
+                              </>
+                            ) : (
+                              <div className="flex-1 px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg">
+                                <span className="font-medium">{skill.name}</span>
+                                {skill.proficiency && (
+                                  <span className="ml-3 text-sm text-gray-400">({skill.proficiency})</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {editingResume && (
+                          <button
+                            onClick={addSkill}
+                            className="flex items-center space-x-2 text-primary-400 hover:text-primary-300"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Add Skill</span>
+                          </button>
+                        )}
+                        {!editingResume && resumeData.skills.length === 0 && (
+                          <p className="text-gray-500 italic">No skills added yet</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Education Section */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
+                        <GraduationCap className="w-5 h-5 text-primary-400" />
+                        <span>Education</span>
+                      </h3>
+                      <div className="space-y-4">
+                        {resumeData.education.map((edu, index) => (
+                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
+                            <div className="font-medium">{edu.degree} {edu.branch && `in ${edu.branch}`}</div>
+                            <div className="text-sm text-gray-400 mt-1">{edu.institution}</div>
+                            {edu.cgpa && <div className="text-sm text-gray-400">CGPA: {edu.cgpa}</div>}
+                            {(edu.start_year || edu.end_year) && (
+                              <div className="text-sm text-gray-400">
+                                {edu.start_year} - {edu.end_year || 'Present'}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {resumeData.education.length === 0 && (
+                          <p className="text-gray-500 italic">No education details added yet</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Experience Section */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
+                        <Briefcase className="w-5 h-5 text-primary-400" />
+                        <span>Work Experience</span>
+                      </h3>
+                      <div className="space-y-4">
+                        {resumeData.experience.map((exp, index) => (
+                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
+                            <div className="font-medium">{exp.role}</div>
+                            <div className="text-sm text-gray-400 mt-1">{exp.company}</div>
+                            {(exp.start_date || exp.end_date) && (
+                              <div className="text-sm text-gray-400">
+                                {exp.start_date} - {exp.end_date || 'Present'}
+                              </div>
+                            )}
+                            {exp.description && (
+                              <p className="text-sm text-gray-300 mt-2">{exp.description}</p>
+                            )}
+                          </div>
+                        ))}
+                        {resumeData.experience.length === 0 && (
+                          <p className="text-gray-500 italic">No work experience added yet</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Projects Section */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
+                        <Code className="w-5 h-5 text-primary-400" />
+                        <span>Projects</span>
+                      </h3>
+                      <div className="space-y-4">
+                        {resumeData.projects.map((project, index) => (
+                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
+                            <div className="font-medium">{project.name}</div>
+                            {project.description && (
+                              <p className="text-sm text-gray-300 mt-2">{project.description}</p>
+                            )}
+                            {project.technologies && project.technologies.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {project.technologies.map((tech, i) => (
+                                  <span key={i} className="px-2 py-1 bg-primary-500/20 text-primary-400 text-xs rounded">
+                                    {tech}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {resumeData.projects.length === 0 && (
+                          <p className="text-gray-500 italic">No projects added yet</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Certifications Section */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
+                        <Award className="w-5 h-5 text-primary-400" />
+                        <span>Certifications</span>
+                      </h3>
+                      <div className="space-y-4">
+                        {resumeData.certifications.map((cert, index) => (
+                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
+                            <div className="font-medium">{cert.name}</div>
+                            {cert.issuer && (
+                              <div className="text-sm text-gray-400 mt-1">Issued by: {cert.issuer}</div>
+                            )}
+                            {cert.issue_date && (
+                              <div className="text-sm text-gray-400">Date: {cert.issue_date}</div>
+                            )}
+                          </div>
+                        ))}
+                        {resumeData.certifications.length === 0 && (
+                          <p className="text-gray-500 italic">No certifications added yet</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </motion.div>
               )}
 

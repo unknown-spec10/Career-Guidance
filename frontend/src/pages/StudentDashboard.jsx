@@ -1,52 +1,60 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { 
-  Briefcase, Building2, FileText, TrendingUp, Clock, 
-  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, GraduationCap, Target 
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Briefcase, Building2, TrendingUp, Clock,
+  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { ANIMATION_DELAYS } from '../config/constants'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
-import StatCard from '../components/StatCard'
-import EmptyState from '../components/EmptyState'
 import StatusBadge, { NewBadge } from '../components/StatusBadge'
 import MatchScore from '../components/MatchScore'
-import ProgressBar from '../components/ProgressBar'
 import { SkeletonStats, SkeletonCard } from '../components/SkeletonLoader'
 import useOptimistic from '../hooks/useOptimistic'
+import CreditWidget from '../components/CreditWidget'
+import ApplicationTracker from '../components/ApplicationTracker'
+import ProfileHealth from '../components/ProfileHealth'
 
 export default function StudentDashboard() {
   const navigate = useNavigate()
   const toast = useToast()
-  const [stats, setStats] = useState({
-    jobApplications: 0,
-    collegeApplications: 0,
-    recommendations: 0
-  })
+
+  // State
+  const [applicantData, setApplicantData] = useState(null)
   const [jobApplications, setJobApplications] = useState([])
   const [collegeApplications, setCollegeApplications] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // Upload State
   const [uploadLoading, setUploadLoading] = useState(false)
   const [uploadSuccess, setUploadSuccess] = useState(false)
   const [showUploadForm, setShowUploadForm] = useState(false)
   const [selectedResume, setSelectedResume] = useState(null)
   const [selectedMarksheets, setSelectedMarksheets] = useState([])
+
+  // Recommendation State
   const [recommendations, setRecommendations] = useState([])
+  const [applicantId, setApplicantId] = useState(null)
+  const [noApplicantProfile, setNoApplicantProfile] = useState(false)
+
+  // Modal States
   const [easyApplyOpen, setEasyApplyOpen] = useState(false)
   const [easyApplyRec, setEasyApplyRec] = useState(null)
   const [easyApplyLoading, setEasyApplyLoading] = useState(false)
   const [easyApplyError, setEasyApplyError] = useState(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [detailsRec, setDetailsRec] = useState(null)
-  const [applicantId, setApplicantId] = useState(null)
-  const [noApplicantProfile, setNoApplicantProfile] = useState(false)
+  const [showPracticeModal, setShowPracticeModal] = useState(false)
+
+  // Refs
   const uploadFormRef = React.useRef(null)
   const recommendationsRef = React.useRef(null)
 
+  // --- Handlers (Logout, Upload, etc.) ---
   const handleLogout = () => {
     secureStorage.clear()
     delete api.defaults.headers.common['Authorization']
@@ -61,174 +69,115 @@ export default function StudentDashboard() {
 
     const form = e.target
     const formData = new FormData()
-    
-    // Add resume file (required)
+
     const resumeInput = form.elements['resume']
-    if (resumeInput.files[0]) {
-      formData.append('resume', resumeInput.files[0])
+    if (!resumeInput || !resumeInput.files || !resumeInput.files[0]) {
+      setError('Please select a resume file')
+      setUploadLoading(false)
+      return
     }
-    
-    // Add marksheets (optional, multiple files)
+    formData.append('resume', resumeInput.files[0])
+
     const marksheetsInput = form.elements['marksheets']
     if (marksheetsInput.files.length > 0) {
       for (let i = 0; i < marksheetsInput.files.length; i++) {
         formData.append('marksheets', marksheetsInput.files[i])
       }
     }
-    
-    // Add text fields
+
     const location = form.elements['location']?.value
     if (location) formData.append('location', location)
-    
     const jeeRank = form.elements['jee_rank']?.value
     if (jeeRank) formData.append('jee_rank', jeeRank)
-    
     const preferences = form.elements['preferences']?.value
     if (preferences) formData.append('preferences', preferences)
-    
+
     try {
-      const response = await api.post('/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      })
-      
+      const response = await api.post('/upload', formData)
       setUploadSuccess(true)
       form.reset()
-      
-      // Parse the resume if applicant_id is returned
+
       if (response.data.applicant_id) {
         setTimeout(async () => {
           try {
             const parseRes = await api.post(`/parse/${response.data.applicant_id}`)
-            toast.success('Resume uploaded and parsed successfully! Check your recommendations.')
+            toast.success('Resume uploaded and parsed successfully!')
             setShowUploadForm(false)
             setNoApplicantProfile(false)
-            // Persist DB applicant id to avoid upload prompt on refresh
+
             const dbId = parseRes.data?.db_applicant_id
             if (dbId) {
               secureStorage.setItem('db_applicant_id', String(dbId))
               setApplicantId(dbId)
             }
-            fetchDashboardData()
-            // After dashboard refresh, also fetch recommendations and scroll to section
-            try {
-              const targetId = dbId || response.data.db_id || applicantId
-              const recRes = await api.get(`/api/recommendations/${targetId}`)
-              setRecommendations(recRes.data.job_recommendations || [])
-            } catch {}
-            setTimeout(() => {
-              if (recommendationsRef.current) {
-                recommendationsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }
-            }, 200)
+            // Refresh data
+            fetchAll()
           } catch (parseErr) {
             console.error('Parse error:', parseErr)
-            toast.error('Resume uploaded but parsing failed. Please contact support.')
+            toast.error('Resume uploaded but parsing failed.')
           }
         }, 1000)
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Upload failed. Please try again.')
       console.error('Upload error:', err)
+      setError(err.response?.data?.detail || 'Upload failed.')
     } finally {
       setUploadLoading(false)
     }
   }
 
-
-  useEffect(() => {
-    // Fetch applicant profile, then dashboard data and recommendations
-    const fetchAll = async () => {
-      try {
-        setLoading(true)
-        // Prefer persisted applicant id first (set after parse)
-        const storedId = secureStorage.getItem('db_applicant_id')
-        if (storedId) {
-          setApplicantId(Number(storedId))
-          await fetchDashboardData()
-          try {
-            const recRes = await api.get(`/api/recommendations/${storedId}`)
-            setRecommendations(recRes.data.job_recommendations || [])
-            setNoApplicantProfile(false)
-            return
-          } catch {
-            // fall through to profile fetch
-          }
-        }
-
-        // Get applicant profile (DB id)
-        const profileRes = await api.get('/api/student/applicant')
-        setApplicantId(profileRes.data.id)
-        secureStorage.setItem('db_applicant_id', String(profileRes.data.id))
-        // Fetch dashboard data
-        await fetchDashboardData()
-        // Fetch recommendations
-        const recRes = await api.get(`/api/recommendations/${profileRes.data.id}`)
-        setRecommendations(recRes.data.job_recommendations || [])
-      } catch (err) {
-        if (err.response?.status === 404) {
-          // If we have a stored applicant id or recommendations, don't prompt upload
-          const storedId = secureStorage.getItem('db_applicant_id')
-          if (storedId || recommendations.length > 0) {
-            setNoApplicantProfile(false)
-          } else {
-            setNoApplicantProfile(true)
-          }
-          setError(null)
-        } else {
-          setError(err.response?.data?.detail || 'Failed to load dashboard')
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchAll()
-  }, [])
-
-  const fetchDashboardData = async () => {
+  // --- Data Fetching ---
+  const fetchAll = async () => {
     try {
       setLoading(true)
-      const [jobApps, collegeApps] = await Promise.all([
-        api.get('/api/student/applications/jobs'),
-        api.get('/api/student/applications/colleges')
-      ])
+      // Profile
+      let profileId = secureStorage.getItem('db_applicant_id')
 
+      try {
+        const profileRes = await api.get('/api/student/applicant')
+        setApplicantData(profileRes.data) // SAVE DATA for ProfileHealth
+        setApplicantId(profileRes.data.id)
+        secureStorage.setItem('db_applicant_id', String(profileRes.data.id))
+        profileId = profileRes.data.id
+      } catch (e) {
+        // Profile probably not found
+        if (!profileId) setNoApplicantProfile(true)
+      }
+
+      // Applications
+      const [jobApps, collegeApps] = await Promise.all([
+        api.get('/api/student/applications/jobs').catch(() => ({ data: { applications: [] } })),
+        api.get('/api/student/applications/colleges').catch(() => ({ data: { applications: [] } }))
+      ])
       setJobApplications(jobApps.data?.applications || [])
       setCollegeApplications(collegeApps.data?.applications || [])
-      setStats({
-        jobApplications: jobApps.data?.total || 0,
-        collegeApplications: collegeApps.data?.total || 0,
-        recommendations: (jobApps.data?.total || 0) + (collegeApps.data?.total || 0)
-      })
+
+      // Recommendations
+      if (profileId) {
+        const recRes = await api.get(`/api/recommendations/${profileId}`)
+        setRecommendations(recRes.data.job_recommendations || [])
+        setNoApplicantProfile(false)
+      }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load dashboard')
+      console.error(err)
+      // Silent fail or minimal error
     } finally {
       setLoading(false)
     }
   }
 
+  useEffect(() => {
+    fetchAll()
+  }, [])
+
+  // --- Optimistic UI ---
   const {
     data: optimisticRecs,
     update: updateRecStatus,
     isPending: statusUpdatePending,
   } = useOptimistic(recommendations, setRecommendations)
 
-  const handleApplyToJob = async (recId) => {
-    try {
-      // Optimistically update UI
-      updateRecStatus(
-        async () => {
-          await api.patch(`/api/job-recommendation/${recId}/status`, { status: 'applied' })
-        },
-        (prev) => prev.map((r) => r.id === recId ? { ...r, status: 'applied' } : r)
-      )
-      toast.success('Applied to job successfully!')
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to apply to job')
-    }
-  }
-
+  // --- Action Handlers ---
   const openEasyApply = (rec) => {
     setEasyApplyRec(rec)
     setEasyApplyError(null)
@@ -244,38 +193,25 @@ export default function StudentDashboard() {
     e.preventDefault()
     if (!easyApplyRec) return
     setEasyApplyLoading(true)
-    setEasyApplyError(null)
     try {
-      const form = e.currentTarget
-      const formData = new FormData(form)
-      // Attach recommendation id for backend
+      const formData = new FormData(e.currentTarget)
       formData.append('recommendation_id', easyApplyRec.id)
-      
-      // Optimistically update UI before API call
+
       updateRecStatus(
         async () => {
-          // Try a dedicated apply endpoint if available
-          let ok = false
           try {
-            const res = await api.post(`/api/job-recommendation/${easyApplyRec.id}/apply`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-            ok = res.status >= 200 && res.status < 300
+            await api.post(`/api/job-recommendation/${easyApplyRec.id}/apply`, formData)
           } catch {
-            ok = false
-          }
-          if (!ok) {
-            // Fallback: mark recommendation as applied
             await api.patch(`/api/job-recommendation/${easyApplyRec.id}/status`, { status: 'applied' })
           }
         },
         (prev) => prev.map((r) => r.id === easyApplyRec.id ? { ...r, status: 'applied' } : r)
       )
-      
       setEasyApplyOpen(false)
-      setEasyApplyRec(null)
-      toast.success('Application submitted successfully!')
+      toast.success('Application submitted!')
     } catch (err) {
-      setEasyApplyError(err.response?.data?.detail || 'Easy Apply failed')
-      toast.error(err.response?.data?.detail || 'Easy Apply failed')
+      setEasyApplyError('Failed.')
+      toast.error('Failed to apply')
     } finally {
       setEasyApplyLoading(false)
     }
@@ -283,24 +219,15 @@ export default function StudentDashboard() {
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case 'applied':
-      case 'under_review':
-        return <Clock className="w-5 h-5 text-yellow-400" />
-      case 'shortlisted':
-      case 'interviewing':
-      case 'offered':
-        return <TrendingUp className="w-5 h-5 text-blue-400" />
-      case 'accepted':
-        return <CheckCircle className="w-5 h-5 text-green-400" />
-      case 'rejected':
-      case 'withdrawn':
-        return <XCircle className="w-5 h-5 text-red-400" />
-      default:
-        return <AlertTriangle className="w-5 h-5 text-gray-400" />
+      case 'applied': return <Clock className="w-5 h-5 text-yellow-400" />
+      case 'shortlisted': return <TrendingUp className="w-5 h-5 text-blue-400" />
+      case 'accepted': return <CheckCircle className="w-5 h-5 text-green-400" />
+      case 'rejected': return <XCircle className="w-5 h-5 text-red-400" />
+      default: return <AlertTriangle className="w-5 h-5 text-gray-400" />
     }
   }
 
-  // When upload form opens, scroll it into view subtly
+  // Scroll effect
   useEffect(() => {
     if (showUploadForm && uploadFormRef.current) {
       uploadFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -310,26 +237,8 @@ export default function StudentDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen bg-dark-900 pt-24 px-4">
-        <div className="max-w-7xl mx-auto py-8 space-y-8">
-          <div className="animate-pulse">
-            <div className="h-8 bg-dark-800 rounded w-64 mb-2"></div>
-            <div className="h-4 bg-dark-800 rounded w-96"></div>
-          </div>
+        <div className="max-w-7xl mx-auto py-8">
           <SkeletonStats />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <SkeletonCard count={2} />
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
-        <div className="card max-w-md">
-          <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <p className="text-center text-gray-400">{error}</p>
         </div>
       </div>
     )
@@ -340,178 +249,202 @@ export default function StudentDashboard() {
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
 
-        {noApplicantProfile && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="card mb-8 border border-yellow-500/30 bg-dark-800"
-          >
-            <h2 className="text-xl font-semibold mb-2 flex items-center space-x-2">
-              <Upload className="w-6 h-6 text-yellow-400" />
-              <span>Upload your resume to get personalized recommendations</span>
-            </h2>
-            <p className="text-gray-400 mb-4">We couldn’t find your profile yet. Upload your resume and optional marksheets to generate college and job recommendations tailored to you.</p>
-            <button
-              onClick={() => setShowUploadForm(true)}
-              className="btn-primary w-full sm:w-auto"
-            >
-              Upload Documents
-            </button>
-          </motion.div>
-        )}
-
-        {/* Recommended Jobs Section */}
-        {recommendations.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 1.5 }}
-            className="card mb-8 border border-primary-500/30 bg-dark-800"
-            ref={recommendationsRef}
-          >
-            <h2 className="text-xl font-semibold mb-4 flex items-center space-x-2">
-              <TrendingUp className="w-6 h-6 text-primary-400" />
-              <span>Recommended Jobs For You</span>
-            </h2>
-            <div className="space-y-3">
-              {optimisticRecs.slice(0, 5).map((rec, idx) => (
-                <motion.div 
-                  key={rec.id} 
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  className={`p-4 bg-dark-900 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg hover:shadow-primary-500/10 group ${
-                    statusUpdatePending ? 'opacity-70' : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-medium">{rec.job.title}</h3>
-                        {idx < 3 && <NewBadge />}
-                      </div>
-                      <p className="text-sm text-gray-400 mb-2">{rec.job.company}</p>
-                      <div className="flex flex-wrap gap-2 text-xs text-gray-500 mb-2">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {rec.job.location_city || 'N/A'}
-                        </span>
-                        <span>•</span>
-                        <span>{rec.job.work_type || 'N/A'}</span>
-                      </div>
-                      <div className="mt-2">
-                        <StatusBadge status={rec.status} size="sm" />
-                      </div>
-                    </div>
-                    
-                    <div className="flex flex-col items-center gap-3">
-                      <MatchScore score={rec.score || 0.5} size="sm" showLabel={false} />
-                      
-                      <div className="flex flex-col gap-2">
-                        <button
-                          onClick={() => openDetails(rec)}
-                          className="px-3 py-1.5 rounded-md text-sm border border-dark-600 hover:bg-dark-800 hover:border-primary-500/50 transition-all whitespace-nowrap"
-                        >
-                          Details
-                        </button>
-                        <button
-                          onClick={() => openEasyApply(rec)}
-                          disabled={rec.status === 'applied' || rec.status === 'accepted' || rec.status === 'offered'}
-                          className={`px-3 py-1.5 rounded-md text-sm border transition-all whitespace-nowrap ${
-                            rec.status === 'applied' 
-                              ? 'border-green-500/40 text-green-400 bg-green-900/10 cursor-not-allowed' 
-                              : 'border-primary-500/40 text-primary-400 hover:bg-primary-900/20 hover:border-primary-500'
-                          }`}
-                        >
-                          {rec.status === 'applied' ? 'Applied ✓' : 'Apply'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {rec.explain?.reasons && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      className="mt-3 pt-3 border-t border-dark-700"
-                    >
-                      <p className="text-xs text-gray-500 mb-1">Why recommended:</p>
-                      <ul className="text-xs text-gray-400 space-y-1">
-                        {rec.explain.reasons.slice(0, 2).map((reason, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
-                            <CheckCircle className="w-3 h-3 text-green-400 mt-0.5 flex-shrink-0" />
-                            <span>{reason}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </motion.div>
-                  )}
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        )}
+        {/* --- HEADER ROW --- */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8 flex items-center justify-between"
+          className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4"
         >
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold mb-2">Student Dashboard</h1>
-            <p className="text-gray-400">Track your applications and recommendations</p>
+            <h1 className="text-3xl md:text-4xl font-bold mb-1">Student Dashboard</h1>
+            <p className="text-gray-400">Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Student'}</p>
           </div>
-          <div className="flex items-center space-x-3">
+
+          <div className="flex items-center space-x-4">
+            {/* Profile Health Badge */}
+            <ProfileHealth applicantData={applicantData} />
+
+            {/* Practice Button (Quick Action Dial) */}
             <button
-              onClick={() => navigate('/student/profile')}
-              className="flex items-center space-x-2 px-4 py-2 border border-primary-500/30 rounded-lg hover:bg-primary-900/20 transition-colors text-primary-400"
+              onClick={() => setShowPracticeModal(true)}
+              className="flex items-center space-x-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/20 active:scale-95"
             >
-              <User className="w-5 h-5" />
-              <span className="hidden sm:inline">My Profile</span>
+              <Zap className="w-5 h-5 text-white" />
+              <span className="font-semibold text-white">Practice</span>
             </button>
+
             <button
               onClick={handleLogout}
-              className="flex items-center space-x-2 px-4 py-2 bg-red-900/20 border border-red-500/30 rounded-lg hover:bg-red-900/30 transition-colors text-red-400"
+              className="p-2.5 bg-dark-800 border border-dark-600 rounded-xl hover:bg-red-900/20 hover:border-red-500/30 transition-colors text-gray-400 hover:text-red-400"
+              title="Logout"
             >
               <LogOut className="w-5 h-5" />
-              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </motion.div>
-        {easyApplyOpen && easyApplyRec && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="w-full max-w-lg card border border-primary-500/30 bg-dark-800">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Easy Apply — {easyApplyRec.job?.title}</h3>
-                <button className="text-gray-400 hover:text-white" onClick={() => { setEasyApplyOpen(false); setEasyApplyRec(null) }}>✕</button>
-              </div>
-              {easyApplyError && (
-                <div className="mb-3 p-2 bg-red-900/20 border border-red-500/30 rounded text-red-400 text-sm">{easyApplyError}</div>
-              )}
-              <form onSubmit={submitEasyApply} encType="multipart/form-data" className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm mb-1">Full Name</label>
-                    <input name="full_name" required className="input" placeholder="Your name" />
+
+        {/* --- QUICK ACTIONS ROW (Credit + Tracker) --- */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"
+        >
+          <CreditWidget />
+          <ApplicationTracker jobApps={jobApplications} collegeApps={collegeApplications} />
+        </motion.div>
+
+        {/* --- NO PROFILE STATE --- */}
+        {noApplicantProfile && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="my-8 p-8 border border-dashed border-dark-600 rounded-2xl bg-dark-800/50 text-center"
+          >
+            <Upload className="w-12 h-12 text-primary-400 mx-auto mb-4" />
+            <h3 className="text-xl font-bold mb-2">Setup Your Profile</h3>
+            <p className="text-gray-400 mb-6 max-w-md mx-auto">Upload your resume to unlock AI-powered recommendations and interview practice.</p>
+            <button onClick={() => setShowUploadForm(true)} className="btn-primary">Upload Resume</button>
+          </motion.div>
+        )}
+
+        {/* --- RECOMMENDATIONS (Optimistic List) --- */}
+        {recommendations.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {optimisticRecs.map((rec, idx) => (
+              <motion.div
+                key={rec.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.1 }}
+                className="p-5 bg-dark-800 rounded-xl border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg flex flex-col h-full"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1 mr-2">
+                    <h3 className="font-bold text-lg leading-tight mb-1 text-white">{rec.job?.title || rec.title}</h3>
+                    <p className="text-sm text-gray-400">{rec.job?.company || rec.company}</p>
                   </div>
-                  <div>
-                    <label className="block text-sm mb-1">Email</label>
-                    <input name="email" type="email" required className="input" placeholder="you@example.com" />
-                  </div>
+                  <MatchScore score={rec.score || rec.match_score || 0.5} size="sm" showLabel={false} />
                 </div>
-                <div>
-                  <label className="block text-sm mb-1">Resume (PDF/DOCX)</label>
-                  <input name="resume" type="file" accept=".pdf,.doc,.docx" required className="input" />
+
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <span className="text-xs bg-dark-900 border border-dark-700 px-2 py-1 rounded text-gray-400 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    {rec.job?.location_city || 'Remote'}
+                  </span>
+                  <span className="text-xs bg-dark-900 border border-dark-700 px-2 py-1 rounded text-gray-400">
+                    {rec.job?.work_type || 'Full-time'}
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-sm mb-1">Quick Questions</label>
-                  <textarea name="questions" rows="3" className="input" placeholder="e.g., Notice period, current CTC, skills summary"></textarea>
-                </div>
-                <div className="flex gap-2">
-                  <button type="submit" disabled={easyApplyLoading} className="btn-primary flex-1">
-                    {easyApplyLoading ? 'Submitting...' : 'Submit Application'}
+
+                <div className="mt-auto pt-4 border-t border-dark-700/50 flex gap-2">
+                  <button
+                    onClick={() => openDetails(rec)}
+                    className="flex-1 py-2 text-sm font-medium border border-dark-600 rounded-lg hover:bg-dark-700 transition-colors text-gray-300"
+                  >
+                    Details
                   </button>
-                  <button type="button" className="px-6 py-2 border border-dark-600 rounded-lg hover:bg-dark-800" onClick={() => { setEasyApplyOpen(false); setEasyApplyRec(null) }}>
-                    Cancel
+                  <button
+                    onClick={() => openEasyApply(rec)}
+                    disabled={rec.status === 'applied' || rec.status === 'accepted'}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${rec.status === 'applied'
+                        ? 'bg-green-900/20 text-green-400 cursor-not-allowed border border-green-500/20'
+                        : 'bg-primary-600/90 hover:bg-primary-500 text-white shadow-lg shadow-primary-900/20'
+                      }`}
+                  >
+                    {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+
+        {/* --- MODALS --- */}
+
+        {/* Practice Mode Selection Modal */}
+        <AnimatePresence>
+          {showPracticeModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowPracticeModal(false)}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-dark-800 border border-dark-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+              >
+                <div className="p-6 text-center border-b border-dark-700">
+                  <h3 className="text-2xl font-bold mb-2">Practice for Success</h3>
+                  <p className="text-gray-400 text-sm">Choose your interview mode</p>
+                </div>
+                <div className="p-6 grid gap-4">
+                  <button
+                    onClick={() => navigate('/dashboard/interview?mode=micro')}
+                    className="flex items-center gap-4 p-4 rounded-xl border border-dark-600 hover:border-blue-500 hover:bg-blue-900/10 transition-all text-left group"
+                  >
+                    <div className="p-3 bg-blue-900/20 rounded-lg group-hover:bg-blue-900/30">
+                      <Zap className="w-6 h-6 text-blue-400" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg text-gray-200 group-hover:text-blue-300">Micro Practice</h4>
+                      <p className="text-xs text-gray-500">Quick 5-minute session. 1 Question.</p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('/dashboard/interview')}
+                    className="flex items-center gap-4 p-4 rounded-xl border border-dark-600 hover:border-purple-500 hover:bg-purple-900/10 transition-all text-left group"
+                  >
+                    <div className="p-3 bg-purple-900/20 rounded-lg group-hover:bg-purple-900/30">
+                      <BookOpen className="w-6 h-6 text-purple-400" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg text-gray-200 group-hover:text-purple-300">Full Mock Interview</h4>
+                      <p className="text-xs text-gray-500">Deep dive ~30mins. Comprehensive feedback.</p>
+                    </div>
+                  </button>
+                </div>
+                <div className="p-4 bg-dark-900/50 text-center">
+                  <button onClick={() => setShowPracticeModal(false)} className="text-sm text-gray-500 hover:text-gray-300">Cancel</button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Easy Apply Modal */}
+        {easyApplyOpen && easyApplyRec && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-lg card border border-primary-500/30 bg-dark-800">
+              <div className="flex justify-between items-center mb-6 border-b border-dark-700 pb-4">
+                <h3 className="font-bold text-lg">Apply to {easyApplyRec.job?.title}</h3>
+                <button onClick={() => setEasyApplyOpen(false)} className="text-gray-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
+              </div>
+              <form onSubmit={submitEasyApply} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Full Name</label>
+                    <input name="full_name" className="input bg-dark-900" placeholder="Name" required />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Email</label>
+                    <input name="email" type="email" className="input bg-dark-900" placeholder="Email" required />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Resume</label>
+                  <div className="p-2 border border-dark-600 rounded bg-dark-900/50 text-sm text-gray-300 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    <span>Using uploaded resume</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Cover Letter / Note</label>
+                  <textarea name="questions" className="input bg-dark-900" rows="3" placeholder="Why are you a good fit?"></textarea>
+                </div>
+                <div className="pt-2">
+                  <button className="btn-primary w-full py-3" disabled={easyApplyLoading}>
+                    {easyApplyLoading ? 'Submitting...' : 'Submit Application'}
                   </button>
                 </div>
               </form>
@@ -519,81 +452,52 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* Details Modal */}
         {detailsOpen && detailsRec && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="w-full max-w-2xl card border border-primary-500/30 bg-dark-800">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">{detailsRec.job?.title} — Details</h3>
-                <button className="text-gray-400 hover:text-white" onClick={() => { setDetailsOpen(false); setDetailsRec(null) }}>✕</button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-2xl card border border-primary-500/30 bg-dark-800 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-start mb-6 border-b border-dark-700 pb-4">
+                <div>
+                  <h3 className="font-bold text-xl">{detailsRec.job?.title}</h3>
+                  <p className="text-primary-400 text-sm">{detailsRec.job?.company}</p>
+                </div>
+                <button onClick={() => setDetailsOpen(false)} className="text-gray-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
               </div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-400">Company</p>
-                    <p className="font-medium">{detailsRec.job?.company || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-400">Location</p>
-                    <p className="font-medium">{detailsRec.job?.location_city || detailsRec.job?.location || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-400">Work Type</p>
-                    <p className="font-medium">{detailsRec.job?.work_type || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-400">Popularity</p>
-                    <p className="font-medium">{detailsRec.job?.popularity ?? 'N/A'}</p>
-                  </div>
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-dark-900/50 rounded-xl">
+                  {[
+                    { label: 'Location', value: detailsRec.job?.location_city || 'Remote' },
+                    { label: 'Type', value: detailsRec.job?.work_type || 'Full-time' },
+                    { label: 'Match', value: `${detailsRec.score || 0}%` },
+                    { label: 'Posted', value: '2d ago' },
+                  ].map((item, i) => (
+                    <div key={i}>
+                      <div className="text-xs text-gray-500 mb-1">{item.label}</div>
+                      <div className="font-medium text-sm">{item.value}</div>
+                    </div>
+                  ))}
                 </div>
+
                 <div>
-                  {(() => {
-                    const required = (detailsRec.job?.required_skills || detailsRec.job?.skills || []).map((s) => typeof s === 'string' ? s : (s?.name || ''))
-                    const matched = (detailsRec.explain?.matched_skills || detailsRec.explain?.skills_matched || []).map((s) => typeof s === 'string' ? s.toLowerCase() : (s?.toLowerCase?.() || ''))
-                    const matchCount = required.filter((s) => matched.includes(String(s).toLowerCase())).length
-                    return (
-                      <>
-                        <p className="text-sm text-gray-400 mb-1">Required Skills</p>
-                        {required.length > 0 ? (
-                          <div className="mb-2 text-xs text-gray-400">{matchCount}/{required.length} required skills matched</div>
-                        ) : (
-                          <div className="mb-2 text-xs text-gray-500">No skills listed</div>
-                        )}
-                        <div className="flex flex-wrap gap-2">
-                          {required.map((sk, idx) => {
-                            const isMatch = matched.includes(String(sk).toLowerCase())
-                            return (
-                              <span
-                                key={idx}
-                                className={`px-2 py-1 text-xs rounded border ${isMatch ? 'bg-green-900/20 border-green-500/40 text-green-300' : 'bg-dark-900 border-dark-700 text-gray-300'}`}
-                              >
-                                {sk}
-                              </span>
-                            )
-                          })}
-                        </div>
-                      </>
-                    )
-                  })()}
+                  <h4 className="font-semibold text-gray-300 mb-2">About the Role</h4>
+                  <p className="text-gray-400 text-sm leading-relaxed whitespace-pre-wrap">{detailsRec.job?.description || 'No description available.'}</p>
                 </div>
+
                 <div>
-                  <p className="text-sm text-gray-400 mb-1">Job Description</p>
-                  <div className="prose prose-invert max-w-none text-sm text-gray-300 whitespace-pre-wrap">
-                    {detailsRec.job?.description || detailsRec.job?.jd || 'No description provided.'}
-                  </div>
+                  <h4 className="font-semibold text-gray-300 mb-2">Why Recommended</h4>
+                  <ul className="space-y-2">
+                    {(detailsRec.explain?.reasons || []).map((r, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-gray-400">
+                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                        <span>{r}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                {detailsRec.explain?.reasons && detailsRec.explain.reasons.length > 0 && (
-                  <div>
-                    <p className="text-sm text-gray-400 mb-1">Why this job is recommended</p>
-                    <ul className="list-disc list-inside text-sm text-gray-300">
-                      {detailsRec.explain.reasons.map((reason, idx) => (
-                        <li key={idx}>{reason}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                <div className="flex gap-2">
-                  <button className="btn-primary" onClick={() => { setDetailsOpen(false); openEasyApply(detailsRec) }}>Easy Apply</button>
-                  <button className="px-6 py-2 border border-dark-600 rounded-lg hover:bg-dark-800" onClick={() => setDetailsOpen(false)}>Close</button>
+
+                <div className="flex gap-3 pt-4 border-t border-dark-700">
+                  <button onClick={() => setDetailsOpen(false)} className="flex-1 py-3 border border-dark-600 rounded-xl hover:bg-dark-700">Close</button>
+                  <button onClick={() => { setDetailsOpen(false); openEasyApply(detailsRec) }} className="flex-1 py-3 btn-primary rounded-xl">Apply Now</button>
                 </div>
               </div>
             </div>
@@ -602,271 +506,36 @@ export default function StudentDashboard() {
 
         {/* Upload Modal */}
         {showUploadForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowUploadForm(false)}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="card max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-              ref={uploadFormRef}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-6 pb-4 border-b border-dark-700">
-                <h2 className="text-2xl font-bold flex items-center space-x-2">
-                  <Upload className="w-6 h-6 text-primary-400" />
-                  <span>Upload Your Documents</span>
-                </h2>
-                <button
-                  onClick={() => setShowUploadForm(false)}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-400 hover:text-white transition-colors"
-                >
-                  ✕
-                </button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setShowUploadForm(false)}>
+            <div className="card w-full max-w-lg" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-xl">Upload Resume</h3>
+                <button onClick={() => setShowUploadForm(false)} className="text-gray-400"><XCircle className="w-6 h-6" /></button>
               </div>
-
-            {error && (
-              <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg flex items-center space-x-2">
-                <AlertTriangle className="w-5 h-5 text-red-400" />
-                <span className="text-red-400 text-sm">{error}</span>
-              </div>
-            )}
-
-            {uploadSuccess && (
-              <div className="mb-4 p-3 bg-green-900/20 border border-green-500/30 rounded-lg flex items-center space-x-2">
-                <CheckCircle className="w-5 h-5 text-green-400" />
-                <span className="text-green-400 text-sm">Upload successful! Processing your resume...</span>
-              </div>
-            )}
-
-            <form onSubmit={handleFileUpload} className="space-y-4" encType="multipart/form-data">
-              <div>
-                <label className="block text-sm font-medium mb-2">Resume (PDF/DOCX) *</label>
-                <input
-                  type="file"
-                  name="resume"
-                  accept=".pdf,.doc,.docx"
-                  required
-                  onChange={(e) => setSelectedResume(e.target.files[0])}
-                  className="w-full px-4 py-2 bg-dark-800 border border-dark-700 rounded-lg focus:border-primary-500 focus:outline-none"
-                />
+              <form onSubmit={handleFileUpload} className="space-y-4">
+                <div>
+                  <label className="block text-sm mb-2 text-gray-400">Resume File (PDF/DOCX)</label>
+                  <input type="file" name="resume" required className="input w-full p-3 border-dashed"
+                    onChange={(e) => setSelectedResume(e.target.files[0])}
+                  />
+                </div>
                 {selectedResume && (
-                  <p className="text-xs text-primary-400 mt-1 flex items-center">
-                    <FileText className="w-3 h-3 mr-1" />
-                    {selectedResume.name} ({(selectedResume.size / 1024).toFixed(2)} KB)
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Marksheets (PDF/DOCX)</label>
-                <input
-                  type="file"
-                  name="marksheets"
-                  accept=".pdf,.doc,.docx"
-                  multiple
-                  onChange={(e) => setSelectedMarksheets(Array.from(e.target.files))}
-                  className="w-full px-4 py-2 bg-dark-800 border border-dark-700 rounded-lg focus:border-primary-500 focus:outline-none"
-                />
-                <p className="text-xs text-gray-500 mt-1">You can select multiple files</p>
-                {selectedMarksheets.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {selectedMarksheets.map((file, idx) => (
-                      <p key={idx} className="text-xs text-primary-400 flex items-center">
-                        <FileText className="w-3 h-3 mr-1" />
-                        {file.name} ({(file.size / 1024).toFixed(2)} KB)
-                      </p>
-                    ))}
+                  <div className="text-xs text-green-400 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" /> Selected: {selectedResume.name}
                   </div>
                 )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    <MapPin className="w-4 h-4 inline mr-1" />
-                    Preferred Location
-                  </label>
-                  <input
-                    type="text"
-                    name="location"
-                    placeholder="e.g., Bangalore, India"
-                    className="input"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <input name="location" placeholder="Preferred Location" className="input" />
+                  <input name="jee_rank" type="number" placeholder="JEE Rank (Optional)" className="input" />
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    <GraduationCap className="w-4 h-4 inline mr-1" />
-                    JEE Rank (if applicable)
-                  </label>
-                  <input
-                    type="number"
-                    name="jee_rank"
-                    placeholder="Enter your JEE rank"
-                    className="input"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Career Preferences</label>
-                <textarea
-                  name="preferences"
-                  rows="3"
-                  placeholder="Tell us about your career goals, interests, or specific requirements..."
-                  className="input"
-                />
-              </div>
-
-              <div className="flex space-x-3">
-                <button
-                  type="submit"
-                  disabled={uploadLoading}
-                  className="btn-primary flex-1"
-                >
-                  {uploadLoading ? 'Uploading...' : 'Upload & Process'}
+                <button className="btn-primary w-full py-3" disabled={uploadLoading}>
+                  {uploadLoading ? 'Uploading & Analyzing...' : 'Upload & Process'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowUploadForm(false)}
-                  className="px-6 py-2 border border-dark-600 rounded-lg hover:bg-dark-800 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-            </motion.div>
+              </form>
+            </div>
           </div>
         )}
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <StatCard
-            title="Job Applications"
-            value={stats.jobApplications}
-            icon={Briefcase}
-            color="blue"
-            delay={ANIMATION_DELAYS.CARD_STAGGER}
-          />
-          
-          <StatCard
-            title="College Applications"
-            value={stats.collegeApplications}
-            icon={Building2}
-            color="purple"
-            delay={ANIMATION_DELAYS.CARD_STAGGER * 2}
-          />
-          
-          <StatCard
-            title="Recommendations"
-            value={stats.recommendations}
-            icon={Target}
-            color="green"
-            trend={stats.recommendations > 0 ? 'up' : undefined}
-            trendValue={stats.recommendations > 0 ? `${stats.recommendations} new` : undefined}
-            delay={ANIMATION_DELAYS.CARD_STAGGER * 3}
-          />
-
-          <StatCard
-            title="Profile Strength"
-            value={applicantId ? '85%' : '10%'}
-            icon={User}
-            color={applicantId ? 'green' : 'red'}
-            delay={ANIMATION_DELAYS.CARD_STAGGER * 4}
-          />
-        </div>
-
-        <div className={`grid grid-cols-1 lg:grid-cols-2 gap-8 ${recommendations.length > 0 ? 'hidden' : ''}`}>
-          {/* Job Applications */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 4 }}
-            className="card"
-          >
-            <h2 className="text-xl font-semibold mb-4 flex items-center space-x-2">
-              <Briefcase className="w-6 h-6 text-primary-400" />
-              <span>Job Applications</span>
-            </h2>
-            {jobApplications.length === 0 ? (
-              <EmptyState
-                icon="briefcase"
-                title="No Job Applications"
-                message="Start exploring job opportunities and apply to positions that match your skills and interests."
-                actionLabel="Browse Jobs"
-                onAction={() => navigate('/jobs')}
-              />
-            ) : (
-              <div className="space-y-3">
-                {jobApplications.slice(0, 5).map((app, idx) => (
-                  <motion.div 
-                    key={app.application_id} 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="p-4 bg-dark-800 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="font-medium mb-1">{app.job_title}</h3>
-                        <p className="text-sm text-gray-400">{app.company}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Applied: {new Date(app.applied_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <StatusBadge status={app.status} size="sm" />
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </motion.div>
-
-          {/* College Applications */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 5 }}
-            className="card"
-          >
-            <h2 className="text-xl font-semibold mb-4 flex items-center space-x-2">
-              <Building2 className="w-6 h-6 text-primary-400" />
-              <span>College Applications</span>
-            </h2>
-            {collegeApplications.length === 0 ? (
-              <EmptyState
-                icon="building"
-                title="No College Applications"
-                message="Discover colleges and programs that align with your academic profile and career goals."
-                actionLabel="Explore Colleges"
-                onAction={() => navigate('/colleges')}
-              />
-            ) : (
-              <div className="space-y-3">
-                {collegeApplications.slice(0, 5).map((app, idx) => (
-                  <motion.div 
-                    key={app.application_id}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="p-4 bg-dark-800 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="font-medium mb-1">{app.college_name}</h3>
-                        <p className="text-sm text-gray-400">Program ID: {app.program_id || 'General'}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Applied: {new Date(app.applied_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <StatusBadge status={app.status} size="sm" />
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </motion.div>
-        </div>
       </div>
     </div>
   )

@@ -149,6 +149,13 @@ class ResumeParserService(ParserService):
 
     def run_parse(self, applicant_root: str, applicant_id: str) -> dict:
         pre = self._preprocess_applicant(applicant_root)
+        
+        # Log extracted text for debugging
+        doc_text = pre.get('doc_text') or ''
+        logger.info(f"Extracted text length: {len(doc_text)} characters")
+        logger.info(f"First 500 chars: {doc_text[:500]}")
+        logger.info(f"OCR snippets: {pre.get('ocr_snippets', {})}")
+        
         payload = self._build_payload(applicant_id, pre)
 
         resp = self.llm.call_parse(settings.GEMINI_SMALL_MODEL, payload, images=None, system_instruction=STRICT_SYSTEM)

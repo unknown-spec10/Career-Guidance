@@ -183,6 +183,7 @@ def create_applicants_and_resumes(db, count=50):
             "institution": random.choice(COLLEGES),
             "degree": random.choice(DEGREES),
             "cgpa": cgpa,
+            "grade": cgpa,  # Compatibility: app expects 'grade' for CGPA
             "year_start": year_start,
             "year_end": year_end if random.random() < 0.6 else None  # Some still studying
         }]
@@ -330,7 +331,8 @@ def create_colleges(db, count=30):
                 program_name=f"B.Tech in {prog}",
                 duration_months=48,
                 required_skills=template["skills"][:3],
-                program_description=template["description"]
+                program_description=template["description"],
+                status='approved'
             )
             db.add(program)
         
@@ -631,6 +633,7 @@ def create_jobs(db, count=40):
             min_cgpa=random.uniform(6.5, 8.0) if random.random() > 0.3 else None,
             required_skills=required_skills,
             optional_skills=optional_skills_list,
+            status='approved',
             expires_at=datetime.now() + timedelta(days=random.randint(30, 90))
         )
         db.add(job)
@@ -1053,6 +1056,12 @@ def main():
     db = SessionLocal()
     
     try:
+        # Ensure baseline users (admin/student/employer/college) exist
+        try:
+            create_users(db)
+        except Exception as _e:
+            # Non-fatal if users already exist
+            print(f"⚠ Users seeding encountered a non-fatal issue: {_e}")
         # Step 1: Create applicants and parsed resumes (if needed)
         current_applicants = db.query(Applicant).count()
         if current_applicants < 50:

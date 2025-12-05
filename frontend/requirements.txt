@@ -1,0 +1,46 @@
+# Frontend Dependencies for Career Guidance Platform
+# Install with: npm install
+
+# Core Framework
+react@^18.3.1
+react-dom@^18.3.1
+
+# Routing
+react-router-dom@^6.22.0
+
+# HTTP Client
+axios@^1.6.7
+
+# UI Components & Icons
+lucide-react@^0.344.0
+
+# Animations
+framer-motion@^11.0.5
+
+# Development Dependencies
+# Install automatically with npm install
+
+# Build Tool
+vite@^5.1.4
+@vitejs/plugin-react@^4.2.1
+
+# CSS Framework
+tailwindcss@^3.4.1
+autoprefixer@^10.4.17
+postcss@^8.4.35
+
+# Type Definitions
+@types/react@^18.2.56
+@types/react-dom@^18.2.19
+
+# Linting
+eslint@^8.56.0
+eslint-plugin-react@^7.33.2
+eslint-plugin-react-hooks@^4.6.0
+eslint-plugin-react-refresh@^0.4.5
+
+# Installation Instructions:
+# 1. Navigate to frontend directory: cd frontend
+# 2. Install dependencies: npm install
+# 3. Start dev server: npm run dev
+# 4. Build for production: npm run build

@@ -71,5 +71,9 @@
   "langsmith": "skill_070",
   "pdfplumber": "skill_071",
   "pymupdf": "skill_072",
-  "tesseract": "skill_073"
+  "tesseract": "skill_073",
+  "langextract": "skill_074",
+  "pyrally": "skill_075",
+  "glm4": "skill_076",
+  "content generation": "skill_077"
 }

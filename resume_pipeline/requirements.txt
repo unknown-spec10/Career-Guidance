@@ -1,17 +1,35 @@
+# Core FastAPI and Server
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
+
+# Database
 sqlalchemy>=2.0.25
 pymysql>=1.1.0
 cryptography>=41.0.7
+
+# HTTP & API
 requests>=2.31.0
+httpx>=0.26.0
+
+# Configuration
 python-dotenv>=1.0.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
+
+# Authentication & Security
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 python-jose[cryptography]>=3.3.0
+pyjwt>=2.8.0
+
+# Email
+python-dotenv>=1.0.0
+
+# AI & LLM
 google-generativeai>=0.3.0
+
+# Document Processing
 pytesseract>=0.3.10
 easyocr>=1.7.0
 pdfminer.six>=20221105
@@ -19,6 +37,19 @@ pdf2image>=1.16.3
 pdfplumber>=0.10.3
 python-magic-bin>=0.4.14
 Pillow>=10.1.0
-tqdm>=4.66.0
+
+# Vector Store & Embeddings (optional - uncomment as needed)
+# pinecone-client>=2.2.4
+# qdrant-client>=1.7.0
 faiss-cpu>=1.7.4
+# sentence-transformers>=2.2.2
+
+# Utilities
+tqdm>=4.66.0
 jsonschema>=4.20.0
+python-dateutil>=2.8.2
+
+# Testing
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
+httpx>=0.26.0

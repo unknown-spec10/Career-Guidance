@@ -64,6 +64,10 @@ class Applicant(Base):
     job_recommendations = relationship('JobRecommendation', back_populates='applicant', cascade='all, delete-orphan')
     job_applications = relationship('JobApplication', back_populates='applicant', cascade='all, delete-orphan')
     human_reviews = relationship('HumanReview', back_populates='applicant', cascade='all, delete-orphan')
+    interview_sessions = relationship('InterviewSession', back_populates='applicant', cascade='all, delete-orphan')
+    skill_assessments = relationship('SkillAssessment', back_populates='applicant', cascade='all, delete-orphan')
+    learning_paths = relationship('LearningPath', back_populates='applicant', cascade='all, delete-orphan')
+    credit_account = relationship('CreditAccount', uselist=False, cascade='all, delete-orphan')
 
 
 class Upload(Base):
@@ -422,6 +426,319 @@ class HumanReview(Base):
     # Relationships
     applicant = relationship('Applicant', back_populates='human_reviews')
     reviewer = relationship('User', back_populates='human_reviews', foreign_keys=[reviewer_id])
+
+
+# ============================================================
+# INTERVIEW & ASSESSMENT SYSTEM
+# ============================================================
+
+class InterviewSession(Base):
+    """Mock interview sessions - full (30 min) or micro (1 question)"""
+    __tablename__ = 'interview_sessions'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    session_type = Column(Enum('technical', 'hr', 'behavioral', 'mixed', name='interview_type'), nullable=False)
+    session_mode = Column(Enum('full', 'micro', name='session_mode'), default='full', index=True)  # NEW: full or micro
+    difficulty_level = Column(Enum('easy', 'medium', 'hard', name='difficulty_level'), default='medium')
+    focus_skills = Column(JSON, nullable=True)  # ["Python", "DSA", "DBMS"]
+    
+    # Credit tracking
+    credits_used = Column(Integer, default=10)  # 10 for full, 1 for micro
+    
+    # Session metadata
+    started_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    ends_at = Column(DateTime, nullable=True)  # Auto-calculated end time
+    completed_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)  # 30 min = 1800 seconds
+    status = Column(Enum('in_progress', 'completed', 'abandoned', name='session_status'), default='in_progress', index=True)
+    
+    # Scoring (0-100 scale)
+    overall_score = Column(Float, nullable=True)
+    technical_score = Column(Float, nullable=True)
+    communication_score = Column(Float, nullable=True)
+    problem_solving_score = Column(Float, nullable=True)
+    
+    # Skill breakdown scores
+    skill_scores = Column(JSON, nullable=True)  # {"python": 85, "dsa": 70, "dbms": 60}
+    
+    # AI feedback
+    ai_feedback = Column(JSON, nullable=True)  # Structured feedback from Gemini
+    skill_gap_analysis = Column(JSON, nullable=True)  # {"python": "strong", "dsa": "moderate", "dbms": "weak"}
+    recommended_resources = Column(JSON, nullable=True)  # Learning path suggestions
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Relationships
+    applicant = relationship('Applicant', back_populates='interview_sessions')
+    questions = relationship('InterviewQuestion', back_populates='session', cascade='all, delete-orphan')
+    answers = relationship('InterviewAnswer', back_populates='session', cascade='all, delete-orphan')
+    learning_paths = relationship('LearningPath', back_populates='source_session', foreign_keys='LearningPath.source_session_id')
+
+
+class InterviewQuestion(Base):
+    """Questions asked during interview - MCQ and short descriptive"""
+    __tablename__ = 'interview_questions'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey('interview_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
+    question_order = Column(Integer, nullable=False)
+    
+    # Question content
+    question_type = Column(Enum('mcq', 'short_answer', 'coding', 'theory', 'behavioral', name='question_type'), nullable=False)
+    question_text = Column(Text, nullable=False)
+    difficulty = Column(String(20))  # easy/medium/hard
+    category = Column(String(100), index=True)  # DSA, DBMS, OS, Java, Python, etc.
+    
+    # For coding questions
+    starter_code = Column(Text, nullable=True)
+    test_cases = Column(JSON, nullable=True)  # [{"input": "...", "expected": "..."}]
+    
+    # For MCQ
+    options = Column(JSON, nullable=True)  # ["Option A", "Option B", "Option C", "Option D"]
+    correct_answer = Column(String(255), nullable=True)  # For MCQ: "A" or "Option A"
+    
+    # Expected answer (for short answer/theory)
+    expected_answer_points = Column(JSON, nullable=True)  # Key points to cover
+    max_score = Column(Float, default=10.0)  # Maximum points for this question
+    
+    # Skills being tested
+    skills_tested = Column(JSON, nullable=True)  # ["recursion", "dynamic_programming"]
+    
+    # Auto-generated metadata
+    generated_by = Column(String(50), default='gemini')  # gemini, google_search, manual
+    source_url = Column(String(1024), nullable=True)  # If fetched from Google
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Relationships
+    session = relationship('InterviewSession', back_populates='questions')
+    answer = relationship('InterviewAnswer', back_populates='question', uselist=False, cascade='all, delete-orphan')
+
+
+class InterviewAnswer(Base):
+    """User answers to interview questions"""
+    __tablename__ = 'interview_answers'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey('interview_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey('interview_questions.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Answer content
+    answer_text = Column(Text, nullable=True)
+    code_submitted = Column(Text, nullable=True)  # For coding questions
+    selected_option = Column(String(255), nullable=True)  # For MCQ
+    
+    # Timing
+    time_taken_seconds = Column(Integer, nullable=True)
+    answered_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Scoring
+    is_correct = Column(Boolean, nullable=True)  # For MCQ/objective
+    score = Column(Float, nullable=True)  # Actual score received
+    
+    # AI Evaluation
+    ai_evaluation = Column(JSON, nullable=True)  # Detailed feedback from Gemini
+    strengths = Column(JSON, nullable=True)  # ["good logic", "clear explanation"]
+    weaknesses = Column(JSON, nullable=True)  # ["edge case missed", "incomplete answer"]
+    improvement_suggestions = Column(Text, nullable=True)
+    
+    # Code execution results (for coding questions - optional)
+    test_results = Column(JSON, nullable=True)  # [{"test": 1, "passed": true, "output": "..."}]
+    
+    # Relationships
+    session = relationship('InterviewSession', back_populates='answers')
+    question = relationship('InterviewQuestion', back_populates='answer')
+    
+    __table_args__ = (
+        UniqueConstraint('session_id', 'question_id', name='uq_session_question_answer'),
+    )
+
+
+class SkillAssessment(Base):
+    """Skill-specific assessments - optional MCQ quizzes"""
+    __tablename__ = 'skill_assessments'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    skill_name = Column(String(128), nullable=False, index=True)  # "DBMS", "Java", "Python"
+    assessment_type = Column(Enum('mcq', 'coding', 'mixed', name='assessment_type'), default='mcq')
+    
+    # Scoring
+    total_questions = Column(Integer, nullable=False)
+    correct_answers = Column(Integer, nullable=False)
+    score_percentage = Column(Float, nullable=False)  # 0-100
+    
+    # Proficiency level based on score
+    proficiency = Column(Enum('beginner', 'intermediate', 'advanced', 'expert', name='proficiency'), nullable=True)
+    
+    # Timing
+    time_limit_seconds = Column(Integer, nullable=True)  # 1800 for 30 min
+    time_taken_seconds = Column(Integer, nullable=True)
+    
+    # Results
+    questions_data = Column(JSON, nullable=True)  # Store question/answer pairs
+    skill_breakdown = Column(JSON, nullable=True)  # {"sql_queries": 80, "normalization": 60}
+    
+    completed_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    
+    # Relationships
+    applicant = relationship('Applicant', back_populates='skill_assessments')
+    
+    __table_args__ = (
+        Index('idx_applicant_skill', 'applicant_id', 'skill_name'),
+    )
+
+
+class LearningPath(Base):
+    """Personalized learning recommendations based on skill gaps"""
+    __tablename__ = 'learning_paths'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Source of learning path
+    generated_from = Column(Enum('interview', 'assessment', 'manual', name='path_source'), default='interview')
+    source_session_id = Column(Integer, ForeignKey('interview_sessions.id', ondelete='SET NULL'), nullable=True)
+    
+    # Path details
+    skill_gaps = Column(JSON, nullable=False)  # {"python": "weak", "dsa": "moderate", "dbms": "weak"}
+    recommended_courses = Column(JSON, nullable=True)  # [{"title": "...", "url": "...", "provider": "Udemy"}]
+    recommended_projects = Column(JSON, nullable=True)  # [{"title": "...", "description": "..."}]
+    practice_problems = Column(JSON, nullable=True)  # Coding problems from Google Search
+    
+    # Priority areas
+    priority_skills = Column(JSON, nullable=True)  # ["DSA", "DBMS"] - top 3 skills to focus on
+    
+    # Status tracking
+    status = Column(Enum('active', 'in_progress', 'completed', name='path_status'), default='active')
+    progress_percentage = Column(Float, default=0.0)
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    # Relationships
+    applicant = relationship('Applicant', back_populates='learning_paths')
+    source_session = relationship('InterviewSession', back_populates='learning_paths', foreign_keys=[source_session_id])
+
+
+# ============================================================
+# CREDIT SYSTEM & QUOTA MANAGEMENT
+# ============================================================
+
+class CreditAccount(Base):
+    """Tracks interview credits for each applicant"""
+    __tablename__ = 'credit_accounts'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
+    
+    # Credit balance
+    current_credits = Column(Integer, default=60, nullable=False)  # Default 60 credits
+    total_earned = Column(Integer, default=60, nullable=False)  # Lifetime earned
+    total_spent = Column(Integer, default=0, nullable=False)  # Lifetime spent
+    
+    # Refill tracking
+    last_refill_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    next_refill_at = Column(DateTime, nullable=False)  # Auto-calculated
+    weekly_credit_limit = Column(Integer, default=60, nullable=False)  # Configurable by admin
+    
+    # Premium status
+    is_premium = Column(Boolean, default=False)
+    premium_expires_at = Column(DateTime, nullable=True)
+    
+    # Admin adjustments
+    admin_bonus_credits = Column(Integer, default=0)  # Admin can add bonus credits
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    # Relationships
+    transactions = relationship('CreditTransaction', back_populates='account', cascade='all, delete-orphan')
+    usage_stats = relationship('CreditUsageStats', back_populates='account', uselist=False, cascade='all, delete-orphan')
+
+
+class CreditTransaction(Base):
+    """Log of all credit transactions"""
+    __tablename__ = 'credit_transactions'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey('credit_accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Transaction details
+    transaction_type = Column(Enum('spend', 'refill', 'bonus', 'refund', name='transaction_type'), nullable=False, index=True)
+    amount = Column(Integer, nullable=False)  # Positive for earn, negative for spend
+    balance_after = Column(Integer, nullable=False)
+    
+    # Context
+    activity_type = Column(Enum(
+        'full_interview', 'micro_session', 'coding_question', 
+        'project_idea', 'weekly_refill', 'admin_adjustment',
+        name='activity_type'
+    ), nullable=True, index=True)
+    
+    reference_id = Column(Integer, nullable=True)  # Links to session/assessment ID
+    reference_type = Column(String(50), nullable=True)  # 'interview_session', 'skill_assessment'
+    
+    description = Column(String(255), nullable=True)
+    transaction_metadata = Column(JSON, nullable=True)  # Additional context (renamed from metadata to avoid SQLAlchemy conflict)
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    
+    # Relationships
+    account = relationship('CreditAccount', back_populates='transactions')
+    
+    __table_args__ = (
+        Index('idx_account_type_date', 'account_id', 'activity_type', 'created_at'),
+    )
+
+
+class CreditUsageStats(Base):
+    """Rolling usage statistics for rate limiting"""
+    __tablename__ = 'credit_usage_stats'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey('credit_accounts.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
+    
+    # Daily stats (reset at midnight)
+    credits_used_today = Column(Integer, default=0)
+    micro_sessions_today = Column(Integer, default=0)
+    coding_questions_today = Column(Integer, default=0)
+    last_daily_reset = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Weekly stats (reset every 7 days)
+    credits_used_this_week = Column(Integer, default=0)
+    full_interviews_this_week = Column(Integer, default=0)
+    project_ideas_this_week = Column(Integer, default=0)
+    last_weekly_reset = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Session timestamps for cooldowns
+    last_full_interview_at = Column(DateTime, nullable=True)
+    last_micro_session_at = Column(DateTime, nullable=True)
+    last_coding_question_at = Column(DateTime, nullable=True)
+    
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    # Relationships
+    account = relationship('CreditAccount', back_populates='usage_stats')
+
+
+class SystemConfiguration(Base):
+    """Admin-configurable system settings"""
+    __tablename__ = 'system_configurations'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(JSON, nullable=False)  # Flexible value storage
+    description = Column(Text, nullable=True)
+    category = Column(String(50), default='general')  # 'credits', 'limits', 'costs', etc.
+    
+    updated_by = Column(String(100), nullable=True)  # Admin email
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_category_key', 'category', 'key'),
+    )
 
 
 # ============================================================

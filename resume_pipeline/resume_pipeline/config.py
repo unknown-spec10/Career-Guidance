@@ -16,11 +16,11 @@ class Settings(BaseSettings):
     MYSQL_DSN: str | None = None
     FILE_STORAGE_PATH: str = "./data/raw_files"
     GEMINI_API_KEY: str = ""
-    GEMINI_API_URL: str = "https://api.gemini.example/v1"
-    GEMINI_SMALL_MODEL: str = "gemini-small-multimodal"
-    GEMINI_LARGE_MODEL: str = "gemini-large-multimodal"
+    GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
+    GEMINI_SMALL_MODEL: str = "gemini-2.0-flash"
+    GEMINI_LARGE_MODEL: str = "gemini-2.5-pro"
     GEMINI_MOCK_MODE: bool = False
-    EMBEDDING_MODEL: str = "gen-embedding-mini"
+    EMBEDDING_MODEL: str = "embedding-gecko-001"
     MAX_PARSE_TOKENS: int = 12000
     
     # Parsing thresholds
@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     EMAIL_VERIFICATION_MODE: str = "code"
     VERIFICATION_CODE_LENGTH: int = 6
     VERIFICATION_CODE_TTL_MINUTES: int = 30
+
+    # Recommendation System Weights (Hyperparameters)
+    RECOMMENDATION_SKILLS_WEIGHT: float = 0.40      # 40% weight for skill matching
+    RECOMMENDATION_EDUCATION_WEIGHT: float = 0.25   # 25% weight for education
+    RECOMMENDATION_EXPERIENCE_WEIGHT: float = 0.20  # 20% weight for experience
+    RECOMMENDATION_INTERVIEW_WEIGHT: float = 0.15   # 15% weight for interview (when available)
+    
+    # Recommendation thresholds
+    MIN_RECOMMENDATION_SCORE: float = 0.3   # 30% minimum match score
+    MAX_RECOMMENDATIONS: int = 10           # Maximum recommendations to return
 
 settings = Settings()
 

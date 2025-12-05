@@ -805,5 +805,41 @@
       "machine learning"
     ],
     "market_demand": "very_low"
+  },
+  "langextract": {
+    "skill_id": "skill_074",
+    "display_name": "LangExtract",
+    "relevance_score": 0.0,
+    "category": "programming",
+    "related_skills": [
+      "sql"
+    ],
+    "market_demand": "very_low"
+  },
+  "pyrally": {
+    "skill_id": "skill_075",
+    "display_name": "pyrally",
+    "relevance_score": 0.0,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "glm4": {
+    "skill_id": "skill_076",
+    "display_name": "GLM4",
+    "relevance_score": 0.01,
+    "category": "programming",
+    "related_skills": [
+      "ai"
+    ],
+    "market_demand": "very_low"
+  },
+  "content generation": {
+    "skill_id": "skill_077",
+    "display_name": "content generation",
+    "relevance_score": 14.4,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
   }
 }

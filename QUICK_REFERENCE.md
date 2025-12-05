@@ -104,6 +104,22 @@ curl "http://localhost:8000/api/jobs?location=Bangalore&work_type=remote"
 
 # Get recommendations
 curl http://localhost:8000/api/recommendations/1
+
+# Generate/refresh recommendations for applicant
+curl -X POST http://localhost:8000/api/applicant/1/generate-recommendations \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Update job application status (employer)
+curl -X PATCH http://localhost:8000/api/employer/applications/1/status \
+  -H "Authorization: Bearer EMPLOYER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "interviewing", "employer_notes": "Scheduled for next week"}'
+
+# Update college application status (college)
+curl -X PATCH http://localhost:8000/api/college/applications/1/status \
+  -H "Authorization: Bearer COLLEGE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "accepted", "college_notes": "Congratulations!"}'
 ```
 
 ### Using PowerShell
@@ -113,6 +129,32 @@ Invoke-RestMethod -Uri "http://localhost:8000/api/stats"
 
 # Get applicants
 Invoke-RestMethod -Uri "http://localhost:8000/api/applicants" | ConvertTo-Json -Depth 5
+
+# Generate recommendations (requires auth token)
+$headers = @{ "Authorization" = "Bearer YOUR_TOKEN" }
+Invoke-RestMethod -Uri "http://localhost:8000/api/applicant/1/generate-recommendations" -Method Post -Headers $headers
+
+# Update job application status (employer)
+$headers = @{ 
+    "Authorization" = "Bearer EMPLOYER_TOKEN"
+    "Content-Type" = "application/json"
+}
+$body = @{
+    status = "interviewing"
+    employer_notes = "Scheduled for next week"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8000/api/employer/applications/1/status" -Method Patch -Headers $headers -Body $body
+
+# Update college application status (college)
+$headers = @{ 
+    "Authorization" = "Bearer COLLEGE_TOKEN"
+    "Content-Type" = "application/json"
+}
+$body = @{
+    status = "accepted"
+    college_notes = "Congratulations!"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8000/api/college/applications/1/status" -Method Patch -Headers $headers -Body $body
 
 # Upload file (example)
 $headers = @{ "Content-Type" = "multipart/form-data" }
@@ -275,6 +317,21 @@ Measure-Command { Invoke-RestMethod http://localhost:8000/api/stats }
 - GitLens
 - Thunder Client (API testing)
 
+## New Features (v2.0)
+
+### 1. Micro Practice Mode
+- **What:** Quick 5-minute single-question interview sessions.
+- **Cost:** 1 Credit per session.
+- **How:** Click "Practice" -> "Micro Practice" on Dashboard.
+
+### 2. Profile Health Badge
+- **What:** Visual indicator of resume completeness.
+- **Action:** Click the circular badge in the header to view insights and improvement tips.
+
+### 3. Application Tracker
+- **What:** Unified status board for Job and College applications.
+- **Action:** Click the "Applications" pill to view detailed status history.
+
 ## Troubleshooting Quick Fixes
 
 ### Backend won't start
@@ -299,6 +356,13 @@ npm install
 # Check port 3000
 netstat -ano | findstr :3000
 ```
+
+### Frontend Blank Page / White Screen
+If the dashboard loads but shows a blank white screen:
+1. Stop the frontend server (`Ctrl+C` in terminal)
+2. Restart it: `npm run dev`
+3. Hard refresh the browser (`Ctrl+F5`)
+This is often caused by Vite hot-reload state issues.
 
 ### Database issues
 ```powershell

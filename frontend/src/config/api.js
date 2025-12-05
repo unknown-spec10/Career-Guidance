@@ -13,7 +13,7 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 second timeout
+  timeout: 60000, // 60 second timeout (increased for resume parsing)
 })
 
 // Request interceptor for adding auth tokens
@@ -40,15 +40,15 @@ api.interceptors.response.use(
       // Server responded with error status
       const status = error.response.status
       const message = error.response.data?.detail || error.message
-      
+
       if (status === 401) {
         // Token expired or invalid - clear auth and redirect
         console.error('Unauthorized:', message)
         secureStorage.clear()
-        
+
         // Only redirect if not already on login/register pages
-        if (window.location.pathname !== '/login' && 
-            window.location.pathname !== '/register') {
+        if (window.location.pathname !== '/login' &&
+          window.location.pathname !== '/register') {
           window.location.href = '/login'
         }
       } else if (status === 404) {
@@ -64,7 +64,7 @@ api.interceptors.response.use(
     } else {
       console.error('Error:', error.message)
     }
-    
+
     return Promise.reject(error)
   }
 )
