@@ -101,10 +101,10 @@ export default function AdminReviewsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading dashboard...</p>
+          <p className="text-gray-600">Loading dashboard...</p>
         </div>
       </div>
     )
@@ -112,17 +112,17 @@ export default function AdminReviewsPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
         <div className="card max-w-md">
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <p className="text-center text-gray-400">{error}</p>
+          <p className="text-center text-gray-600">{error}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
@@ -133,7 +133,7 @@ export default function AdminReviewsPage() {
           <div>
             <Link 
               to="/admin/dashboard"
-              className="flex items-center space-x-2 text-gray-400 hover:text-primary-400 transition-colors mb-3"
+              className="flex items-center space-x-2 text-gray-600 hover:text-primary-600 transition-colors mb-3"
             >
               <ArrowLeft className="w-4 h-4" />
               <span className="text-sm">Back to Dashboard</span>
@@ -142,7 +142,7 @@ export default function AdminReviewsPage() {
               <Shield className="w-8 h-8 text-yellow-400" />
               <h1 className="text-3xl md:text-4xl font-bold">Pending Reviews</h1>
             </div>
-            <p className="text-gray-400">Review and approve pending job postings and college programs</p>
+            <p className="text-gray-600">Review and approve pending job postings and college programs</p>
           </div>
           <button
             onClick={handleLogout}
@@ -216,16 +216,16 @@ export default function AdminReviewsPage() {
             {pendingJobs.length === 0 ? (
               <div className="text-center py-8">
                 <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
-                <p className="text-gray-400">No pending jobs</p>
+                <p className="text-gray-600">No pending jobs</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {pendingJobs.map((job) => (
-                  <div key={job.id} className="p-4 bg-dark-800 rounded-lg border border-dark-700">
+                  <div key={job.id} className="p-4 bg-white rounded-lg border border-gray-200">
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <h3 className="font-semibold mb-1">{job.title}</h3>
-                        <p className="text-sm text-gray-400">{job.company}</p>
+                        <p className="text-sm text-gray-600">{job.company}</p>
                         <p className="text-xs text-gray-500 mt-1">
                           Posted: {new Date(job.created_at).toLocaleDateString()}
                         </p>
@@ -273,16 +273,16 @@ export default function AdminReviewsPage() {
             {pendingPrograms.length === 0 ? (
               <div className="text-center py-8">
                 <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
-                <p className="text-gray-400">No pending programs</p>
+                <p className="text-gray-600">No pending programs</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {pendingPrograms.map((program) => (
-                  <div key={program.id} className="p-4 bg-dark-800 rounded-lg border border-dark-700">
+                  <div key={program.id} className="p-4 bg-white rounded-lg border border-gray-200">
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <h3 className="font-semibold mb-1">{program.program_name}</h3>
-                        <p className="text-sm text-gray-400">{program.college}</p>
+                        <p className="text-sm text-gray-600">{program.college}</p>
                         <p className="text-xs text-gray-500 mt-1">
                           Posted: {new Date(program.created_at).toLocaleDateString()}
                         </p>

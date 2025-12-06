@@ -29,7 +29,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
@@ -37,7 +37,7 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-red-500/10 border border-red-500 text-red-400 px-6 py-4 rounded-lg max-w-md mx-4">
           <div className="flex items-center space-x-2 mb-3">
             <AlertCircle className="w-6 h-6" />
@@ -84,7 +84,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -153,7 +153,7 @@ export default function DashboardPage() {
               <div>
                 <p className="text-sm text-gray-400 mb-2">Average Match Score</p>
                 <div className="flex items-center space-x-3">
-                  <div className="flex-1 bg-dark-700 rounded-full h-3 overflow-hidden">
+                  <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden\">
                     <div 
                       className="bg-gradient-to-r from-primary-500 to-primary-400 h-full rounded-full"
                       style={{ width: `${stats?.avg_college_match || 0}%` }}
@@ -185,7 +185,7 @@ export default function DashboardPage() {
               <div>
                 <p className="text-sm text-gray-400 mb-2">Average Match Score</p>
                 <div className="flex items-center space-x-3">
-                  <div className="flex-1 bg-dark-700 rounded-full h-3 overflow-hidden">
+                  <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden\">
                     <div 
                       className="bg-gradient-to-r from-green-500 to-green-400 h-full rounded-full"
                       style={{ width: `${stats?.avg_job_match || 0}%` }}

@@ -34,7 +34,7 @@ const ProfileHealth = ({ applicantData }) => {
                 onClick={() => setShowModal(true)}
                 className="relative group mr-4"
             >
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-dark-800 rounded-full border border-dark-600 hover:border-dark-500 transition-colors">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-full border border-gray-300 hover:border-gray-400 transition-colors">
                     <div className="relative w-8 h-8 flex items-center justify-center">
                         {/* Background Circle */}
                         <svg className="w-full h-full transform -rotate-90">
@@ -45,7 +45,7 @@ const ProfileHealth = ({ applicantData }) => {
                                 stroke="currentColor"
                                 strokeWidth="3"
                                 fill="transparent"
-                                className="text-dark-700"
+                                className="text-gray-300"
                             />
                             {/* Progress Circle */}
                             <circle
@@ -79,12 +79,12 @@ const ProfileHealth = ({ applicantData }) => {
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-dark-800 border border-dark-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[85vh]"
+                            className="bg-white border border-gray-300 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[85vh]"
                         >
-                            <div className="p-6 border-b border-dark-700 flex justify-between items-center bg-dark-900/50">
+                            <div className="p-6 border-b border-gray-300 flex justify-between items-center bg-gray-50">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-primary-900/20 rounded-lg">
-                                        <User className="w-6 h-6 text-primary-400" />
+                                    <div className="p-2 bg-primary-100 rounded-lg">
+                                        <User className="w-6 h-6 text-primary-600" />
                                     </div>
                                     <div>
                                         <h3 className="text-xl font-bold">Resume Insights</h3>
@@ -101,7 +101,7 @@ const ProfileHealth = ({ applicantData }) => {
                                 <div className="text-center mb-6">
                                     <div className="text-4xl font-bold mb-1">{healthScore}%</div>
                                     <div className="text-sm text-gray-400">Profile Completeness</div>
-                                    <div className="mt-3 w-full bg-dark-700 rounded-full h-2">
+                                    <div className="mt-3 w-full bg-gray-300 rounded-full h-2">
                                         <div className="h-2 rounded-full bg-gradient-to-r from-green-400 to-blue-500" style={{ width: `${healthScore}%` }}></div>
                                     </div>
                                 </div>
@@ -121,7 +121,7 @@ const ProfileHealth = ({ applicantData }) => {
                                             </h4>
                                             <div className="flex flex-wrap gap-2">
                                                 {(applicantData.skills || []).slice(0, 10).map((skill, i) => (
-                                                    <span key={i} className="px-2 py-1 bg-dark-700 rounded text-xs text-gray-300 border border-dark-600">
+                                                    <span key={i} className="px-2 py-1 bg-gray-200 rounded text-xs text-gray-900 border border-gray-300">
                                                         {typeof skill === 'string' ? skill : skill.name}
                                                     </span>
                                                 ))}

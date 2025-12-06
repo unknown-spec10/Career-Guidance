@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Building2, Users, FileText, CheckCircle, XCircle, 
-  Clock, PlusCircle, AlertTriangle, LogOut 
+  Clock, PlusCircle, AlertTriangle, LogOut, User 
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
+import secureStorage from '../utils/secureStorage'
 import { ANIMATION_DELAYS } from '../config/constants'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
@@ -90,10 +91,10 @@ export default function CollegeDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading dashboard...</p>
+          <p className="text-gray-600">Loading dashboard...</p>
         </div>
       </div>
     )
@@ -101,17 +102,17 @@ export default function CollegeDashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
         <div className="card max-w-md">
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <p className="text-center text-gray-400">{error}</p>
+          <p className="text-center text-gray-600">{error}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
@@ -121,7 +122,7 @@ export default function CollegeDashboard() {
         >
           <div>
             <h1 className="text-3xl md:text-4xl font-bold mb-2">College Dashboard</h1>
-            <p className="text-gray-400">Manage your programs and applications</p>
+            <p className="text-gray-600">Manage your programs and applications</p>
           </div>
           <div className="flex items-center space-x-3">
             <button
@@ -229,7 +230,7 @@ export default function CollegeDashboard() {
             ) : (
               <div className="space-y-3">
                 {programs.map((program) => (
-                  <div key={program.id} className="p-3 bg-dark-800 rounded-lg border border-dark-700">
+                  <div key={program.id} className="p-3 bg-white rounded-lg border border-gray-200">
                     <div className="flex items-start justify-between mb-2">
                       <h3 className="font-medium">{program.program_name}</h3>
                       {getStatusBadge(program.status)}
@@ -257,7 +258,7 @@ export default function CollegeDashboard() {
             ) : (
               <div className="space-y-3">
                 {applications.slice(0, 5).map((app) => (
-                  <div key={app.application_id} className="p-3 bg-dark-800 rounded-lg border border-dark-700">
+                  <div key={app.application_id} className="p-3 bg-white rounded-lg border border-gray-200">
                     <h3 className="font-medium mb-1">{app.applicant_name}</h3>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-400">12th: {app.twelfth_percentage}%</span>

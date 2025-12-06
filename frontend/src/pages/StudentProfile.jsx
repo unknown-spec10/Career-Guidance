@@ -253,7 +253,7 @@ export default function StudentProfile() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-400">Loading profile...</p>
@@ -263,7 +263,7 @@ export default function StudentProfile() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-20 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-20 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-5xl">
         {/* Header */}
         <motion.div
@@ -301,7 +301,7 @@ export default function StudentProfile() {
                     }}
                     className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${activeTab === tab.id
                       ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                      : 'text-gray-400 hover:text-white hover:bg-dark-800'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                       }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -395,17 +395,17 @@ export default function StudentProfile() {
 
                       <div>
                         <label className="block text-sm font-medium mb-2">Role</label>
-                        <div className="px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-gray-300">
+                        <div className="px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-900">
                           Student
                         </div>
                       </div>
 
                       <div>
                         <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
-                          <Calendar className="w-4 h-4 text-gray-400" />
+                          <Calendar className="w-4 h-4 text-gray-600" />
                           <span>Member Since</span>
                         </label>
-                        <div className="px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg text-gray-300">
+                        <div className="px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-900">
                           {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US', {
                             year: 'numeric',
                             month: 'long',
@@ -415,7 +415,7 @@ export default function StudentProfile() {
                       </div>
                     </div>
 
-                    <div className="flex justify-end pt-4 border-t border-dark-700">
+                    <div className="flex justify-end pt-4 border-t border-gray-200">
                       <button
                         type="submit"
                         disabled={saving}
@@ -529,7 +529,7 @@ export default function StudentProfile() {
                                 </button>
                               </>
                             ) : (
-                              <div className="flex-1 px-4 py-3 bg-dark-800 border border-dark-700 rounded-lg">
+                              <div className="flex-1 px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg\">
                                 <span className="font-medium">{skill.name}</span>
                                 {skill.proficiency && (
                                   <span className="ml-3 text-sm text-gray-400">({skill.proficiency})</span>
@@ -561,12 +561,12 @@ export default function StudentProfile() {
                       </h3>
                       <div className="space-y-4">
                         {resumeData.education.map((edu, index) => (
-                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
-                            <div className="font-medium">{edu.degree} {edu.branch && `in ${edu.branch}`}</div>
-                            <div className="text-sm text-gray-400 mt-1">{edu.institution}</div>
-                            {edu.cgpa && <div className="text-sm text-gray-400">CGPA: {edu.cgpa}</div>}
+                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
+                            <div className="font-medium text-gray-900">{edu.degree} {edu.branch && `in ${edu.branch}`}</div>
+                            <div className="text-sm text-gray-600 mt-1">{edu.institution}</div>
+                            {edu.cgpa && <div className="text-sm text-gray-600">CGPA: {edu.cgpa}</div>}
                             {(edu.start_year || edu.end_year) && (
-                              <div className="text-sm text-gray-400">
+                              <div className="text-sm text-gray-600">
                                 {edu.start_year} - {edu.end_year || 'Present'}
                               </div>
                             )}
@@ -586,16 +586,16 @@ export default function StudentProfile() {
                       </h3>
                       <div className="space-y-4">
                         {resumeData.experience.map((exp, index) => (
-                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
-                            <div className="font-medium">{exp.role}</div>
-                            <div className="text-sm text-gray-400 mt-1">{exp.company}</div>
+                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
+                            <div className="font-medium text-gray-900">{exp.title}</div>
+                            <div className="text-sm text-gray-600 mt-1">{exp.company}</div>
                             {(exp.start_date || exp.end_date) && (
-                              <div className="text-sm text-gray-400">
+                              <div className="text-sm text-gray-600">
                                 {exp.start_date} - {exp.end_date || 'Present'}
                               </div>
                             )}
                             {exp.description && (
-                              <p className="text-sm text-gray-300 mt-2">{exp.description}</p>
+                              <p className="text-sm text-gray-700 mt-2">{exp.description}</p>
                             )}
                           </div>
                         ))}
@@ -613,10 +613,10 @@ export default function StudentProfile() {
                       </h3>
                       <div className="space-y-4">
                         {resumeData.projects.map((project, index) => (
-                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
+                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
                             <div className="font-medium">{project.name}</div>
                             {project.description && (
-                              <p className="text-sm text-gray-300 mt-2">{project.description}</p>
+                              <p className="text-sm text-gray-700 mt-2">{project.description}</p>
                             )}
                             {project.technologies && project.technologies.length > 0 && (
                               <div className="flex flex-wrap gap-2 mt-2">
@@ -643,13 +643,13 @@ export default function StudentProfile() {
                       </h3>
                       <div className="space-y-4">
                         {resumeData.certifications.map((cert, index) => (
-                          <div key={index} className="p-4 bg-dark-800 border border-dark-700 rounded-lg">
+                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
                             <div className="font-medium">{cert.name}</div>
                             {cert.issuer && (
-                              <div className="text-sm text-gray-400 mt-1">Issued by: {cert.issuer}</div>
+                              <div className="text-sm text-gray-600 mt-1">Issued by: {cert.issuer}</div>
                             )}
                             {cert.issue_date && (
-                              <div className="text-sm text-gray-400">Date: {cert.issue_date}</div>
+                              <div className="text-sm text-gray-600">Date: {cert.issue_date}</div>
                             )}
                           </div>
                         ))}
@@ -728,7 +728,7 @@ export default function StudentProfile() {
                       </ul>
                     </div>
 
-                    <div className="flex justify-end pt-4 border-t border-dark-700">
+                    <div className="flex justify-end pt-4 border-t border-gray-200">
                       <button
                         type="submit"
                         disabled={saving}

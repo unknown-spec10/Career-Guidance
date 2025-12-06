@@ -32,11 +32,11 @@ export default function EmployerJobDetails(){
     fetchDetails()
   }, [jobId])
 
-  if (loading) return <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center"><div className="text-gray-400">Loading...</div></div>
-  if (error) return (<div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center"><div className="card max-w-md"><AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" /><p className="text-center text-gray-400">{error}</p></div></div>)
+  if (loading) return <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center"><div className="text-gray-600">Loading...</div></div>
+  if (error) return (<div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center"><div className="card max-w-md"><AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" /><p className="text-center text-gray-600">{error}</p></div></div>)
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-3xl">
         <div className="card p-6">
@@ -71,13 +71,13 @@ export default function EmployerJobDetails(){
             <p className="text-sm text-gray-400 mb-2">Required Skills</p>
             <div className="flex flex-wrap gap-2">
               {(job?.required_skills || []).map((s, idx) => (
-                <span key={idx} className="px-2 py-1 text-xs rounded border border-dark-700 bg-dark-800">{s.name || s}</span>
+                <span key={idx} className="px-2 py-1 text-xs rounded border border-gray-300 bg-gray-100 text-gray-900">{s.name || s}</span>
               ))}
             </div>
           </div>
 
           <div className="flex gap-2">
-            <button onClick={() => navigate('/employer/dashboard')} className="px-4 py-2 border border-dark-600 rounded">Back</button>
+            <button onClick={() => navigate('/employer/dashboard')} className="px-4 py-2 border border-gray-300 rounded text-gray-900 hover:bg-gray-100">Back</button>
             <button onClick={() => navigate(`/employer/jobs/${jobId}/applicants`)} className="btn-primary">View Applicants</button>
           </div>
         </div>

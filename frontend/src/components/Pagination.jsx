@@ -68,7 +68,7 @@ export default function Pagination({ currentPage, totalPages, onPageChange, show
         <button
           onClick={handlePrevious}
           disabled={currentPage === 1}
-          className="p-2 rounded-lg border border-dark-700 hover:bg-dark-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-gray-900"
           aria-label="Previous page"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -84,7 +84,7 @@ export default function Pagination({ currentPage, totalPages, onPageChange, show
               className={`min-w-[2.5rem] h-10 px-3 rounded-lg transition-colors ${
                 currentPage === page
                   ? 'bg-primary-500 text-white font-semibold'
-                  : 'border border-dark-700 hover:bg-dark-800 text-gray-300'
+                  : 'border border-gray-300 hover:bg-gray-100 text-gray-900'
               }`}
             >
               {page}
@@ -95,7 +95,7 @@ export default function Pagination({ currentPage, totalPages, onPageChange, show
         <button
           onClick={handleNext}
           disabled={currentPage === totalPages}
-          className="p-2 rounded-lg border border-dark-700 hover:bg-dark-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-gray-900"
           aria-label="Next page"
         >
           <ChevronRight className="w-5 h-5" />
@@ -107,11 +107,11 @@ export default function Pagination({ currentPage, totalPages, onPageChange, show
         <button
           onClick={handlePrevious}
           disabled={currentPage === 1}
-          className="px-4 py-2 rounded-lg border border-dark-700 hover:bg-dark-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+          className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm text-gray-900"
         >
           Previous
         </button>
-        <span className="text-sm text-gray-400 font-medium">
+        <span className="text-sm text-gray-600 font-medium">
           {currentPage} / {totalPages}
         </span>
         <button

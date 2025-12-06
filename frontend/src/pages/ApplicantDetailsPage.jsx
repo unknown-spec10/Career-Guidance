@@ -55,7 +55,7 @@ export default function ApplicantDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
@@ -64,17 +64,17 @@ export default function ApplicantDetailsPage() {
   // Add null check for data and applicant
   if (!data || !data.applicant) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <div className="min-h-screen bg-gray-50 pt-24 pb-12">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <button
             onClick={() => navigate('/applicants')}
-            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors duration-200 mb-4"
+            className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors duration-200 mb-4"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Back to Applicants</span>
           </button>
           <div className="text-center py-12">
-            <p className="text-gray-400 text-lg mb-2">Unable to load applicant data.</p>
+            <p className="text-gray-600 text-lg mb-2">Unable to load applicant data.</p>
             <p className="text-gray-500 text-sm">The applicant may not exist or there was an error fetching the data.</p>
             <button
               onClick={() => navigate('/applicants')}
@@ -96,7 +96,7 @@ export default function ApplicantDetailsPage() {
   const skills = parsed.skills || []
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -105,7 +105,7 @@ export default function ApplicantDetailsPage() {
         >
           <button
             onClick={() => navigate('/applicants')}
-            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors duration-200 mb-4"
+            className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors duration-200 mb-4"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Back to Applicants</span>
@@ -130,18 +130,18 @@ export default function ApplicantDetailsPage() {
               </div>
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm text-gray-400">Name</p>
+                  <p className="text-sm text-gray-600">Name</p>
                   <p className="font-medium">{personal.name || applicant?.display_name}</p>
                 </div>
                 {personal.email && (
                   <div>
-                    <p className="text-sm text-gray-400">Email</p>
+                    <p className="text-sm text-gray-600">Email</p>
                     <p className="font-medium">{personal.email}</p>
                   </div>
                 )}
                 {applicant?.location_city && (
                   <div className="flex items-center space-x-2">
-                    <MapPin className="w-4 h-4 text-gray-400" />
+                    <MapPin className="w-4 h-4 text-gray-500" />
                     <p className="text-sm">{applicant.location_city}, {applicant.country}</p>
                   </div>
                 )}
@@ -162,9 +162,9 @@ export default function ApplicantDetailsPage() {
                 </div>
                 <div className="space-y-4">
                   {education.map((edu, idx) => (
-                    <div key={idx} className="pb-4 border-b border-dark-700 last:border-0 last:pb-0">
+                    <div key={idx} className="pb-4 border-b border-gray-200 last:border-0 last:pb-0">
                       <p className="font-medium">{edu.institution}</p>
-                      <p className="text-sm text-gray-400">{edu.degree}</p>
+                      <p className="text-sm text-gray-600">{edu.degree}</p>
                       {(edu.cgpa || edu.grade) && (
                         <p className="text-sm text-primary-400 mt-1">
                           {edu.cgpa ? `CGPA: ${edu.cgpa}` : `Grade: ${edu.grade}`}
@@ -220,12 +220,12 @@ export default function ApplicantDetailsPage() {
                   <Link
                     key={rec.id}
                     to={`/college/${rec.college.id}`}
-                    className="block p-4 bg-dark-800 hover:bg-dark-700 rounded-lg border border-dark-700 hover:border-primary-500/50 transition-all duration-300"
+                    className="block p-4 bg-white hover:bg-gray-50 rounded-lg border border-gray-200 hover:border-primary-500/50 transition-all duration-300"
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <h3 className="font-semibold text-lg">{rec.college.name}</h3>
-                        <p className="text-sm text-gray-400">
+                        <p className="text-sm text-gray-600">
                           {rec.college.location_city}, {rec.college.location_state}
                         </p>
                       </div>
@@ -240,7 +240,7 @@ export default function ApplicantDetailsPage() {
                       </div>
                     </div>
                     {rec.explain && (
-                      <p className="text-sm text-gray-400 mt-2">
+                      <p className="text-sm text-gray-600 mt-2">
                         {Array.isArray(rec.explain.reasons) 
                           ? rec.explain.reasons.join(', ') 
                           : rec.explain.reasoning || rec.explain.match_details || 'Good match based on profile'}
@@ -249,7 +249,7 @@ export default function ApplicantDetailsPage() {
                   </Link>
                 ))}
                 {recommendations?.college_recommendations?.length === 0 && (
-                  <p className="text-gray-400 text-center py-4">No college recommendations yet</p>
+                  <p className="text-gray-600 text-center py-4">No college recommendations yet</p>
                 )}
               </div>
             </motion.div>
@@ -270,12 +270,12 @@ export default function ApplicantDetailsPage() {
                   <Link
                     key={rec.id}
                     to={`/job/${rec.job.id}`}
-                    className="block p-4 bg-dark-800 hover:bg-dark-700 rounded-lg border border-dark-700 hover:border-green-500/50 transition-all duration-300"
+                    className="block p-4 bg-white hover:bg-gray-50 rounded-lg border border-gray-200 hover:border-green-500/50 transition-all duration-300"
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <h3 className="font-semibold text-lg">{rec.job.title}</h3>
-                        <p className="text-sm text-gray-400">{rec.job.company}</p>
+                        <p className="text-sm text-gray-600">{rec.job.company}</p>
                         <p className="text-sm text-gray-500">
                           {rec.job.location_city} • {rec.job.work_type}
                         </p>
@@ -291,7 +291,7 @@ export default function ApplicantDetailsPage() {
                       </div>
                     </div>
                     {rec.explain && (
-                      <p className="text-sm text-gray-400 mt-2">
+                      <p className="text-sm text-gray-600 mt-2">
                         {typeof rec.explain === 'string' 
                           ? rec.explain 
                           : (rec.explain.reasons?.join(', ') || rec.explain.reasoning || rec.explain.match_details || 'Good match')}
@@ -300,7 +300,7 @@ export default function ApplicantDetailsPage() {
                   </Link>
                 ))}
                 {recommendations?.job_recommendations?.length === 0 && (
-                  <p className="text-gray-400 text-center py-4">No job recommendations yet</p>
+                  <p className="text-gray-600 text-center py-4">No job recommendations yet</p>
                 )}
               </div>
             </motion.div>

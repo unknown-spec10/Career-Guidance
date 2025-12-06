@@ -227,51 +227,23 @@ class InterviewService:
             InterviewAnswer.question_id == question_id
         ).first()
         
+        if existing:
+            raise ValueError("Answer already submitted for this question")
+        
         # Determine the answer content
         candidate_answer = selected_option or answer_text or code_submitted or ""
         
-        # Evaluate the answer using Gemini with error handling
-        try:
-            evaluation = self.gemini_client.evaluate_answer(
-                question_text=getattr(question, 'question_text', ''),
-                question_type=getattr(question, 'question_type', 'short_answer'),
-                candidate_answer=candidate_answer,
-                correct_answer=getattr(question, 'correct_answer', None),
-                expected_points=getattr(question, 'expected_answer_points', None),
-                max_score=getattr(question, 'max_score', 10.0)
-            )
-        except Exception as e:
-            print(f"Warning: Failed to evaluate answer with Gemini: {e}")
-            # Provide fallback evaluation
-            evaluation = {
-                'is_correct': None,
-                'score': 0.0,
-                'strengths': [],
-                'weaknesses': [],
-                'improvement_suggestions': [],
-                'feedback': 'Evaluation pending'
-            }
+        # Evaluate the answer using Gemini
+        evaluation = self.gemini_client.evaluate_answer(
+            question_text=getattr(question, 'question_text', ''),
+            question_type=getattr(question, 'question_type', 'short_answer'),
+            candidate_answer=candidate_answer,
+            correct_answer=getattr(question, 'correct_answer', None),
+            expected_points=getattr(question, 'expected_answer_points', None),
+            max_score=getattr(question, 'max_score', 10.0)
+        )
         
-        if existing:
-            # UPDATE existing answer instead of raising error
-            existing.answer_text = answer_text  # type: ignore
-            existing.code_submitted = code_submitted  # type: ignore
-            existing.selected_option = selected_option  # type: ignore
-            existing.time_taken_seconds = time_taken_seconds  # type: ignore
-            existing.is_correct = evaluation.get('is_correct')  # type: ignore
-            existing.score = evaluation.get('score', 0.0)  # type: ignore
-            existing.ai_evaluation = evaluation  # type: ignore
-            existing.strengths = evaluation.get('strengths')  # type: ignore
-            existing.weaknesses = evaluation.get('weaknesses')  # type: ignore
-            existing.improvement_suggestions = evaluation.get('improvement_suggestions')  # type: ignore
-            existing.submitted_at = datetime.datetime.utcnow()  # type: ignore
-            
-            self.db.commit()
-            self.db.refresh(existing)
-            
-            return existing
-        
-        # Create new answer record
+        # Create answer record
         answer = InterviewAnswer(
             session_id=session_id,
             question_id=question_id,
@@ -396,21 +368,10 @@ class InterviewService:
         applicant_id = getattr(session, 'applicant_id', 0)
         applicant_skills = self.get_applicant_skills(applicant_id)
         
-        # Analyze skill gaps with error handling
-        try:
-            analysis = self.gemini_client.analyze_skill_gaps(
-                session_results=session_results,
-                applicant_skills=applicant_skills
-            )
-        except Exception as e:
-            print(f"Warning: Failed to analyze skill gaps: {e}")
-            analysis = {
-                'skill_gaps': {},
-                'overall_assessment': 'Analysis pending',
-                'priority_skills': [],
-                'recommended_courses': [],
-                'practice_problems': []
-            }
+        analysis = self.gemini_client.analyze_skill_gaps(
+            session_results=session_results,
+            applicant_skills=applicant_skills
+        )
         
         session.skill_gap_analysis = analysis.get('skill_gaps', {})  # type: ignore
         session.ai_feedback = {  # type: ignore
@@ -424,12 +385,8 @@ class InterviewService:
         
         # Generate learning path if score < 60 or explicitly requested
         learning_path = None
-        if generate_learning_path:
-            try:
-                learning_path = self.create_learning_path(session, analysis)
-            except Exception as e:
-                print(f"Warning: Failed to create learning path: {e}")
-                learning_path = None
+        if generate_learning_path and (scores['overall_score'] < 60 or True):
+            learning_path = self.create_learning_path(session, analysis)
         
         return session, learning_path
     
@@ -444,29 +401,22 @@ class InterviewService:
         skill_gaps = analysis.get('skill_gaps', {})
         
         # Fetch learning resources from Google Search (with Gemini fallback)
-        try:
-            resources = self.content_fetcher.fetch_learning_resources(
-                skill_gaps=skill_gaps,
-                count_per_skill=3
-            )
-        except Exception as e:
-            print(f"Warning: Failed to fetch learning resources: {e}")
-            resources = []
+        resources = self.content_fetcher.fetch_learning_resources(
+            skill_gaps=skill_gaps,
+            count_per_skill=3
+        )
         
         # Fetch practice problems
         practice_problems = []
         weak_skills = [skill for skill, level in skill_gaps.items() if level == "weak"]
         
         for skill in weak_skills[:2]:
-            try:
-                problems = self.content_fetcher.fetch_practice_problems(
-                    skill=skill,
-                    difficulty="easy",  # Start with easy for weak skills
-                    count=5
-                )
-                practice_problems.extend(problems)
-            except Exception as e:
-                print(f"Warning: Failed to fetch practice problems for {skill}: {e}")
+            problems = self.content_fetcher.fetch_practice_problems(
+                skill=skill,
+                difficulty="easy",  # Start with easy for weak skills
+                count=5
+            )
+            practice_problems.extend(problems)
         
         # Create learning path
         learning_path = LearningPath(

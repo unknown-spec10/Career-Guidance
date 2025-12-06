@@ -29,7 +29,7 @@ export default function StatCard({ title, value, icon: Icon, trend, trendValue, 
       
       <div className="relative z-10">
         <div className="flex items-start justify-between mb-4">
-          <div className="p-3 rounded-lg bg-dark-800/50 group-hover:scale-110 transition-transform duration-300">
+          <div className="p-3 rounded-lg bg-gray-100 group-hover:scale-110 transition-transform duration-300">
             <Icon className="w-6 h-6" />
           </div>
           
@@ -37,7 +37,7 @@ export default function StatCard({ title, value, icon: Icon, trend, trendValue, 
             <div className={`flex items-center space-x-1 text-sm ${
               trend === 'up' ? 'text-green-400' : 
               trend === 'down' ? 'text-red-400' : 
-              'text-gray-400'
+              'text-gray-600'
             }`}>
               <TrendIcon className="w-4 h-4" />
               <span className="font-medium">{trendValue}</span>
@@ -54,7 +54,7 @@ export default function StatCard({ title, value, icon: Icon, trend, trendValue, 
           >
             {value}
           </motion.div>
-          <p className="text-sm text-gray-400">{title}</p>
+          <p className="text-sm text-gray-600">{title}</p>
         </div>
       </div>
 

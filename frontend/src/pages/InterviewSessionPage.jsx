@@ -6,15 +6,27 @@ import { Clock, ChevronLeft, ChevronRight, Send, AlertCircle } from 'lucide-reac
 
 const Timer = ({ endTime, onTimeout }) => {
   const [timeLeft, setTimeLeft] = useState(0)
+  const timeoutCalled = React.useRef(false)
 
   useEffect(() => {
     const calculateTimeLeft = () => {
+      if (!endTime) return
+
       const now = new Date().getTime()
       const end = new Date(endTime).getTime()
+
+      if (isNaN(end)) {
+        console.error('Timer: Invalid end time', endTime)
+        return
+      }
+
       const diff = Math.max(0, Math.floor((end - now) / 1000))
+
+      // console.log('Timer:', { endTime, diff })
       setTimeLeft(diff)
 
-      if (diff === 0 && onTimeout) {
+      if (diff === 0 && onTimeout && !timeoutCalled.current) {
+        timeoutCalled.current = true
         onTimeout()
       }
     }
@@ -79,12 +91,19 @@ const InterviewSessionPage = () => {
       setSession(response.data.session)
       setQuestions(response.data.questions)
 
-      // Initialize answers object
+      // Initialize answers object including pre-filled ones
       const initialAnswers = {}
       response.data.questions.forEach(q => {
+        let selectedOptionIndex = null
+        // If we have a submitted answer for MCQ, find its index
+        if (q.submitted_answer?.selected_option && q.options) {
+          selectedOptionIndex = q.options.indexOf(q.submitted_answer.selected_option)
+          if (selectedOptionIndex === -1) selectedOptionIndex = null
+        }
+
         initialAnswers[q.id] = {
-          answer_text: '',
-          selected_option: null
+          answer_text: q.submitted_answer?.answer_text || '',
+          selected_option: selectedOptionIndex
         }
       })
       setAnswers(initialAnswers)
@@ -107,71 +126,106 @@ const InterviewSessionPage = () => {
     }))
   }
 
-  const submitAnswer = async () => {
-    console.log('🔵 submitAnswer called!')
-    console.log('Current index:', currentIndex)
-    console.log('Questions:', questions)
+  const submitAnswer = async (isNavigation = false) => {
+    console.log('🔵 submitAnswer CLICKED', { isNavigation })
     const question = questions[currentIndex]
-    console.log('Current question:', question)
     const answer = answers[question.id]
-    console.log('Current answer:', answer)
+    console.log('Payload check:', { question, answer })
 
-    // Removed validation - allow submission even without answer
+    // If already submitted, just move next if navigating
+    if (question.submitted_answer) {
+      if (isNavigation && currentIndex < questions.length - 1) {
+        setCurrentIndex(currentIndex + 1)
+      }
+      return
+    }
+
+    // Validate answer
+    if (question.question_type === 'mcq') {
+      if (answer.selected_option === null || answer.selected_option === undefined) {
+        alert('Please select an option')
+        return
+      }
+    } else {
+      if (!answer.answer_text?.trim()) {
+        alert('Please provide an answer')
+        return
+      }
+    }
 
     setSubmitting(true)
     try {
+      console.log('Constructing payload...')
       const payload = {
         question_id: question.id,
-        answer_text: question.question_type === 'mcq' ? null : (answer?.answer_text || ''),
-        selected_option: question.question_type === 'mcq'
-          ? (answer?.selected_option !== null && answer?.selected_option !== undefined ? question.options[answer.selected_option] : null)
-          : null,
-        code_submitted: null,
-        time_taken_seconds: null
+        answer_text: question.question_type === 'mcq' ? null : answer.answer_text,
+        selected_option: (question.question_type === 'mcq' && question.options)
+          ? question.options[answer.selected_option]
+          : null
       }
+      console.log('Sending payload:', payload)
 
-      console.log('Submitting answer:', payload)
-      const response = await api.post(`/api/interviews/${sessionId}/submit-answer`, payload)
-      console.log('Answer submitted successfully:', response.data)
+      const res = await api.post(`/api/interviews/${sessionId}/submit-answer`, payload)
+      console.log('API Response:', res.status, res.data)
 
       // Move to next question if available
-      console.log('📊 Navigation check:')
-      console.log('currentIndex:', currentIndex)
-      console.log('questions.length:', questions.length)
-      console.log('currentIndex < questions.length - 1:', currentIndex < questions.length - 1)
-
-      if (currentIndex < questions.length - 1) {
-        const nextIndex = currentIndex + 1
-        console.log(`Moving from question ${currentIndex + 1} to ${nextIndex + 1}`)
-        setCurrentIndex(nextIndex)
+      if (isNavigation && currentIndex < questions.length - 1) {
+        console.log('Moving to next question...')
+        setCurrentIndex(currentIndex + 1)
       } else {
-        console.log('This was the last question')
+        console.log('Question submitted successfully.')
       }
     } catch (error) {
-      console.error('Error submitting answer:', error)
-      const errorMsg = error.response?.data?.detail || error.message || 'Failed to submit answer'
-      alert(errorMsg)
+      console.error('❌ Error submitting answer:', error)
+      if (error.response) {
+        console.error('Response data:', error.response.data)
+        console.error('Response status:', error.response.status)
+      }
+      alert('Failed to submit answer: ' + (error.message || 'Unknown error'))
     } finally {
+      console.log('🏁 submitAnswer finally block')
       setSubmitting(false)
     }
   }
 
+
+
+  const handleComplete = async () => {
+    const question = questions[currentIndex]
+    // If current question not submitted, submit it first
+    if (!question.submitted_answer) {
+      // Quick validation check
+      const answer = answers[question.id]
+      const isAnswered = question.question_type === 'mcq'
+        ? answer?.selected_option !== null
+        : answer?.answer_text?.trim().length > 0
+
+      if (isAnswered) {
+        console.log('Auto-submitting last question before completion...')
+        await submitAnswer(false)
+      }
+    }
+    await completeSession()
+  }
+
   const completeSession = async () => {
-    console.log('🟢 completeSession called!')
-    // Removed confirmation dialog - complete immediately
+    console.log('🟢 completeSession CLICKED')
+    // Removed blocking confirm dialog
+    // if (!window.confirm('Are you sure you want to complete this interview? You cannot change your answers afterwards.')) {
+    //   return
+    // }
 
     setCompleting(true)
     try {
-      const response = await api.post(`/api/interviews/${sessionId}/complete`, {
-        generate_learning_path: true
+      console.log('Sending complete API call...')
+      await api.post(`/api/interviews/${sessionId}/complete`, {
+        early_completion: false
       })
 
-      console.log('Session completed:', response.data)
       navigate(`/dashboard/interview/results/${sessionId}`)
     } catch (error) {
       console.error('Error completing session:', error)
-      const errorMsg = error.response?.data?.detail || error.message || 'Failed to complete session'
-      alert(errorMsg)
+      alert('Failed to complete session')
     } finally {
       setCompleting(false)
     }
@@ -181,7 +235,7 @@ const InterviewSessionPage = () => {
     alert('Time is up! Submitting your interview...')
     try {
       await api.post(`/api/interviews/${sessionId}/complete`, {
-        generate_learning_path: true
+        early_completion: false
       })
       navigate(`/dashboard/interview/results/${sessionId}`)
     } catch (error) {
@@ -200,14 +254,8 @@ const InterviewSessionPage = () => {
   const currentQuestion = questions[currentIndex]
   const currentAnswer = answers[currentQuestion?.id]
   const isAnswered = currentQuestion?.question_type === 'mcq'
-    ? currentAnswer?.selected_option !== null && currentAnswer?.selected_option !== undefined
+    ? currentAnswer?.selected_option !== null
     : currentAnswer?.answer_text?.trim().length > 0
-
-  console.log('🔍 Debug Info:')
-  console.log('currentQuestion:', currentQuestion)
-  console.log('currentAnswer:', currentAnswer)
-  console.log('isAnswered:', isAnswered)
-  console.log('button disabled:', !isAnswered)
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -241,7 +289,7 @@ const InterviewSessionPage = () => {
       </div>
 
       {/* Question Card */}
-      <div key={currentQuestion?.id || currentIndex} className="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
         <div className="flex items-start mb-4">
           <span className="flex-shrink-0 w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold">
             {currentIndex + 1}
@@ -252,7 +300,7 @@ const InterviewSessionPage = () => {
                 {currentQuestion?.question_type === 'mcq' ? 'Multiple Choice' : 'Short Answer'}
               </span>
               <span className="ml-2 px-3 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
-                {currentQuestion?.category}
+                {currentQuestion?.skill}
               </span>
             </div>
             <p className="text-lg text-gray-900 mb-4 whitespace-pre-wrap">
@@ -265,17 +313,18 @@ const InterviewSessionPage = () => {
                 {currentQuestion.options.map((option, idx) => (
                   <label
                     key={idx}
-                    className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all ${currentAnswer?.selected_option === idx
+                    className={`flex items-center p-4 border-2 rounded-lg transition-all ${currentAnswer?.selected_option === idx
                       ? 'border-indigo-600 bg-indigo-50'
-                      : 'border-gray-200 hover:border-indigo-300'
-                      }`}
+                      : 'border-gray-200'
+                      } ${currentQuestion?.submitted_answer ? 'cursor-default opacity-80' : 'cursor-pointer hover:border-indigo-300'}`}
                   >
                     <input
                       type="radio"
                       name={`question-${currentQuestion.id}`}
                       value={idx}
                       checked={currentAnswer?.selected_option === idx}
-                      onChange={() => handleAnswerChange(currentQuestion.id, idx, true)}
+                      onChange={() => !currentQuestion?.submitted_answer && handleAnswerChange(currentQuestion.id, idx, true)}
+                      disabled={!!currentQuestion?.submitted_answer}
                       className="w-5 h-5 text-indigo-600"
                     />
                     <span className="ml-3 text-gray-900">{option}</span>
@@ -291,8 +340,9 @@ const InterviewSessionPage = () => {
                   value={currentAnswer?.answer_text || ''}
                   onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
                   placeholder="Type your answer here..."
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none disabled:bg-gray-100 disabled:text-gray-600"
                   rows={6}
+                  disabled={!!currentQuestion?.submitted_answer}
                 />
                 <p className="text-sm text-gray-500 mt-2">
                   Tip: Be concise and focus on key points
@@ -301,56 +351,39 @@ const InterviewSessionPage = () => {
             )}
           </div>
         </div>
-
-        {/* Submit Button */}
-        <div className="mt-6">
-          <button
-            onClick={() => {
-              console.log('🟡 BUTTON CLICKED!')
-              submitAnswer()
-            }}
-            disabled={submitting}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-medium transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center"
-          >
-            <Send className="w-5 h-5 mr-2" />
-            {submitting ? 'Submitting...' : (currentIndex < questions.length - 1 ? 'Submit & Next' : 'Submit Answer')}
-          </button>
-        </div>
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mt-8">
         <button
           onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-          disabled={currentIndex === 0}
-          className="flex items-center px-4 py-2 text-gray-700 hover:text-gray-900 disabled:text-gray-400 disabled:cursor-not-allowed"
+          disabled={currentIndex === 0 || submitting}
+          className="flex items-center px-4 py-2 text-gray-700 hover:text-gray-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronLeft className="w-5 h-5 mr-1" />
           Previous
         </button>
 
-        {currentIndex === questions.length - 1 && (
-          <button
-            onClick={() => {
-              console.log('🟢 COMPLETE BUTTON CLICKED!')
-              completeSession()
-            }}
-            disabled={completing}
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+        {currentIndex < questions.length - 1 ? (
+          <LoadingButton
+            onClick={() => submitAnswer(true)}
+            loading={submitting}
+            disabled={submitting}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center"
           >
-            {completing ? 'Completing...' : 'Complete Interview'}
-          </button>
+            Next
+            <ChevronRight className="w-5 h-5 ml-1" />
+          </LoadingButton>
+        ) : (
+          <LoadingButton
+            onClick={handleComplete}
+            loading={completing || submitting}
+            disabled={completing || submitting}
+            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+          >
+            Complete Interview
+          </LoadingButton>
         )}
-
-
-        <button
-          onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}
-          disabled={currentIndex === questions.length - 1}
-          className="flex items-center px-4 py-2 text-gray-700 hover:text-gray-900 disabled:text-gray-400 disabled:cursor-not-allowed"
-        >
-          Next
-          <ChevronRight className="w-5 h-5 ml-1" />
-        </button>
       </div>
 
       {/* Warning Message */}
@@ -367,6 +400,7 @@ const InterviewSessionPage = () => {
         </div>
       </div>
     </div>
+
   )
 }
 

@@ -91,10 +91,10 @@ export default function EmployerDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading dashboard...</p>
+          <p className="text-gray-600">Loading dashboard...</p>
         </div>
       </div>
     )
@@ -102,17 +102,17 @@ export default function EmployerDashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
         <div className="card max-w-md">
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <p className="text-center text-gray-400">{error}</p>
+          <p className="text-center text-gray-600">{error}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
@@ -122,7 +122,7 @@ export default function EmployerDashboard() {
         >
           <div>
             <h1 className="text-3xl md:text-4xl font-bold mb-2">Employer Dashboard</h1>
-            <p className="text-gray-400">Manage your job postings and applicants</p>
+            <p className="text-gray-600">Manage your job postings and applicants</p>
           </div>
           <div className="flex items-center space-x-3">
             <button
@@ -188,13 +188,13 @@ export default function EmployerDashboard() {
                 <p className="text-sm text-gray-400 mb-2">Required Skills</p>
                 <div className="flex flex-wrap gap-2">
                   {(modalJob?.required_skills || []).map((s, idx) => (
-                    <span key={idx} className="px-2 py-1 text-xs rounded border border-dark-700 bg-dark-800">{typeof s === 'string' ? s : s.name || JSON.stringify(s)}</span>
+                    <span key={idx} className="px-2 py-1 text-xs rounded border border-gray-300 bg-gray-100 text-gray-900">{typeof s === 'string' ? s : s.name || JSON.stringify(s)}</span>
                   ))}
                 </div>
               </div>
 
               <div className="flex gap-2">
-                <button onClick={() => { setModalOpen(false); setModalJob(null) }} className="px-4 py-2 border border-dark-600 rounded">Close</button>
+                <button onClick={() => { setModalOpen(false); setModalJob(null) }} className="px-4 py-2 border border-gray-300 rounded text-gray-900 hover:bg-gray-100">Close</button>
                 <button disabled={modalLoading} onClick={() => { if (modalJob?.id) navigate(`/employer/jobs/${modalJob.id}/applicants`) }} className="btn-primary">View Applicants</button>
               </div>
             </div>
@@ -299,7 +299,7 @@ export default function EmployerDashboard() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.05 }}
-                  className="p-4 bg-dark-800 rounded-lg border border-dark-700 hover:border-primary-500/30 transition-colors"
+                  className="p-4 bg-white rounded-lg border border-gray-200 hover:border-primary-500/30 transition-colors"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
@@ -354,7 +354,7 @@ export default function EmployerDashboard() {
               
               {/* Pagination */}
               {Math.ceil(jobs.length / pageSize) > 1 && (
-                <div className="flex justify-center items-center space-x-2 mt-6 pt-4 border-t border-dark-700">
+                <div className="flex justify-center items-center space-x-2 mt-6 pt-4 border-t border-gray-200\">
                   <button
                     onClick={() => setPage(p => Math.max(1, p - 1))}
                     disabled={page === 1}

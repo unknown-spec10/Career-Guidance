@@ -236,7 +236,7 @@ export default function StudentDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 px-4">
+      <div className="min-h-screen bg-gray-50 pt-24 px-4">
         <div className="max-w-7xl mx-auto py-8">
           <SkeletonStats />
         </div>
@@ -245,7 +245,7 @@ export default function StudentDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
 
@@ -257,7 +257,7 @@ export default function StudentDashboard() {
         >
           <div>
             <h1 className="text-3xl md:text-4xl font-bold mb-1">Student Dashboard</h1>
-            <p className="text-gray-400">Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Student'}</p>
+            <p className="text-gray-600">Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Student'}</p>
           </div>
 
           <div className="flex items-center space-x-4">
@@ -274,8 +274,16 @@ export default function StudentDashboard() {
             </button>
 
             <button
+              onClick={() => navigate('/dashboard/learning-paths')}
+              className="flex items-center space-x-2 px-5 py-2.5 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all text-gray-700"
+            >
+              <BookOpen className="w-5 h-5" />
+              <span className="font-semibold">Paths</span>
+            </button>
+
+            <button
               onClick={handleLogout}
-              className="p-2.5 bg-dark-800 border border-dark-600 rounded-xl hover:bg-red-900/20 hover:border-red-500/30 transition-colors text-gray-400 hover:text-red-400"
+              className="p-2.5 bg-white border border-gray-300 rounded-xl hover:bg-red-50 hover:border-red-300 transition-colors text-gray-600 hover:text-red-600"
               title="Logout"
             >
               <LogOut className="w-5 h-5" />
@@ -299,11 +307,11 @@ export default function StudentDashboard() {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="my-8 p-8 border border-dashed border-dark-600 rounded-2xl bg-dark-800/50 text-center"
+            className="my-8 p-8 border border-dashed border-gray-300 rounded-2xl bg-white text-center"
           >
             <Upload className="w-12 h-12 text-primary-400 mx-auto mb-4" />
             <h3 className="text-xl font-bold mb-2">Setup Your Profile</h3>
-            <p className="text-gray-400 mb-6 max-w-md mx-auto">Upload your resume to unlock AI-powered recommendations and interview practice.</p>
+            <p className="text-gray-600 mb-6 max-w-md mx-auto">Upload your resume to unlock AI-powered recommendations and interview practice.</p>
             <button onClick={() => setShowUploadForm(true)} className="btn-primary">Upload Resume</button>
           </motion.div>
         )}
@@ -317,30 +325,30 @@ export default function StudentDashboard() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.1 }}
-                className="p-5 bg-dark-800 rounded-xl border border-dark-700 hover:border-primary-500/30 transition-all hover:shadow-lg flex flex-col h-full"
+                className="p-5 bg-white rounded-xl border border-gray-200 hover:border-primary-500/30 transition-all hover:shadow-lg flex flex-col h-full"
               >
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex-1 mr-2">
-                    <h3 className="font-bold text-lg leading-tight mb-1 text-white">{rec.job?.title || rec.title}</h3>
-                    <p className="text-sm text-gray-400">{rec.job?.company || rec.company}</p>
+                    <h3 className="font-bold text-lg leading-tight mb-1 text-gray-900">{rec.job?.title || rec.title}</h3>
+                    <p className="text-sm text-gray-600">{rec.job?.company || rec.company}</p>
                   </div>
                   <MatchScore score={rec.score || rec.match_score || 0.5} size="sm" showLabel={false} />
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  <span className="text-xs bg-dark-900 border border-dark-700 px-2 py-1 rounded text-gray-400 flex items-center gap-1">
+                  <span className="text-xs bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-600 flex items-center gap-1">
                     <MapPin className="w-3 h-3" />
                     {rec.job?.location_city || 'Remote'}
                   </span>
-                  <span className="text-xs bg-dark-900 border border-dark-700 px-2 py-1 rounded text-gray-400">
+                  <span className="text-xs bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-600">
                     {rec.job?.work_type || 'Full-time'}
                   </span>
                 </div>
 
-                <div className="mt-auto pt-4 border-t border-dark-700/50 flex gap-2">
+                <div className="mt-auto pt-4 border-t border-gray-200 flex gap-2">
                   <button
                     onClick={() => openDetails(rec)}
-                    className="flex-1 py-2 text-sm font-medium border border-dark-600 rounded-lg hover:bg-dark-700 transition-colors text-gray-300"
+                    className="flex-1 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
                   >
                     Details
                   </button>
@@ -348,8 +356,8 @@ export default function StudentDashboard() {
                     onClick={() => openEasyApply(rec)}
                     disabled={rec.status === 'applied' || rec.status === 'accepted'}
                     className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${rec.status === 'applied'
-                        ? 'bg-green-900/20 text-green-400 cursor-not-allowed border border-green-500/20'
-                        : 'bg-primary-600/90 hover:bg-primary-500 text-white shadow-lg shadow-primary-900/20'
+                      ? 'bg-green-900/20 text-green-400 cursor-not-allowed border border-green-500/20'
+                      : 'bg-primary-600/90 hover:bg-primary-500 text-white shadow-lg shadow-primary-900/20'
                       }`}
                   >
                     {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
@@ -371,16 +379,16 @@ export default function StudentDashboard() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-dark-800 border border-dark-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+                className="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
               >
-                <div className="p-6 text-center border-b border-dark-700">
+                <div className="p-6 text-center border-b border-gray-200">
                   <h3 className="text-2xl font-bold mb-2">Practice for Success</h3>
-                  <p className="text-gray-400 text-sm">Choose your interview mode</p>
+                  <p className="text-gray-600 text-sm">Choose your interview mode</p>
                 </div>
                 <div className="p-6 grid gap-4">
                   <button
                     onClick={() => navigate('/dashboard/interview?mode=micro')}
-                    className="flex items-center gap-4 p-4 rounded-xl border border-dark-600 hover:border-blue-500 hover:bg-blue-900/10 transition-all text-left group"
+                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-300 hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
                   >
                     <div className="p-3 bg-blue-900/20 rounded-lg group-hover:bg-blue-900/30">
                       <Zap className="w-6 h-6 text-blue-400" />
@@ -393,7 +401,7 @@ export default function StudentDashboard() {
 
                   <button
                     onClick={() => navigate('/dashboard/interview')}
-                    className="flex items-center gap-4 p-4 rounded-xl border border-dark-600 hover:border-purple-500 hover:bg-purple-900/10 transition-all text-left group"
+                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-300 hover:border-purple-500 hover:bg-purple-50 transition-all text-left group"
                   >
                     <div className="p-3 bg-purple-900/20 rounded-lg group-hover:bg-purple-900/30">
                       <BookOpen className="w-6 h-6 text-purple-400" />
@@ -404,7 +412,7 @@ export default function StudentDashboard() {
                     </div>
                   </button>
                 </div>
-                <div className="p-4 bg-dark-900/50 text-center">
+                <div className="p-4 bg-white text-center border border-gray-200 rounded-lg">
                   <button onClick={() => setShowPracticeModal(false)} className="text-sm text-gray-500 hover:text-gray-300">Cancel</button>
                 </div>
               </motion.div>
@@ -415,32 +423,32 @@ export default function StudentDashboard() {
         {/* Easy Apply Modal */}
         {easyApplyOpen && easyApplyRec && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-lg card border border-primary-500/30 bg-dark-800">
-              <div className="flex justify-between items-center mb-6 border-b border-dark-700 pb-4">
+            <div className="w-full max-w-lg card border border-primary-500/30 bg-white">
+              <div className="flex justify-between items-center mb-6 border-b border-gray-200 pb-4">
                 <h3 className="font-bold text-lg">Apply to {easyApplyRec.job?.title}</h3>
-                <button onClick={() => setEasyApplyOpen(false)} className="text-gray-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
+                <button onClick={() => setEasyApplyOpen(false)} className="text-gray-600 hover:text-gray-900"><XCircle className="w-6 h-6" /></button>
               </div>
               <form onSubmit={submitEasyApply} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Full Name</label>
-                    <input name="full_name" className="input bg-dark-900" placeholder="Name" required />
+                    <label className="text-xs text-gray-600 mb-1 block">Full Name</label>
+                    <input name="full_name" className="input bg-white" placeholder="Name" required />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Email</label>
-                    <input name="email" type="email" className="input bg-dark-900" placeholder="Email" required />
+                    <label className="text-xs text-gray-600 mb-1 block">Email</label>
+                    <input name="email" type="email" className="input bg-white" placeholder="Email" required />
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Resume</label>
-                  <div className="p-2 border border-dark-600 rounded bg-dark-900/50 text-sm text-gray-300 flex items-center gap-2">
+                  <label className="text-xs text-gray-600 mb-1 block">Resume</label>
+                  <div className="p-2 border border-gray-300 rounded bg-gray-50 text-sm text-gray-700 flex items-center gap-2">
                     <FileText className="w-4 h-4" />
                     <span>Using uploaded resume</span>
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Cover Letter / Note</label>
-                  <textarea name="questions" className="input bg-dark-900" rows="3" placeholder="Why are you a good fit?"></textarea>
+                  <label className="text-xs text-gray-600 mb-1 block">Cover Letter / Note</label>
+                  <textarea name="questions" className="input bg-white" rows="3" placeholder="Why are you a good fit?"></textarea>
                 </div>
                 <div className="pt-2">
                   <button className="btn-primary w-full py-3" disabled={easyApplyLoading}>
@@ -455,16 +463,16 @@ export default function StudentDashboard() {
         {/* Details Modal */}
         {detailsOpen && detailsRec && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-2xl card border border-primary-500/30 bg-dark-800 max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-start mb-6 border-b border-dark-700 pb-4">
+            <div className="w-full max-w-2xl card border border-primary-500/30 bg-white max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-start mb-6 border-b border-gray-200 pb-4">
                 <div>
                   <h3 className="font-bold text-xl">{detailsRec.job?.title}</h3>
-                  <p className="text-primary-400 text-sm">{detailsRec.job?.company}</p>
+                  <p className="text-primary-600 text-sm">{detailsRec.job?.company}</p>
                 </div>
-                <button onClick={() => setDetailsOpen(false)} className="text-gray-400 hover:text-white"><XCircle className="w-6 h-6" /></button>
+                <button onClick={() => setDetailsOpen(false)} className="text-gray-600 hover:text-gray-900"><XCircle className="w-6 h-6" /></button>
               </div>
               <div className="space-y-6">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-dark-900/50 rounded-xl">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-xl">
                   {[
                     { label: 'Location', value: detailsRec.job?.location_city || 'Remote' },
                     { label: 'Type', value: detailsRec.job?.work_type || 'Full-time' },
@@ -479,15 +487,15 @@ export default function StudentDashboard() {
                 </div>
 
                 <div>
-                  <h4 className="font-semibold text-gray-300 mb-2">About the Role</h4>
-                  <p className="text-gray-400 text-sm leading-relaxed whitespace-pre-wrap">{detailsRec.job?.description || 'No description available.'}</p>
+                  <h4 className="font-semibold text-gray-700 mb-2">About the Role</h4>
+                  <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-wrap">{detailsRec.job?.description || 'No description available.'}</p>
                 </div>
 
                 <div>
-                  <h4 className="font-semibold text-gray-300 mb-2">Why Recommended</h4>
+                  <h4 className="font-semibold text-gray-700 mb-2">Why Recommended</h4>
                   <ul className="space-y-2">
                     {(detailsRec.explain?.reasons || []).map((r, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-gray-400">
+                      <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
                         <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
                         <span>{r}</span>
                       </li>
@@ -495,8 +503,8 @@ export default function StudentDashboard() {
                   </ul>
                 </div>
 
-                <div className="flex gap-3 pt-4 border-t border-dark-700">
-                  <button onClick={() => setDetailsOpen(false)} className="flex-1 py-3 border border-dark-600 rounded-xl hover:bg-dark-700">Close</button>
+                <div className="flex gap-3 pt-4 border-t border-gray-200">
+                  <button onClick={() => setDetailsOpen(false)} className="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50">Close</button>
                   <button onClick={() => { setDetailsOpen(false); openEasyApply(detailsRec) }} className="flex-1 py-3 btn-primary rounded-xl">Apply Now</button>
                 </div>
               </div>
@@ -514,7 +522,7 @@ export default function StudentDashboard() {
               </div>
               <form onSubmit={handleFileUpload} className="space-y-4">
                 <div>
-                  <label className="block text-sm mb-2 text-gray-400">Resume File (PDF/DOCX)</label>
+                  <label className="block text-sm mb-2 text-gray-700">Resume File (PDF/DOCX)</label>
                   <input type="file" name="resume" required className="input w-full p-3 border-dashed"
                     onChange={(e) => setSelectedResume(e.target.files[0])}
                   />

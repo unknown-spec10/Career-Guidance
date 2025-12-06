@@ -65,32 +65,32 @@ const statusConfig = {
     icon: AlertTriangle,
     label: 'Withdrawn',
     color: 'gray',
-    bgClass: 'bg-gray-500/10 border-gray-500/30 text-gray-400',
-    iconClass: 'text-gray-400',
+    bgClass: 'bg-gray-100 border-gray-300 text-gray-700',
+    iconClass: 'text-gray-600',
     pulse: false
   },
   pending: {
     icon: Clock,
     label: 'Pending',
     color: 'yellow',
-    bgClass: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400',
-    iconClass: 'text-yellow-400',
+    bgClass: 'bg-yellow-100 border-yellow-300 text-yellow-700',
+    iconClass: 'text-yellow-600',
     pulse: true
   },
   approved: {
     icon: CheckCircle,
     label: 'Approved',
     color: 'green',
-    bgClass: 'bg-green-500/10 border-green-500/30 text-green-400',
-    iconClass: 'text-green-400',
+    bgClass: 'bg-green-100 border-green-300 text-green-700',
+    iconClass: 'text-green-600',
     pulse: false
   },
   loading: {
     icon: Loader2,
     label: 'Loading',
     color: 'gray',
-    bgClass: 'bg-gray-500/10 border-gray-500/30 text-gray-400',
-    iconClass: 'text-gray-400 animate-spin',
+    bgClass: 'bg-gray-100 border-gray-300 text-gray-700',
+    iconClass: 'text-gray-600 animate-spin',
     pulse: false
   }
 }

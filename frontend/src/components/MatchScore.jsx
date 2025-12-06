@@ -65,7 +65,7 @@ export default function MatchScore({ score, size = 'md', showLabel = true }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className={`${config.text} font-medium text-gray-300`}
+          className={`${config.text} font-medium text-gray-700`}
         >
           {getLabel(score)}
         </motion.p>

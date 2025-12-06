@@ -39,10 +39,10 @@ export default function ResultsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-dark-900">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading results...</p>
+          <p className="text-gray-600">Loading results...</p>
         </div>
       </div>
     )
@@ -50,13 +50,13 @@ export default function ResultsPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-dark-900">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="card max-w-md">
           <div className="flex items-center space-x-3 text-red-400 mb-4">
             <AlertTriangle className="w-8 h-8" />
             <h2 className="text-xl font-semibold">Error Loading Results</h2>
           </div>
-          <p className="text-gray-400 mb-4">{error}</p>
+          <p className="text-gray-600 mb-4">{error}</p>
           <button onClick={() => navigate('/')} className="btn-primary w-full">
             Back to Home
           </button>
@@ -79,7 +79,7 @@ export default function ResultsPage() {
   const llm_confidence = parsed.llm_confidence ?? data?.llm_confidence ?? 0
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <motion.div
@@ -180,9 +180,9 @@ export default function ResultsPage() {
                 </div>
                 <div className="space-y-4">
                   {education.map((edu, idx) => (
-                    <div key={idx} className="pb-4 border-b border-dark-700 last:border-0 last:pb-0">
+                    <div key={idx} className="pb-4 border-b border-gray-200 last:border-0 last:pb-0">
                       <p className="font-medium">{edu.institution}</p>
-                      <p className="text-sm text-gray-400">{edu.degree}</p>
+                      <p className="text-sm text-gray-600">{edu.degree}</p>
                       {edu.cgpa && (
                         <div className="flex items-center space-x-2 mt-2">
                           <Award className="w-4 h-4 text-primary-400" />
@@ -261,9 +261,9 @@ export default function ResultsPage() {
                 </div>
                 <div className="space-y-4">
                   {experience.map((exp, idx) => (
-                    <div key={idx} className="pb-4 border-b border-dark-700 last:border-0 last:pb-0">
+                    <div key={idx} className="pb-4 border-b border-gray-200 last:border-0 last:pb-0">
                       <p className="font-medium">{exp.title}</p>
-                      <p className="text-sm text-gray-400">{exp.company}</p>
+                      <p className="text-sm text-gray-600">{exp.company}</p>
                       <p className="text-sm text-gray-500 mt-1">{exp.duration}</p>
                     </div>
                   ))}
@@ -285,9 +285,9 @@ export default function ResultsPage() {
                 </div>
                 <div className="space-y-4">
                   {projects.map((project, idx) => (
-                    <div key={idx} className="pb-4 border-b border-dark-700 last:border-0 last:pb-0">
+                    <div key={idx} className="pb-4 border-b border-gray-200 last:border-0 last:pb-0">
                       <p className="font-medium">{project.name}</p>
-                      <p className="text-sm text-gray-400 mt-1">{project.description}</p>
+                      <p className="text-sm text-gray-600 mt-1">{project.description}</p>
                     </div>
                   ))}
                 </div>

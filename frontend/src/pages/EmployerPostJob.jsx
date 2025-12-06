@@ -97,7 +97,7 @@ export default function EmployerPostJob() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-4xl">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -295,14 +295,14 @@ export default function EmployerPostJob() {
                 <option value="intermediate">Intermediate</option>
                 <option value="advanced">Advanced</option>
               </select>
-              <button type="button" onClick={addOptionalSkill} className="px-3 py-2 rounded bg-dark-700 hover:bg-dark-600 text-sm flex items-center gap-1 border border-dark-600">
+              <button type="button" onClick={addOptionalSkill} className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 text-sm flex items-center gap-1 border border-gray-300 text-gray-900">
                 <PlusCircle className="w-4 h-4" /> Add
               </button>
             </div>
             {optionalSkills.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {optionalSkills.map((sk, idx) => (
-                  <span key={idx} className="group px-2 py-1 text-xs rounded border border-dark-600 bg-dark-800 flex items-center gap-1">
+                  <span key={idx} className="group px-2 py-1 text-xs rounded border border-gray-300 bg-gray-100 flex items-center gap-1 text-gray-900">
                     {sk.name} <em className="text-gray-400 not-italic">({sk.level})</em>
                     <button type="button" onClick={() => removeOptionalSkill(idx)} className="opacity-0 group-hover:opacity-100 transition">
                       <Trash2 className="w-3 h-3 text-red-400" />
@@ -324,7 +324,7 @@ export default function EmployerPostJob() {
             <button
               type="button"
               onClick={() => navigate('/employer/dashboard')}
-              className="px-6 py-2 border border-dark-600 rounded-lg hover:bg-dark-800 transition-colors"
+              className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors text-gray-900"
             >
               Cancel
             </button>

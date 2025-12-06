@@ -33,16 +33,16 @@ export default function ProgressBar({
     <div className="w-full">
       {(showLabel || label) && (
         <div className="flex justify-between items-center mb-2">
-          {label && <span className="text-sm text-gray-400">{label}</span>}
+          {label && <span className="text-sm text-gray-600">{label}</span>}
           {showLabel && (
-            <span className="text-sm font-semibold text-gray-300">
+            <span className="text-sm font-semibold text-gray-700">
               {Math.round(percentage)}%
             </span>
           )}
         </div>
       )}
       
-      <div className={`w-full bg-dark-800 rounded-full overflow-hidden ${sizeClasses[size]}`}>
+      <div className={`w-full bg-gray-200 rounded-full overflow-hidden ${sizeClasses[size]}`}>
         <motion.div
           initial={animated ? { width: 0 } : { width: `${percentage}%` }}
           animate={{ width: `${percentage}%` }}
@@ -141,7 +141,7 @@ export function CircularProgress({
           </motion.span>
         )}
         {label && (
-          <span className="text-xs text-gray-400 mt-1">{label}</span>
+          <span className="text-xs text-gray-600 mt-1">{label}</span>
         )}
       </div>
     </div>

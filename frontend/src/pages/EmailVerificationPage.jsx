@@ -41,7 +41,7 @@ export default function EmailVerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -51,7 +51,7 @@ export default function EmailVerificationPage() {
           <>
             <Loader2 className="w-16 h-16 text-primary-400 mx-auto mb-4 animate-spin" />
             <h2 className="text-2xl font-bold mb-2">Verifying Email</h2>
-            <p className="text-gray-400">Please wait while we verify your email address...</p>
+            <p className="text-gray-600">Please wait while we verify your email address...</p>
           </>
         )}
 
@@ -59,7 +59,7 @@ export default function EmailVerificationPage() {
           <>
             <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
             <h2 className="text-2xl font-bold mb-2 text-green-400">Email Verified!</h2>
-            <p className="text-gray-400 mb-4">{message}</p>
+            <p className="text-gray-600 mb-4">{message}</p>
             <p className="text-sm text-gray-500">Redirecting to login...</p>
           </>
         )}
@@ -68,7 +68,7 @@ export default function EmailVerificationPage() {
           <>
             <XCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
             <h2 className="text-2xl font-bold mb-2 text-red-400">Verification Failed</h2>
-            <p className="text-gray-400 mb-6">{message}</p>
+            <p className="text-gray-600 mb-6">{message}</p>
             <div className="space-y-3">
               <Link to="/login" className="btn-primary w-full block">
                 Go to Login
@@ -80,7 +80,7 @@ export default function EmailVerificationPage() {
                 <Mail className="w-4 h-4" />
                 <span>Resend Verification Code</span>
               </button>
-              <Link to="/verify-code" className="text-sm text-gray-400 hover:text-white block mt-2">
+              <Link to="/verify-code" className="text-sm text-gray-600 hover:text-gray-900 block mt-2">
                 Enter verification code
               </Link>
             </div>

@@ -29,7 +29,7 @@ export default function CollegeDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
@@ -41,7 +41,7 @@ export default function CollegeDetailsPage() {
   const metadata = data?.metadata
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -91,7 +91,7 @@ export default function CollegeDetailsPage() {
               </div>
 
               {college?.description && (
-                <p className="text-gray-400 text-sm mt-4 pt-4 border-t border-dark-700">
+                <p className="text-gray-600 text-sm mt-4 pt-4 border-t border-gray-200">
                   {college.description}
                 </p>
               )}
@@ -172,7 +172,7 @@ export default function CollegeDetailsPage() {
                   {programs.map((program) => (
                     <div
                       key={program.id}
-                      className="p-4 bg-dark-800 rounded-lg border border-dark-700"
+                      className="p-4 bg-gray-100 rounded-lg border border-gray-300"
                     >
                       <h3 className="font-semibold text-lg mb-2">{program.program_name}</h3>
                       

@@ -52,12 +52,12 @@ export default function Modal({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: 'spring', duration: 0.5 }}
-            className={`w-full ${sizes[size]} card border border-primary-500/30 bg-dark-800 my-8 relative`}
+            className={`w-full ${sizes[size]} card border border-gray-300 bg-white my-8 relative`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             {(title || showCloseButton) && (
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-dark-700">
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
                 {title && (
                   <h3 className="text-xl font-semibold">{title}</h3>
                 )}
@@ -66,7 +66,7 @@ export default function Modal({
                     whileHover={{ scale: 1.1, rotate: 90 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={onClose}
-                    className="p-2 rounded-lg hover:bg-dark-700 transition-colors text-gray-400 hover:text-white"
+                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
                   >
                     <X className="w-5 h-5" />
                   </motion.button>

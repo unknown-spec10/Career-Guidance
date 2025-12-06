@@ -76,7 +76,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -135,7 +135,7 @@ export default function RegisterPage() {
                     type="button"
                     onClick={handleResendCode}
                     disabled={loading}
-                    className="px-4 py-2 border border-dark-600 rounded-lg hover:bg-dark-800 transition-colors text-sm"
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
                   >
                     Resend Code
                   </button>
@@ -220,11 +220,11 @@ export default function RegisterPage() {
                     onClick={() => setFormData({ ...formData, role: value })}
                     className={`p-4 border-2 rounded-lg transition-all ${
                       formData.role === value
-                        ? 'border-primary-500 bg-primary-900/20'
-                        : 'border-dark-700 hover:border-dark-600'
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'border-gray-300 hover:border-gray-400'
                     }`}
                   >
-                    <Icon className={`w-6 h-6 mx-auto mb-2 ${formData.role === value ? 'text-primary-400' : 'text-gray-400'}`} />
+                    <Icon className={`w-6 h-6 mx-auto mb-2 ${formData.role === value ? 'text-primary-600' : 'text-gray-600'}`} />
                     <span className="text-sm font-medium">{label}</span>
                   </button>
                 ))}

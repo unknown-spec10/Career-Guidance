@@ -2,24 +2,25 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { Loader2 } from 'lucide-react'
 
-export default function LoadingButton({ 
-  loading, 
-  children, 
-  disabled, 
+export default function LoadingButton({
+  loading,
+  children,
+  disabled,
   onClick,
   type = 'button',
   variant = 'primary',
   size = 'md',
   fullWidth = false,
   icon: Icon,
-  ...props 
+  className,
+  ...props
 }) {
   const variants = {
     primary: 'btn-primary',
     secondary: 'btn-secondary',
     danger: 'bg-red-600 hover:bg-red-700 text-white border border-red-600',
     success: 'bg-green-600 hover:bg-green-700 text-white border border-green-600',
-    ghost: 'border border-dark-600 hover:bg-dark-800 text-gray-300'
+    ghost: 'border border-gray-300 hover:bg-gray-100 text-gray-900'
   }
 
   const sizes = {
@@ -42,9 +43,10 @@ export default function LoadingButton({
         ${baseClass}
         ${sizeClass}
         ${fullWidth ? 'w-full' : ''}
-        ${disabled || loading ? 'opacity-50 cursor-not-allowed' : ''}
+        ${disabled || loading ? 'opacity-75 cursor-wait' : ''}
         flex items-center justify-center gap-2 rounded-lg font-medium 
         transition-all duration-200 relative overflow-hidden
+        ${className}
       `}
       {...props}
     >
@@ -52,14 +54,16 @@ export default function LoadingButton({
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+          className="absolute left-4"
         >
-          <Loader2 className="w-4 h-4" />
+          <Loader2 className="w-5 h-5" />
         </motion.div>
       )}
-      
+
       {!loading && Icon && <Icon className="w-4 h-4" />}
-      
-      <span>{loading ? 'Loading...' : children}</span>
+
+      <span className={loading ? 'opacity-0' : 'opacity-100'}>{children}</span>
+      {loading && <span className="absolute inset-0 flex items-center justify-center">Processing...</span>}
 
       {/* Ripple effect on hover */}
       {!disabled && !loading && (

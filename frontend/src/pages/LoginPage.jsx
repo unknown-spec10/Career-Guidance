@@ -73,7 +73,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -87,10 +87,10 @@ export default function LoginPage() {
           <span className="text-xl font-bold">Career AI</span>
         </Link>
 
-        <div className="bg-dark-800 border border-dark-700 rounded-xl p-8 shadow-xl">
+        <div className="bg-white border border-gray-200 rounded-xl p-8 shadow-xl">
           <div className="mb-8">
             <h2 className="text-3xl font-bold mb-2">Sign In</h2>
-            <p className="text-gray-400">Enter your credentials to access your account</p>
+            <p className="text-gray-600">Enter your credentials to access your account</p>
           </div>
 
           {message && (
@@ -117,11 +117,11 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-300">
+              <label className="block text-sm font-medium mb-2 text-gray-700">
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="email"
                   required
@@ -134,11 +134,11 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-300">
+              <label className="block text-sm font-medium mb-2 text-gray-700">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="password"
                   required
@@ -154,9 +154,9 @@ export default function LoginPage() {
               <label className="flex items-center cursor-pointer">
                 <input 
                   type="checkbox" 
-                  className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-primary-500 focus:ring-offset-0 cursor-pointer" 
+                  className="w-4 h-4 rounded border-gray-300 bg-white text-primary-500 focus:ring-primary-500 focus:ring-offset-0 cursor-pointer" 
                 />
-                <span className="ml-2 text-sm text-gray-400">Remember me</span>
+                <span className="ml-2 text-sm text-gray-600">Remember me</span>
               </label>
               <Link 
                 to="/forgot-password" 
@@ -179,16 +179,16 @@ export default function LoginPage() {
           <div className="mt-8 space-y-4">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-dark-700"></div>
+                <div className="w-full border-t border-gray-300"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-dark-900 text-gray-400">New to Career AI?</span>
+                <span className="px-4 bg-gray-50 text-gray-600">New to Career AI?</span>
               </div>
             </div>
 
             <Link 
               to="/register"
-              className="block w-full text-center px-4 py-3 border border-dark-600 rounded-lg hover:bg-dark-800 hover:border-primary-500/30 transition-all text-gray-300 font-medium"
+              className="block w-full text-center px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-primary-500/30 transition-all text-gray-700 font-medium"
             >
               Create an Account
             </Link>

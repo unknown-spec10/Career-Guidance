@@ -52,11 +52,11 @@ export default function ApplicantsPage() {
 
   if (loading && applicants.length === 0) {
     return (
-      <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+      <div className="min-h-screen bg-gray-50 pt-24 pb-12">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8">
-            <div className="h-10 bg-dark-800 rounded w-64 mb-2 animate-pulse"></div>
-            <div className="h-6 bg-dark-800 rounded w-96 animate-pulse"></div>
+            <div className="h-10 bg-gray-200 rounded w-64 mb-2 animate-pulse"></div>
+            <div className="h-6 bg-gray-200 rounded w-96 animate-pulse"></div>
           </div>
           <GridSkeleton count={9} columns={3} />
         </div>
@@ -65,7 +65,7 @@ export default function ApplicantsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -125,8 +125,8 @@ export default function ApplicantsPage() {
                 )}
               </div>
 
-              <div className="mt-4 pt-4 border-t border-dark-700 flex items-center justify-between">
-                <span className={`text-sm ${applicant.has_parsed_data ? 'text-green-400' : 'text-gray-400'}`}>
+              <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between\">
+                <span className={`text-sm ${applicant.has_parsed_data ? 'text-green-600' : 'text-gray-600'}`}>
                   {applicant.has_parsed_data ? '✓ Parsed' : 'Not Parsed'}
                 </span>
                 <button className="text-primary-400 hover:text-primary-300 flex items-center space-x-1">

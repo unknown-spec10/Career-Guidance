@@ -38,12 +38,12 @@ export default function EmptyState({
         }}
         className="mb-6"
       >
-        <div className="p-6 rounded-full bg-dark-800 border border-dark-700">
+        <div className="p-6 rounded-full bg-gray-200 border border-gray-300">
           <Icon className="w-16 h-16 text-gray-500" />
         </div>
       </motion.div>
 
-      <h3 className="text-xl font-semibold mb-2 text-gray-300">{title}</h3>
+      <h3 className="text-xl font-semibold mb-2 text-gray-900">{title}</h3>
       <p className="text-gray-500 text-center max-w-md mb-6">{message}</p>
 
       {actionLabel && onAction && (

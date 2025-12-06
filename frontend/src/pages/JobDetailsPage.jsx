@@ -29,7 +29,7 @@ export default function JobDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
@@ -40,7 +40,7 @@ export default function JobDetailsPage() {
   const metadata = data?.metadata
 
   return (
-    <div className="min-h-screen bg-dark-900 pt-24 pb-12">
+    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -87,7 +87,7 @@ export default function JobDetailsPage() {
                 </div>
               )}
               
-              <div className="space-y-3 pt-4 border-t border-dark-700">
+              <div className="space-y-3 pt-4 border-t border-gray-200">
                 <div className="flex items-center space-x-2 text-gray-400">
                   <MapPin className="w-4 h-4" />
                   <span>{job?.location_city}</span>
@@ -209,7 +209,7 @@ export default function JobDetailsPage() {
                   {job.optional_skills.map((skill, idx) => (
                     <span
                       key={idx}
-                      className="px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-sm text-gray-400"
+                      className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700"
                     >
                       {skill}
                     </span>

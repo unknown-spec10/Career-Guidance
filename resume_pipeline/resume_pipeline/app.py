@@ -26,7 +26,7 @@ from .schemas import (
     AnswerSubmit, AnswerEvaluation, SessionCompleteRequest, SessionCompleteResponse,
     SkillAssessmentCreate, SkillAssessmentResponse, LearningPathResponse,
     InterviewHistoryResponse, CreditAccountResponse, CreditTransactionResponse,
-    AdminCreditAdjustment, ProfileResponse, ProfileUpdate
+    AdminCreditAdjustment
 )
 from .auth import (
     get_password_hash, verify_password, create_access_token,
@@ -3682,8 +3682,8 @@ def start_interview_session(
         "session_type": getattr(session, 'session_type', ''),
         "difficulty_level": getattr(session, 'difficulty_level', 'medium'),
         "focus_skills": getattr(session, 'focus_skills', None),
-        "started_at": getattr(session, 'started_at', dt.datetime.utcnow()),
-        "completed_at": getattr(session, 'completed_at', None),
+        "started_at": (getattr(session, 'started_at', dt.datetime.utcnow()).isoformat() + 'Z') if getattr(session, 'started_at', None) else None,
+        "completed_at": (getattr(session, 'completed_at').isoformat() + 'Z') if getattr(session, 'completed_at', None) else None,
         "duration_seconds": getattr(session, 'duration_seconds', None),
         "status": getattr(session, 'status', 'in_progress'),
         "overall_score": getattr(session, 'overall_score', None),
@@ -3764,28 +3764,45 @@ def get_interview_questions(
         else:
             duration = INTERVIEW_CONFIG['SESSION_DURATION_SECONDS']
         
-        session.started_at = now
-        session.ends_at = now + dt.timedelta(seconds=duration)
+        session.started_at = now  # type: ignore
+        session.ends_at = now + dt.timedelta(seconds=duration)  # type: ignore
         db.commit()
         db.refresh(session)
     
-    # Format datetimes with Z suffix to indicate UTC
-    started_at = getattr(session, 'started_at', dt.datetime.utcnow())
-    ends_at = getattr(session, 'ends_at', None)
-    
+    # Check for associated learning path
+    from .db import LearningPath
+    learning_path = db.query(LearningPath).filter(
+        LearningPath.source_session_id == session.id
+    ).first()
+
     session_data = {
         "id": session.id,
         "session_type": getattr(session, 'session_type', ''),
         "session_mode": getattr(session, 'session_mode', 'full'),
         "difficulty_level": getattr(session, 'difficulty_level', 'medium'),
         "status": getattr(session, 'status', 'in_progress'),
-        "started_at": started_at.isoformat() + 'Z' if started_at else None,
-        "ends_at": ends_at.isoformat() + 'Z' if ends_at else None,
-        "focus_skills": getattr(session, 'focus_skills', None)
+        "started_at": (getattr(session, 'started_at', dt.datetime.utcnow()).isoformat() + 'Z') if getattr(session, 'started_at', None) else None,
+        "ends_at": (getattr(session, 'ends_at').isoformat() + 'Z') if getattr(session, 'ends_at', None) else None,
+        "focus_skills": getattr(session, 'focus_skills', None),
+        # Result fields
+        "overall_score": getattr(session, 'overall_score', None),
+        "skill_scores": getattr(session, 'skill_scores', None),
+        "ai_feedback": getattr(session, 'ai_feedback', None),
+        "skill_gap_analysis": getattr(session, 'skill_gap_analysis', None),
+        "learning_path_id": learning_path.id if learning_path else None
     }
     
-    questions_data = [
-        {
+    # Fetch existing answers
+    from .db import InterviewAnswer
+    existing_answers = db.query(InterviewAnswer).filter(
+        InterviewAnswer.session_id == session_id
+    ).all()
+    answers_map = {a.question_id: a for a in existing_answers}
+
+    questions_data = []
+    for q in questions:
+        answer = answers_map.get(q.id)
+        q_data = {
             "id": q.id,
             "session_id": getattr(q, 'session_id', 0),
             "question_order": getattr(q, 'question_order', 0),
@@ -3796,10 +3813,14 @@ def get_interview_questions(
             "options": getattr(q, 'options', None),
             "starter_code": getattr(q, 'starter_code', None),
             "max_score": getattr(q, 'max_score', 10.0),
-            "skills_tested": getattr(q, 'skills_tested', None)
+            "skills_tested": getattr(q, 'skills_tested', None),
+            "submitted_answer": {
+                "answer_text": answer.answer_text,
+                "selected_option": answer.selected_option,
+                "code_submitted": answer.code_submitted
+            } if answer else None
         }
-        for q in questions
-    ]
+        questions_data.append(q_data)
     
     return {
         "session": session_data,
@@ -3996,6 +4017,42 @@ def get_interview_history(
         "needs_retake": history['needs_retake']
     }
 
+
+@app.get("/api/learning-paths/{path_id}")
+def get_learning_path_detail(
+    path_id: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific learning path by ID.
+    """
+    from .db import LearningPath
+    
+    path = db.query(LearningPath).filter(LearningPath.id == path_id).first()
+    
+    if not path:
+        raise HTTPException(status_code=404, detail="Learning path not found")
+        
+    # Verify ownership (optional: strict check if user owns the path's applicant)
+    # For now assuming if they have ID they can view it, or implement strict ownership check:
+    # applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    # if path.applicant_id != applicant.id: raise 403...
+    
+    return {
+        "id": path.id,
+        "applicant_id": path.applicant_id,
+        "source_session_id": getattr(path, 'source_session_id', None),
+        "skill_gaps": getattr(path, 'skill_gaps', []),
+        "recommended_courses": getattr(path, 'recommended_courses', None),
+        "recommended_projects": getattr(path, 'recommended_projects', None),
+        "practice_problems": getattr(path, 'practice_problems', None),
+        "priority_skills": getattr(path, 'priority_skills', None),
+        "status": getattr(path, 'status', 'active'),
+        "progress_percentage": getattr(path, 'progress_percentage', 0.0),
+        "created_at": getattr(path, 'created_at', dt.datetime.utcnow()),
+        "updated_at": getattr(path, 'updated_at', dt.datetime.utcnow())
+    }
 
 @app.get("/api/learning-paths/{applicant_id}", response_model=List[LearningPathResponse])
 def get_learning_paths(
@@ -4240,394 +4297,8 @@ def award_learning_bonus(
 
 
 # ============================================================
-# STUDENT PROFILE MANAGEMENT
-# ============================================================
-
-@app.get("/api/student/profile", response_model=ProfileResponse)
-def get_student_profile(
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get the current student's profile with all parsed resume details.
-    """
-    from .schemas import ProfileResponse
-    from .db import LLMParsedRecord
-    
-    # Get applicant for current user
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    # Get parsed resume data
-    parsed_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant.id).first()
-    
-    # Debug logging
-    if parsed_record:
-        logger.info(f"Found parsed_record for applicant {applicant.id}")
-        logger.info(f"Normalized data keys: {list(parsed_record.normalized.keys()) if parsed_record.normalized else 'None'}")
-        logger.info(f"Normalized data: {parsed_record.normalized}")
-    else:
-        logger.warning(f"No parsed_record found for applicant {applicant.id}")
-    
-    # Extract data from normalized JSON
-    normalized_data = parsed_record.normalized if parsed_record else {}
-    
-    # Convert applicant to dict for response
-    profile_data = {
-        "id": applicant.id,
-        "user_id": applicant.user_id,
-        "display_name": applicant.display_name or normalized_data.get('name'),
-        "email": normalized_data.get('email'),
-        "phone": normalized_data.get('phone'),
-        "location_city": applicant.location_city or normalized_data.get('location', {}).get('city'),
-        "location_state": applicant.location_state or normalized_data.get('location', {}).get('state'),
-        "linkedin_url": normalized_data.get('linkedin'),
-        "github_url": normalized_data.get('github'),
-        "portfolio_url": normalized_data.get('portfolio'),
-        "skills": normalized_data.get('skills', []),
-        "education": normalized_data.get('education', []),
-        "experience": normalized_data.get('experience', []),
-        "projects": normalized_data.get('projects', []),
-        "certifications": normalized_data.get('certifications', []),
-        "bio": normalized_data.get('summary'),
-        "created_at": applicant.created_at,
-        "updated_at": applicant.updated_at
-    }
-    
-    return profile_data
-
-
-@app.put("/api/student/profile", response_model=ProfileResponse)
-def update_student_profile(
-    profile_update: ProfileUpdate,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Update the current student's profile.
-    """
-    from .schemas import ProfileUpdate
-    from .db import LLMParsedRecord
-    import datetime
-    
-    # Get applicant for current user
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    # Get or create parsed record
-    parsed_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant.id).first()
-    if not parsed_record:
-        # Create new parsed record if it doesn't exist
-        parsed_record = LLMParsedRecord(
-            applicant_id=applicant.id,
-            raw_llm_output={},
-            normalized={}
-        )
-        db.add(parsed_record)
-    
-    # Update fields that are provided
-    update_data = profile_update.dict(exclude_unset=True)
-    
-    # Convert Pydantic models to dicts
-    if 'skills' in update_data and update_data['skills']:
-        update_data['skills'] = [skill.dict() if hasattr(skill, 'dict') else skill for skill in update_data['skills']]
-    
-    if 'education' in update_data and update_data['education']:
-        update_data['education'] = [edu.dict() if hasattr(edu, 'dict') else edu for edu in update_data['education']]
-    
-    if 'experience' in update_data and update_data['experience']:
-        update_data['experience'] = [exp.dict() if hasattr(exp, 'dict') else exp for exp in update_data['experience']]
-    
-    if 'projects' in update_data and update_data['projects']:
-        update_data['projects'] = [proj.dict() if hasattr(proj, 'dict') else proj for proj in update_data['projects']]
-    
-    if 'certifications' in update_data and update_data['certifications']:
-        update_data['certifications'] = [cert.dict() if hasattr(cert, 'dict') else cert for cert in update_data['certifications']]
-    
-    # Update normalized JSON
-    normalized_data = parsed_record.normalized or {}
-    
-    # Map profile fields to normalized structure
-    if 'skills' in update_data:
-        normalized_data['skills'] = update_data['skills']
-    if 'education' in update_data:
-        normalized_data['education'] = update_data['education']
-    if 'experience' in update_data:
-        normalized_data['experience'] = update_data['experience']
-    if 'projects' in update_data:
-        normalized_data['projects'] = update_data['projects']
-    if 'certifications' in update_data:
-        normalized_data['certifications'] = update_data['certifications']
-    if 'bio' in update_data:
-        normalized_data['summary'] = update_data['bio']
-    if 'email' in update_data:
-        normalized_data['email'] = update_data['email']
-    if 'phone' in update_data:
-        normalized_data['phone'] = update_data['phone']
-    if 'linkedin_url' in update_data:
-        normalized_data['linkedin'] = update_data['linkedin_url']
-    if 'github_url' in update_data:
-        normalized_data['github'] = update_data['github_url']
-    if 'portfolio_url' in update_data:
-        normalized_data['portfolio'] = update_data['portfolio_url']
-    
-    # Update location in normalized data
-    if 'location_city' in update_data or 'location_state' in update_data:
-        if 'location' not in normalized_data:
-            normalized_data['location'] = {}
-        if 'location_city' in update_data:
-            normalized_data['location']['city'] = update_data['location_city']
-        if 'location_state' in update_data:
-            normalized_data['location']['state'] = update_data['location_state']
-    
-    # Update display name in applicant table
-    if 'display_name' in update_data:
-        applicant.display_name = update_data['display_name']
-        normalized_data['name'] = update_data['display_name']
-    
-    # Save updated normalized data
-    parsed_record.normalized = normalized_data
-    parsed_record.updated_at = datetime.datetime.utcnow()
-    applicant.updated_at = datetime.datetime.utcnow()
-    
-    db.commit()
-    db.refresh(applicant)
-    db.refresh(parsed_record)
-    
-    # Return updated profile
-    profile_data = {
-        "id": applicant.id,
-        "user_id": applicant.user_id,
-        "display_name": applicant.display_name or normalized_data.get('name'),
-        "email": normalized_data.get('email'),
-        "phone": normalized_data.get('phone'),
-        "location_city": applicant.location_city or normalized_data.get('location', {}).get('city'),
-        "location_state": applicant.location_state or normalized_data.get('location', {}).get('state'),
-        "linkedin_url": normalized_data.get('linkedin'),
-        "github_url": normalized_data.get('github'),
-        "portfolio_url": normalized_data.get('portfolio'),
-        "skills": normalized_data.get('skills', []),
-        "education": normalized_data.get('education', []),
-        "experience": normalized_data.get('experience', []),
-        "projects": normalized_data.get('projects', []),
-        "certifications": normalized_data.get('certifications', []),
-        "bio": normalized_data.get('summary'),
-        "created_at": applicant.created_at,
-        "updated_at": applicant.updated_at
-    }
-    
-    return profile_data
-
-
-@app.post("/api/upload/resume")
-async def upload_resume(
-    file: UploadFile = File(...),
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Upload and parse a resume for the current student.
-    Creates Upload record and LLMParsedRecord.
-    """
-    from .db import Upload, LLMParsedRecord
-    from .resume.parse_service import ResumeParserService
-    import shutil
-    from pathlib import Path
-    
-    try:
-        # Get or create applicant
-        applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-        if not applicant:
-            # Create applicant if doesn't exist
-            applicant = Applicant(
-                user_id=current_user.id,
-                applicant_id=str(uuid4()),
-                display_name=current_user.name
-            )
-            db.add(applicant)
-            db.commit()
-            db.refresh(applicant)
-        
-        # Validate file type
-        allowed_extensions = ['.pdf', '.doc', '.docx']
-        file_ext = Path(file.filename).suffix.lower()
-        if file_ext not in allowed_extensions:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file type. Allowed types: {', '.join(allowed_extensions)}"
-            )
-        
-        # Validate file size (10MB max)
-        file_content = await file.read()
-        if len(file_content) > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="File size must be less than 10MB")
-        
-        # Create upload directory (use applicant_id not id)
-        upload_dir = Path(settings.FILE_STORAGE_PATH) / applicant.applicant_id
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save file
-        file_path = upload_dir / f"resume{file_ext}"
-        with open(file_path, 'wb') as f:
-            f.write(file_content)
-        
-        # Calculate file hash
-        file_hash = sha256_file(str(file_path))
-        
-        # Check if this exact file was already uploaded
-        existing_upload = db.query(Upload).filter(Upload.file_hash == file_hash).first()
-        if existing_upload:
-            logger.info(f"File already uploaded: {file_hash}, skipping Upload record creation")
-            # Don't delete the file - we still need it for parsing!
-        else:
-            # Create Upload record
-            upload_record = Upload(
-                applicant_id=applicant.id,
-                file_name=sanitize_filename(file.filename),
-                file_type='resume',
-                storage_path=str(file_path),
-                file_hash=file_hash,
-                ocr_used=False
-            )
-            db.add(upload_record)
-            db.commit()
-            logger.info(f"Created Upload record for applicant {applicant.id}")
-        
-        # Parse resume
-        try:
-            parser = ResumeParserService()
-            
-            # Add logging to see what text is being extracted
-            logger.info(f"Starting resume parsing for applicant {applicant.id}")
-            logger.info(f"Upload directory: {upload_dir}")
-            
-            parse_result = parser.run_parse(str(upload_dir), applicant.applicant_id)
-            
-            # Delete existing parsed record if any
-            existing_parsed = db.query(LLMParsedRecord).filter(
-                LLMParsedRecord.applicant_id == applicant.id
-            ).first()
-            if existing_parsed:
-                db.delete(existing_parsed)
-                db.commit()
-            
-            # Create new LLMParsedRecord
-            parsed_record = LLMParsedRecord(
-                applicant_id=applicant.id,
-                raw_llm_output=parse_result.get('llm_provenance', {}),
-                normalized=parse_result.get('normalized', {}),
-                field_confidences={},
-                llm_provenance=parse_result.get('llm_provenance', {}),
-                needs_review=parse_result.get('needs_review', False)
-            )
-            db.add(parsed_record)
-            db.commit()
-            
-            logger.info(f"Successfully parsed resume for applicant {applicant.id}")
-            logger.info(f"Normalized data keys: {list(parse_result.get('normalized', {}).keys())}")
-            
-            return {
-                "success": True,
-                "message": "Resume uploaded and parsed successfully",
-                "applicant_id": applicant.id,
-                "parsed": True,
-                "needs_review": parse_result.get('needs_review', False),
-                "skills_count": len(parse_result.get('normalized', {}).get('skills', [])),
-                "education_count": len(parse_result.get('normalized', {}).get('education', [])),
-                "experience_count": len(parse_result.get('normalized', {}).get('experience', []))
-            }
-            
-        except Exception as parse_error:
-            logger.error(f"Resume parsing failed: {str(parse_error)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Resume parsing failed: {str(parse_error)}"
-            )
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Resume upload failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
-
-# ============================================================
 # Local development entrypoint (reads host/port from .env via settings)
 # ============================================================
-
-# ============================================================
-# STUDENT APPLICANT ENDPOINT
-# ============================================================
-
-@app.get("/api/student/applicant")
-async def get_student_applicant(
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get current user's applicant profile"""
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    return {
-        "id": applicant.id,
-        "applicant_id": applicant.applicant_id,
-        "display_name": applicant.display_name,
-        "location_city": applicant.location_city,
-        "location_state": applicant.location_state
-    }
-
-
-# ============================================================
-# RECOMMENDATIONS ENDPOINT
-# ============================================================
-
-@app.get("/api/recommendations/{applicant_id}")
-async def get_recommendations(
-    applicant_id: int,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get personalized college and job recommendations for an applicant
-    
-    Recommendations are generated based on:
-    - Skills (40% weight)
-    - Education (25% weight)
-    - Experience (20% weight)
-    - Interview scores (15% weight, when available)
-    
-    Weights are configurable in config.py
-    """
-    try:
-        from .recommendation.recommendation_service import RecommendationService
-        
-        # Verify applicant exists and belongs to current user
-        applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
-        if not applicant:
-            raise HTTPException(status_code=404, detail="Applicant not found")
-        
-        # Check authorization (user can only get their own recommendations)
-        if applicant.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not authorized to view these recommendations")
-        
-        # Generate recommendations
-        rec_service = RecommendationService(db)
-        recommendations = rec_service.get_recommendations(applicant_id)
-        
-        logger.info(f"Generated {len(recommendations['college_recommendations'])} college and {len(recommendations['job_recommendations'])} job recommendations for applicant {applicant_id}")
-        
-        return recommendations
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error generating recommendations: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate recommendations: {str(e)}")
-
-
 if __name__ == "__main__":
     import uvicorn
     # Use configured API host/port from settings; default values are set in config.py

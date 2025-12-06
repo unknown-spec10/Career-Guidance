@@ -27,7 +27,7 @@ export default function SkillTag({
         ${sizeClass}
         ${matched 
           ? 'bg-green-900/30 border-green-500/50 text-green-300' 
-          : 'bg-dark-800 border-dark-600 text-gray-300'
+          : 'bg-white border-gray-300 text-gray-700'
         }
         ${removable ? 'pr-1' : ''}
         transition-all
@@ -43,7 +43,7 @@ export default function SkillTag({
             e.stopPropagation()
             onRemove && onRemove()
           }}
-          className="p-0.5 rounded-full hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
+          className="p-0.5 rounded-full hover:bg-red-100 text-gray-500 hover:text-red-600 transition-colors"
         >
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -82,8 +82,8 @@ export function SkillList({ skills, matchedSkills = [], size = 'md', maxDisplay 
       
       {remaining > 0 && (
         <span className={`
-          inline-flex items-center rounded-full border border-dark-600
-          bg-dark-900 text-gray-500 font-medium
+          inline-flex items-center rounded-full border border-gray-300
+          bg-white text-gray-600 font-medium
           ${size === 'sm' ? 'text-xs px-2 py-0.5' : 'text-sm px-3 py-1'}
         `}>
           +{remaining} more

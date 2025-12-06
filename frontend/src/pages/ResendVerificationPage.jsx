@@ -25,7 +25,7 @@ export default function ResendVerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -34,7 +34,7 @@ export default function ResendVerificationPage() {
         <div className="text-center mb-8">
           <Mail className="w-16 h-16 text-primary-400 mx-auto mb-4" />
           <h1 className="text-3xl font-bold mb-2">Resend Verification</h1>
-          <p className="text-gray-400">Enter your email to receive a new verification code</p>
+          <p className="text-gray-600">Enter your email to receive a new verification code</p>
         </div>
 
         <div className="card">
@@ -42,7 +42,7 @@ export default function ResendVerificationPage() {
             <div className="text-center">
               <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2 text-green-400">Code Sent!</h3>
-              <p className="text-gray-400 mb-6">{message}</p>
+              <p className="text-gray-600 mb-6">{message}</p>
               <p className="text-sm text-gray-500 mb-6">
                 Please check your inbox and spam folder for the verification code.
               </p>
@@ -63,7 +63,7 @@ export default function ResendVerificationPage() {
                 <div>
                   <label className="block text-sm font-medium mb-2">Email Address</label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
                     <input
                       type="email"
                       required
@@ -87,7 +87,7 @@ export default function ResendVerificationPage() {
               <div className="mt-6 text-center">
                 <Link 
                   to="/login" 
-                  className="text-sm text-gray-400 hover:text-white flex items-center justify-center space-x-1"
+                  className="text-sm text-gray-600 hover:text-gray-900 flex items-center justify-center space-x-1"
                 >
                   <ArrowLeft className="w-4 h-4" />
                   <span>Back to Login</span>

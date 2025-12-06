@@ -31,7 +31,7 @@ const ApplicationTracker = ({ jobApps = [], collegeApps = [] }) => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => setShowModal(true)}
-                className="flex items-center space-x-3 px-5 py-3 bg-dark-800 border border-dark-600 rounded-xl hover:bg-dark-700 transition-all group"
+                className="flex items-center space-x-3 px-5 py-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all group"
             >
                 <div className="flex -space-x-2">
                     <div className="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 z-10">
@@ -42,8 +42,8 @@ const ApplicationTracker = ({ jobApps = [], collegeApps = [] }) => {
                     </div>
                 </div>
                 <div className="text-left">
-                    <div className="text-xs text-gray-400 font-medium group-hover:text-gray-300">Applications</div>
-                    <div className="text-sm font-bold text-white flex items-center gap-2">
+                    <div className="text-xs text-gray-600 font-medium group-hover:text-gray-700">Applications</div>
+                    <div className="text-sm font-bold text-gray-900 flex items-center gap-2">
                         {totalApps} Active
                         <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
                     </div>
@@ -58,26 +58,26 @@ const ApplicationTracker = ({ jobApps = [], collegeApps = [] }) => {
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-dark-800 border border-dark-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
+                            className="bg-white border border-gray-300 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
                         >
-                            <div className="p-6 border-b border-dark-700 flex justify-between items-center bg-dark-900/50">
-                                <h3 className="text-xl font-bold">Application Status Board</h3>
-                                <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white">
+                            <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                                <h3 className="text-xl font-bold text-gray-900">Application Status Board</h3>
+                                <button onClick={() => setShowModal(false)} className="text-gray-600 hover:text-gray-900">
                                     <X className="w-6 h-6" />
                                 </button>
                             </div>
 
-                            <div className="flex border-b border-dark-700">
+                            <div className="flex border-b border-gray-200">
                                 <button
                                     onClick={() => setActiveTab('jobs')}
-                                    className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'jobs' ? 'border-blue-500 text-blue-400 bg-blue-900/10' : 'border-transparent text-gray-400 hover:text-white'
+                                    className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'jobs' ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-transparent text-gray-600 hover:text-gray-900'
                                         }`}
                                 >
                                     Job Applications ({jobApps.length})
                                 </button>
                                 <button
                                     onClick={() => setActiveTab('colleges')}
-                                    className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'colleges' ? 'border-purple-500 text-purple-400 bg-purple-900/10' : 'border-transparent text-gray-400 hover:text-white'
+                                    className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'colleges' ? 'border-purple-500 text-purple-600 bg-purple-50' : 'border-transparent text-gray-600 hover:text-gray-900'
                                         }`}
                                 >
                                     College Applications ({collegeApps.length})
@@ -91,10 +91,10 @@ const ApplicationTracker = ({ jobApps = [], collegeApps = [] }) => {
                                             <div className="text-center py-8 text-gray-500">No job applications yet.</div>
                                         ) : (
                                             jobApps.map((app, idx) => (
-                                                <div key={idx} className="flex items-center justify-between p-4 bg-dark-900/50 rounded-xl border border-dark-700">
+                                                <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
                                                     <div>
-                                                        <h4 className="font-semibold text-white">{app.job?.title || 'Unknown Job'}</h4>
-                                                        <p className="text-sm text-gray-400">{app.job?.company || 'Unknown Company'}</p>
+                                                        <h4 className="font-semibold text-gray-900">{app.job?.title || 'Unknown Job'}</h4>
+                                                        <p className="text-sm text-gray-600">{app.job?.company || 'Unknown Company'}</p>
                                                         <p className="text-xs text-gray-500 mt-1">Applied: {new Date(app.applied_at).toLocaleDateString()}</p>
                                                     </div>
                                                     <div className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${getStatusColor(app.status)}`}>
@@ -111,10 +111,10 @@ const ApplicationTracker = ({ jobApps = [], collegeApps = [] }) => {
                                             <div className="text-center py-8 text-gray-500">No college applications yet.</div>
                                         ) : (
                                             collegeApps.map((app, idx) => (
-                                                <div key={idx} className="flex items-center justify-between p-4 bg-dark-900/50 rounded-xl border border-dark-700">
+                                                <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
                                                     <div>
-                                                        <h4 className="font-semibold text-white">{app.college?.name || 'Unknown College'}</h4>
-                                                        <p className="text-sm text-gray-400">{app.college?.location_city}, {app.college?.location_state}</p>
+                                                        <h4 className="font-semibold text-gray-900">{app.college?.name || 'Unknown College'}</h4>
+                                                        <p className="text-sm text-gray-600">{app.college?.location_city}, {app.college?.location_state}</p>
                                                         <p className="text-xs text-gray-500 mt-1">Applied: {new Date(app.applied_at).toLocaleDateString()}</p>
                                                     </div>
                                                     <div className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${getStatusColor(app.status)}`}>

@@ -75,14 +75,14 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-dark-900 via-dark-800 to-dark-900 flex items-center justify-center px-4 pt-20">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 pt-20">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="w-full max-w-md"
       >
-        <div className="bg-dark-800 rounded-2xl shadow-2xl border border-dark-700 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
           <div className="p-8">
             {/* Header */}
             <div className="text-center mb-8">
@@ -119,10 +119,10 @@ export default function ResetPasswordPage() {
                       placeholder="123456"
                       maxLength={6}
                       required
-                      className="w-full pl-10 pr-4 py-3 bg-dark-900 border border-dark-600 rounded-lg 
-                               text-white placeholder-gray-500 focus:outline-none focus:border-primary-500 
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg 
+                               text-gray-900 placeholder-gray-500 focus:outline-none focus:border-primary-500 
                                focus:ring-1 focus:ring-primary-500 transition-colors text-center text-2xl 
-                               tracking-widest font-mono"
+                               tracking-widest font-mono\"
                     />
                   </div>
                   <button
@@ -149,9 +149,9 @@ export default function ResetPasswordPage() {
                       placeholder="••••••••"
                       required
                       minLength={8}
-                      className="w-full pl-10 pr-4 py-3 bg-dark-900 border border-dark-600 rounded-lg 
-                               text-white placeholder-gray-500 focus:outline-none focus:border-primary-500 
-                               focus:ring-1 focus:ring-primary-500 transition-colors"
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg 
+                               text-gray-900 placeholder-gray-500 focus:outline-none focus:border-primary-500 
+                               focus:ring-1 focus:ring-primary-500 transition-colors\"
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
@@ -174,9 +174,9 @@ export default function ResetPasswordPage() {
                       placeholder="••••••••"
                       required
                       minLength={8}
-                      className="w-full pl-10 pr-4 py-3 bg-dark-900 border border-dark-600 rounded-lg 
-                               text-white placeholder-gray-500 focus:outline-none focus:border-primary-500 
-                               focus:ring-1 focus:ring-primary-500 transition-colors"
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg 
+                               text-gray-900 placeholder-gray-500 focus:outline-none focus:border-primary-500 
+                               focus:ring-1 focus:ring-primary-500 transition-colors\"
                     />
                   </div>
                 </div>
