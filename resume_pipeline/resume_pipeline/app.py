@@ -428,6 +428,118 @@ async def change_password(
     return {"status": "success", "message": "Password changed successfully"}
 
 
+@app.get("/api/student/profile")
+async def get_student_profile(
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get student resume profile with parsed data"""
+    from .db import Applicant, LLMParsedRecord
+    
+    # Find applicant linked to this user
+    applicant = db.query(Applicant).filter(
+        Applicant.user_id == current_user.id
+    ).options(joinedload(Applicant.parsed_record)).first()
+    
+    if not applicant:
+        # Return empty profile structure if no applicant found
+        return {
+            "applicant_id": None,
+            "skills": [],
+            "education": [],
+            "experience": [],
+            "projects": [],
+            "certifications": [],
+            "jee_rank": None
+        }
+    
+    # Get parsed resume data
+    parsed = applicant.parsed_record
+    if not parsed:
+        return {
+            "applicant_id": applicant.id,
+            "skills": [],
+            "education": [],
+            "experience": [],
+            "projects": [],
+            "certifications": [],
+            "jee_rank": None
+        }
+    
+    # Extract normalized data
+    normalized = parsed.normalized or {}
+    
+    # Helper to ensure lists
+    def get_list(key, default=[]):
+        val = normalized.get(key, default)
+        return val if isinstance(val, list) else default
+    
+    return {
+        "applicant_id": applicant.id,
+        "display_name": applicant.display_name or current_user.name,
+        "skills": get_list("skills", []),
+        "education": get_list("education", []),
+        "experience": get_list("experience", []),
+        "projects": get_list("projects", []),
+        "certifications": get_list("certifications", []),
+        "jee_rank": normalized.get("jee_rank"),
+        "personal_info": normalized.get("personal_info", {})
+    }
+
+
+@app.put("/api/student/profile")
+async def update_student_profile(
+    profile_data: dict = Body(...),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update student resume profile"""
+    from .db import Applicant, LLMParsedRecord
+    
+    # Find applicant linked to this user
+    applicant = db.query(Applicant).filter(
+        Applicant.user_id == current_user.id
+    ).options(joinedload(Applicant.parsed_record)).first()
+    
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found")
+    
+    # Get or create parsed record
+    parsed = applicant.parsed_record
+    if not parsed:
+        parsed = LLMParsedRecord(
+            applicant_id=applicant.id,
+            raw_llm_output={},
+            normalized={}
+        )
+        db.add(parsed)
+        db.flush()
+    
+    # Get current normalized data
+    current_normalized = getattr(parsed, 'normalized', {}) or {}
+    
+    # Build update dictionary
+    update_dict = current_normalized if isinstance(current_normalized, dict) else {}
+    
+    # Update specific fields if provided
+    for field in ["skills", "education", "experience", "projects", "certifications", "jee_rank"]:
+        if field in profile_data:
+            update_dict[field] = profile_data[field]
+    
+    # Update the record using SQLAlchemy
+    db.query(LLMParsedRecord).filter(
+        LLMParsedRecord.applicant_id == applicant.id
+    ).update({"normalized": update_dict}, synchronize_session=False)
+    
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": "Resume profile updated successfully",
+        "applicant_id": applicant.id
+    }
+
+
 @app.post("/api/auth/verify-email")
 async def verify_email_disabled(token: str = Body(..., embed=True)):
     """Link-based verification disabled in this deployment."""
@@ -2296,11 +2408,16 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
                 "job": {
                     "id": job.id,
                     "title": job.title,
+                    "description": job.description,
                     "company": employer.company_name,
                     "location_city": job.location_city,
-                    "work_type": job.work_type
+                    "location_state": job.location_state,
+                    "work_type": job.work_type,
+                    "required_skills": job.required_skills,
+                    "min_experience_years": job.min_experience_years
                 },
                 "score": float(rec.score) if rec.score else 0,
+                "match_percentage": round(float(rec.score) * 100, 2) if rec.score else 0,
                 "scoring_breakdown": rec.scoring_breakdown,
                 "explain": rec.explain,
                 "status": rec.status
@@ -4042,14 +4159,123 @@ def get_learning_path_detail(
     return {
         "id": path.id,
         "applicant_id": path.applicant_id,
+        "job_id": getattr(path, 'job_id', None),
         "source_session_id": getattr(path, 'source_session_id', None),
         "skill_gaps": getattr(path, 'skill_gaps', []),
         "recommended_courses": getattr(path, 'recommended_courses', None),
         "recommended_projects": getattr(path, 'recommended_projects', None),
         "practice_problems": getattr(path, 'practice_problems', None),
+        "topics_outline": getattr(path, 'topics_outline', None),
         "priority_skills": getattr(path, 'priority_skills', None),
         "status": getattr(path, 'status', 'active'),
         "progress_percentage": getattr(path, 'progress_percentage', 0.0),
+        "already_exists": False,
+        "created_at": getattr(path, 'created_at', dt.datetime.utcnow()),
+        "updated_at": getattr(path, 'updated_at', dt.datetime.utcnow())
+    }
+
+
+@app.post("/api/jobs/{job_id}/learning-path", response_model=LearningPathResponse)
+def generate_learning_path_from_job(
+    job_id: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate a learning path based on a job's requirements vs applicant skills."""
+    from .db import Job
+    from .db import LearningPath
+    from .core.credit_service import CreditService
+    from .constants import CREDIT_CONFIG
+
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found")
+
+    job = db.query(Job).filter(Job.id == job_id, Job.status == 'approved').first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or not approved")
+
+    service = InterviewService(db)
+    credit_service = CreditService(db)
+
+    existing_path = db.query(LearningPath).filter(
+        LearningPath.applicant_id == getattr(applicant, 'id', 0),
+        LearningPath.job_id == job_id
+    ).order_by(desc(LearningPath.created_at)).first()
+
+    if existing_path and getattr(existing_path, 'status', '') != 'completed':
+        return {
+            "id": existing_path.id,
+            "applicant_id": getattr(existing_path, 'applicant_id', 0),
+            "job_id": getattr(existing_path, 'job_id', None),
+            "generated_from": getattr(existing_path, 'generated_from', 'job'),
+            "source_session_id": getattr(existing_path, 'source_session_id', None),
+            "skill_gaps": getattr(existing_path, 'skill_gaps', {}),
+            "recommended_courses": getattr(existing_path, 'recommended_courses', None),
+            "recommended_projects": getattr(existing_path, 'recommended_projects', None),
+            "practice_problems": getattr(existing_path, 'practice_problems', None),
+            "topics_outline": getattr(existing_path, 'topics_outline', None),
+            "priority_skills": getattr(existing_path, 'priority_skills', None),
+            "status": getattr(existing_path, 'status', 'active'),
+            "progress_percentage": getattr(existing_path, 'progress_percentage', 0.0),
+            "already_exists": True,
+            "created_at": getattr(existing_path, 'created_at', dt.datetime.utcnow()),
+            "updated_at": getattr(existing_path, 'updated_at', dt.datetime.utcnow())
+        }
+
+    # Check credit balance
+    cost = CREDIT_CONFIG['LEARNING_PATH_GENERATION_COST']
+    can_proceed, message = credit_service.check_and_deduct_credits(
+        applicant_id=getattr(applicant, 'id', 0),
+        activity_type='learning_path_generation',
+        credits_required=cost
+    )
+    
+    if not can_proceed:
+        raise HTTPException(status_code=402, detail=message or "Insufficient credits")
+
+    try:
+        path = service.create_learning_path_from_job(
+            applicant_id=getattr(applicant, 'id', 0),
+            job=job
+        )
+        
+        # Record credit transaction
+        credit_service.record_transaction(
+            applicant_id=getattr(applicant, 'id', 0),
+            transaction_type='spend',
+            amount=-cost,
+            activity_type='learning_path_generation',
+            reference_id=getattr(path, 'id', None),
+            reference_type='learning_path',
+            description=f"Learning path generated for job: {job.title}"
+        )
+        
+    except Exception as e:
+        # Refund credits if learning path generation fails
+        credit_service.refund_credits(
+            applicant_id=getattr(applicant, 'id', 0),
+            credits=cost,
+            reason=f"Learning path generation failed for job {job_id}"
+        )
+        logger.error(f"Error generating learning path from job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate learning path")
+
+    return {
+        "id": path.id,
+        "applicant_id": getattr(path, 'applicant_id', 0),
+        "job_id": getattr(path, 'job_id', None),
+        "generated_from": getattr(path, 'generated_from', 'manual'),
+        "source_session_id": getattr(path, 'source_session_id', None),
+        "skill_gaps": getattr(path, 'skill_gaps', {}),
+        "recommended_courses": getattr(path, 'recommended_courses', None),
+        "recommended_projects": getattr(path, 'recommended_projects', None),
+        "practice_problems": getattr(path, 'practice_problems', None),
+        "topics_outline": getattr(path, 'topics_outline', None),
+        "priority_skills": getattr(path, 'priority_skills', None),
+        "status": getattr(path, 'status', 'active'),
+        "progress_percentage": getattr(path, 'progress_percentage', 0.0),
+        "already_exists": False,
         "created_at": getattr(path, 'created_at', dt.datetime.utcnow()),
         "updated_at": getattr(path, 'updated_at', dt.datetime.utcnow())
     }
@@ -4086,6 +4312,7 @@ def get_learning_paths(
             "recommended_courses": getattr(path, 'recommended_courses', None),
             "recommended_projects": getattr(path, 'recommended_projects', None),
             "practice_problems": getattr(path, 'practice_problems', None),
+            "topics_outline": getattr(path, 'topics_outline', None),
             "priority_skills": getattr(path, 'priority_skills', None),
             "status": getattr(path, 'status', 'active'),
             "progress_percentage": getattr(path, 'progress_percentage', 0.0),

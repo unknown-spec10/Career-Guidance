@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Briefcase, Building2, TrendingUp, Clock,
-  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap
+  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -38,6 +38,11 @@ export default function StudentDashboard() {
 
   // Recommendation State
   const [recommendations, setRecommendations] = useState([])
+  const [learningPathState, setLearningPathState] = useState({
+    loadingId: null,
+    error: null,
+    success: null
+  })
   const [applicantId, setApplicantId] = useState(null)
   const [noApplicantProfile, setNoApplicantProfile] = useState(false)
 
@@ -67,40 +72,50 @@ export default function StudentDashboard() {
     setError(null)
     setUploadSuccess(false)
 
-    const form = e.target
-    const formData = new FormData()
-
-    const resumeInput = form.elements['resume']
-    if (!resumeInput || !resumeInput.files || !resumeInput.files[0]) {
+    // Validate file was selected
+    if (!selectedResume) {
       setError('Please select a resume file')
       setUploadLoading(false)
       return
     }
-    formData.append('resume', resumeInput.files[0])
-
-    const marksheetsInput = form.elements['marksheets']
-    if (marksheetsInput.files.length > 0) {
-      for (let i = 0; i < marksheetsInput.files.length; i++) {
-        formData.append('marksheets', marksheetsInput.files[i])
-      }
-    }
-
-    const location = form.elements['location']?.value
-    if (location) formData.append('location', location)
-    const jeeRank = form.elements['jee_rank']?.value
-    if (jeeRank) formData.append('jee_rank', jeeRank)
-    const preferences = form.elements['preferences']?.value
-    if (preferences) formData.append('preferences', preferences)
 
     try {
-      const response = await api.post('/upload', formData)
+      // Create FormData with resume file
+      const formData = new FormData()
+      formData.append('resume', selectedResume)
+
+      // Get form values from the form element
+      const form = e.currentTarget
+      const locationInput = form.querySelector('input[name="location"]')
+      const jeeRankInput = form.querySelector('input[name="jee_rank"]')
+
+      // Append optional fields if they have values
+      if (locationInput && locationInput.value) {
+        formData.append('location', locationInput.value)
+      }
+      if (jeeRankInput && jeeRankInput.value) {
+        formData.append('jee_rank', jeeRankInput.value)
+      }
+
+      console.log('Starting file upload with file:', selectedResume.name)
+      console.log('FormData entries:', Array.from(formData.entries()))
+
+      // Don't set Content-Type manually - axios sets it with boundary automatically
+      const response = await api.post('/upload', formData, {
+        timeout: 120000 // 120s for upload
+      })
+      console.log('Upload response:', response.data)
       setUploadSuccess(true)
       form.reset()
 
       if (response.data.applicant_id) {
+        console.log('Got applicant_id, starting parse:', response.data.applicant_id)
         setTimeout(async () => {
           try {
-            const parseRes = await api.post(`/parse/${response.data.applicant_id}`)
+            const parseRes = await api.post(`/parse/${response.data.applicant_id}`, null, {
+              timeout: 120000 // 120s for parse
+            })
+            console.log('Parse completed:', parseRes.data)
             toast.success('Resume uploaded and parsed successfully!')
             setShowUploadForm(false)
             setNoApplicantProfile(false)
@@ -114,14 +129,19 @@ export default function StudentDashboard() {
             fetchAll()
           } catch (parseErr) {
             console.error('Parse error:', parseErr)
+            const errMsg = parseErr.response?.data?.detail || parseErr.message || 'Unknown error'
+            setError(`Parsing failed: ${errMsg}`)
             toast.error('Resume uploaded but parsing failed.')
+          } finally {
+            setUploadLoading(false)
           }
-        }, 1000)
+        }, 500)
+      } else {
+        setUploadLoading(false)
       }
     } catch (err) {
       console.error('Upload error:', err)
       setError(err.response?.data?.detail || 'Upload failed.')
-    } finally {
       setUploadLoading(false)
     }
   }
@@ -187,6 +207,35 @@ export default function StudentDashboard() {
   const openDetails = (rec) => {
     setDetailsRec(rec)
     setDetailsOpen(true)
+  }
+
+  const generateLearningPath = async (rec) => {
+    const jobId = rec?.job?.id || rec?.job_id
+    if (!jobId) return
+
+    setLearningPathState({ loadingId: jobId, error: null, success: null })
+    try {
+      const response = await api.post(`/api/jobs/${jobId}/learning-path`)
+      const pathId = response?.data?.id
+      const alreadyExists = response?.data?.already_exists
+      setLearningPathState({
+        loadingId: null,
+        error: null,
+        success: { jobId, pathId, alreadyExists: !!alreadyExists }
+      })
+      toast.success(alreadyExists ? 'Learning path already exists for this job' : 'Learning path generated (2 credits used)')
+      // Refresh credit balance
+      fetchAll()
+    } catch (err) {
+      const detail = err?.response?.data?.detail || 'Failed to generate learning path'
+      const status = err?.response?.status
+      if (status === 402) {
+        toast.error('Insufficient credits. ' + detail)
+      } else {
+        toast.error(detail)
+      }
+      setLearningPathState({ loadingId: null, error: detail, success: null })
+    }
   }
 
   const submitEasyApply = async (e) => {
@@ -332,7 +381,7 @@ export default function StudentDashboard() {
                     <h3 className="font-bold text-lg leading-tight mb-1 text-gray-900">{rec.job?.title || rec.title}</h3>
                     <p className="text-sm text-gray-600">{rec.job?.company || rec.company}</p>
                   </div>
-                  <MatchScore score={rec.score || rec.match_score || 0.5} size="sm" showLabel={false} />
+                  <MatchScore score={rec.match_percentage ? rec.match_percentage / 100 : (rec.score || 0)} size="sm" showLabel={false} />
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
@@ -353,6 +402,25 @@ export default function StudentDashboard() {
                     Details
                   </button>
                   <button
+                    onClick={() => generateLearningPath(rec)}
+                    disabled={
+                      learningPathState.loadingId === (rec.job?.id || rec.job_id) ||
+                      (learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.success?.alreadyExists)
+                    }
+                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {learningPathState.loadingId === (rec.job?.id || rec.job_id) ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating...
+                      </span>
+                    ) : (
+                      (learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.success?.alreadyExists)
+                        ? 'Already Generated'
+                        : 'Generate Learning Path'
+                    )}
+                  </button>
+                  <button
                     onClick={() => openEasyApply(rec)}
                     disabled={rec.status === 'applied' || rec.status === 'accepted'}
                     className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${rec.status === 'applied'
@@ -363,6 +431,18 @@ export default function StudentDashboard() {
                     {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
                   </button>
                 </div>
+
+                {learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.loadingId === null && (
+                  <div className="mt-3 text-sm flex items-center gap-2 text-green-600">
+                    <CheckCircle className="w-4 h-4" />
+                    <Link to={`/dashboard/learning-path/${learningPathState.success.pathId || learningPathState.success.jobId}`} className="underline hover:text-green-700">
+                      {learningPathState.success?.alreadyExists ? 'Open existing learning path' : 'View learning path'}
+                    </Link>
+                  </div>
+                )}
+                {learningPathState.error && learningPathState.loadingId === null && (
+                  <p className="mt-2 text-sm text-red-500">{learningPathState.error}</p>
+                )}
               </motion.div>
             ))}
           </div>
@@ -476,7 +556,7 @@ export default function StudentDashboard() {
                   {[
                     { label: 'Location', value: detailsRec.job?.location_city || 'Remote' },
                     { label: 'Type', value: detailsRec.job?.work_type || 'Full-time' },
-                    { label: 'Match', value: `${detailsRec.score || 0}%` },
+                    { label: 'Match', value: `${detailsRec.match_percentage || (detailsRec.score ? Math.round(detailsRec.score * 100) : 0)}%` },
                     { label: 'Posted', value: '2d ago' },
                   ].map((item, i) => (
                     <div key={i}>
@@ -536,7 +616,7 @@ export default function StudentDashboard() {
                   <input name="location" placeholder="Preferred Location" className="input" />
                   <input name="jee_rank" type="number" placeholder="JEE Rank (Optional)" className="input" />
                 </div>
-                <button className="btn-primary w-full py-3" disabled={uploadLoading}>
+                <button type="submit" className="btn-primary w-full py-3" disabled={uploadLoading}>
                   {uploadLoading ? 'Uploading & Analyzing...' : 'Upload & Process'}
                 </button>
               </form>

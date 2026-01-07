@@ -45,6 +45,7 @@ CREDIT_CONFIG = {
     'MICRO_SESSION_COST': 1,  # 1 micro-session (1 question) = 1 credit
     'CODING_QUESTION_COST': 1,  # 1 Gemini coding question = 1 credit
     'PROJECT_IDEA_COST': 2,  # 1 project idea generation = 2 credits
+    'LEARNING_PATH_GENERATION_COST': 2,  # 1 learning path generation = 2 credits
     
     # Credit limits (free tier)
     'DEFAULT_WEEKLY_CREDITS': 60,  # 60 credits per week (4 full + 20 micro)

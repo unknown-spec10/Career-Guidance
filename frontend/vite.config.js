@@ -13,6 +13,14 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: apiUrl,
           changeOrigin: true,
+        },
+        '/upload': {
+          target: apiUrl,
+          changeOrigin: true,
+        },
+        '/parse': {
+          target: apiUrl,
+          changeOrigin: true,
         }
       }
     },

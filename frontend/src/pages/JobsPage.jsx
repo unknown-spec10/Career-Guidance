@@ -1,19 +1,27 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Briefcase, MapPin, Clock, DollarSign, TrendingUp, Award, Building2, ExternalLink, Sparkles, X, Search, SortAsc } from 'lucide-react'
+import { Briefcase, MapPin, Clock, DollarSign, Award, Building2, ExternalLink, Sparkles, Search, SortAsc, Loader2, CheckCircle } from 'lucide-react'
 import { useDebounce } from '../hooks/useDebounce'
 import api from '../config/api'
-import { PAGINATION, DEBOUNCE_DELAYS } from '../config/constants'
-import EmptyState from '../components/EmptyState'
+import { DEBOUNCE_DELAYS } from '../config/constants'
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState([])
-  const [selectedJob, setSelectedJob] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [pageSize] = useState(20)
+  const pageSize = 9 // 3x3 grid = 9 jobs per page
+  const observerTarget = useRef(null)
+  const hasMoreRef = useRef(hasMore)
+  const loadingRef = useRef(loading)
+  const [learningPathState, setLearningPathState] = useState({
+    loadingId: null,
+    error: null,
+    success: null,
+    path: null
+  })
   const [filters, setFilters] = useState({
     q: '',
     location: '',
@@ -23,9 +31,44 @@ export default function JobsPage() {
   })
   const debouncedFilters = useDebounce(filters, DEBOUNCE_DELAYS.FILTER)
 
+  // Update refs when state changes
+  useEffect(() => {
+    hasMoreRef.current = hasMore
+    loadingRef.current = loading
+  }, [hasMore, loading])
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setPage(1)
+    setJobs([])
+    setHasMore(true)
+  }, [debouncedFilters])
+
+  // Fetch jobs when page changes
   useEffect(() => {
     fetchJobs()
-  }, [debouncedFilters, page])
+  }, [page, debouncedFilters])
+
+  // Infinite scroll observer - set up once
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
+          console.log('Intersection detected - loading more jobs')
+          setPage(p => p + 1)
+        }
+      },
+      { threshold: 0.01, rootMargin: '200px' }
+    )
+    
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current)
+    }
+    
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
 
   const fetchJobs = async () => {
     try {
@@ -41,27 +84,53 @@ export default function JobsPage() {
           sort: debouncedFilters.sort
         }
       })
-      setJobs(response.data?.jobs || response.data || [])
+      const newJobs = response.data?.jobs || response.data || []
       setTotal(response.data?.total || 0)
-      if (response.data?.jobs?.length > 0 && !selectedJob) {
-        setSelectedJob(response.data.jobs[0])
+      
+      if (page === 1) {
+        setJobs(newJobs)
+      } else {
+        setJobs(prev => [...prev, ...newJobs])
       }
+      
+      setHasMore(newJobs.length === pageSize)
     } catch (error) {
       console.error('Error fetching jobs:', error)
-      setJobs([])
+      setHasMore(false)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleJobSelect = (job) => {
-    setSelectedJob(job)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+  const handleGenerateLearningPath = async (job) => {
+    if (!job?.id) return
+    setLearningPathState({ loadingId: job.id, error: null, success: null, path: null })
+    try {
+      const response = await api.post(`/api/jobs/${job.id}/learning-path`)
+      const alreadyExists = response?.data?.already_exists
+      setLearningPathState({
+        loadingId: null,
+        error: null,
+        success: alreadyExists ? 'Learning path already exists for this job' : 'Learning path generated successfully (2 credits used)',
+        path: response.data
+      })
+    } catch (error) {
+      const detail = error?.response?.data?.detail || 'Failed to generate learning path'
+      const status = error?.response?.status
+      if (status === 402) {
+        setLearningPathState({ loadingId: null, error: 'Insufficient credits. ' + detail, success: null, path: null })
+      } else {
+        setLearningPathState({ loadingId: null, error: detail, success: null, path: null })
+      }
+    }
   }
 
-  const JobCard = ({ job, isSelected, onClick }) => {
-    // Calculate match percentage (mock calculation - can be replaced with API data)
-    const matchPercentage = job.match_score || Math.floor(Math.random() * 40 + 60)
+  const JobCard = ({ job }) => {
+    const getStableMatchPercentage = (jobId) => {
+      const hash = jobId * 12345 % 100
+      return Math.max(60, (hash * 1.5) % 40 + 60)
+    }
+    const matchPercentage = job.match_score || Math.round(getStableMatchPercentage(job.id))
     const getMatchColor = (percentage) => {
       if (percentage >= 80) return 'bg-green-500'
       if (percentage >= 60) return 'bg-primary-500'
@@ -71,188 +140,123 @@ export default function JobsPage() {
     return (
       <motion.div
         layout
-        whileHover={{ scale: 1.02 }}
-        onClick={onClick}
-        className={`p-4 rounded-lg border cursor-pointer transition-all duration-300 ${
-          isSelected
-            ? 'bg-primary-500/10 border-primary-500 shadow-lg shadow-primary-500/20'
-            : 'bg-white border-gray-200 hover:border-primary-500 hover:shadow-md'
-        }`}
-      >
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-            <Briefcase className="w-5 h-5 text-primary-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <h3 className="font-semibold text-sm line-clamp-1">{job.title}</h3>
-              <div className={`${getMatchColor(matchPercentage)} text-white px-2 py-0.5 rounded text-xs font-bold flex-shrink-0`}>
-                {matchPercentage}%
-              </div>
-            </div>
-            <p className="text-xs text-gray-400 line-clamp-1">{job.company}</p>
-            <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
-              <MapPin className="w-3 h-3" />
-              <span className="truncate">{job.location_city}</span>
-            </div>
-            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-              <Clock className="w-3 h-3" />
-              <span className="capitalize">{job.work_type}</span>
-            </div>
-          </div>
-          {isSelected && (
-            <Sparkles className="w-4 h-4 text-primary-400 flex-shrink-0" />
-          )}
-        </div>
-      </motion.div>
-    )
-  }
-
-  const JobDetails = ({ job }) => {
-    if (!job) {
-      return (
-        <div className="flex items-center justify-center h-full">
-          <EmptyState icon="search" title="Select a job" message="Choose a job from the list to view details" />
-        </div>
-      )
-    }
-
-    return (
-      <motion.div
-        key={job.id}
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -20 }}
-        className="space-y-6"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="bg-white border border-primary-200 rounded-xl p-6 hover:shadow-lg transition-shadow"
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-primary-900/30 to-primary-800/30 border border-primary-500/20 rounded-xl p-6">
-          <div className="flex items-start gap-4">
-            <div className="w-16 h-16 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Briefcase className="w-8 h-8 text-primary-400" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-3xl font-bold mb-2">{job.title}</h2>
-              <p className="text-lg text-gray-700 mb-4">{job.company}</p>
-              <div className="flex flex-wrap gap-3">
-                <div className="flex items-center gap-2 text-gray-400">
-                  <MapPin className="w-4 h-4" />
-                  <span>{job.location_city}, {job.location_state}</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-400">
-                  <Clock className="w-4 h-4" />
-                  <span className="capitalize">{job.work_type}</span>
-                </div>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex-1">
+            <div className="flex items-start gap-3 mb-2">
+              <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Briefcase className="w-6 h-6 text-primary-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-gray-900">{job.title}</h3>
+                <p className="text-sm text-gray-600">{job.company}</p>
               </div>
             </div>
-            {job.posted_days_ago && (
-              <div className="text-right">
-                <p className="text-xs text-gray-500">Posted</p>
-                <p className="text-sm font-semibold">{job.posted_days_ago} days ago</p>
-              </div>
-            )}
+          </div>
+          <div className={`${getMatchColor(matchPercentage)} text-white px-3 py-1 rounded-lg text-sm font-bold flex-shrink-0`}>
+            {matchPercentage}%
           </div>
         </div>
 
-        {/* Key Information Grid */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Meta Info */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 pb-4 border-b border-gray-200">
+          <div className="flex items-center gap-2 text-sm">
+            <MapPin className="w-4 h-4 text-primary-400" />
+            <span className="text-gray-700">{job.location_city}, {job.location_state}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Clock className="w-4 h-4 text-primary-400" />
+            <span className="text-gray-700 capitalize">{job.work_type}</span>
+          </div>
           {job.min_experience_years !== null && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1">Experience Required</p>
-              <p className="text-lg font-bold text-primary-400">{job.min_experience_years}+ years</p>
+            <div className="flex items-center gap-2 text-sm">
+              <Sparkles className="w-4 h-4 text-primary-400" />
+              <span className="text-gray-700">{job.min_experience_years}+ years</span>
             </div>
           )}
           {job.min_cgpa && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1">Min CGPA</p>
-              <p className="text-lg font-bold text-primary-400">{job.min_cgpa}</p>
+            <div className="flex items-center gap-2 text-sm">
+              <Award className="w-4 h-4 text-primary-400" />
+              <span className="text-gray-700">CGPA {job.min_cgpa}+</span>
             </div>
           )}
         </div>
 
-        {/* Skills Required */}
+        {/* Description */}
+        {job.description && (
+          <p className="text-sm text-gray-700 mb-4 line-clamp-3">
+            {job.description}
+          </p>
+        )}
+
+        {/* Skills */}
         {job.required_skills && job.required_skills.length > 0 && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Award className="w-5 h-5 text-primary-400" />
-              Required Skills
-            </h3>
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-gray-600 mb-2">Required Skills</p>
             <div className="flex flex-wrap gap-2">
-              {job.required_skills.map((skill, idx) => {
-                // Check if skill is matched (70% chance for demo)
-                const isMatched = Math.random() > 0.3
+              {job.required_skills.slice(0, 5).map((skill, idx) => {
                 const skillName = skill.name || skill
-                
                 return (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: idx * 0.05 }}
-                  >
-                    <span className={`px-3 py-1 border text-sm rounded-full font-medium transition-colors ${
-                      isMatched
-                        ? 'bg-green-500/20 border-green-500/50 text-green-300'
-                        : 'bg-primary-500/10 border-primary-500/30 text-primary-300'
-                    }`}>
-                      {isMatched && <span className="mr-1">✓</span>}
-                      {skillName}
-                    </span>
-                  </motion.div>
+                  <span key={idx} className="bg-primary-50 border border-primary-200 text-primary-700 px-2.5 py-1 rounded-full text-xs font-medium">
+                    {skillName}
+                  </span>
                 )
               })}
+              {job.required_skills.length > 5 && (
+                <span className="text-xs text-gray-600">+{job.required_skills.length - 5} more</span>
+              )}
             </div>
           </div>
         )}
-
-        {/* Job Description */}
-        {job.description && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Briefcase className="w-5 h-5 text-primary-400" />
-              Job Description
-            </h3>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-sm">
-                {job.description}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Company Info */}
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-primary-400" />
-            About Company
-          </h3>
-          <div className="space-y-2 text-sm text-gray-600">
-            <p>
-              <span className="text-gray-900 font-semibold">Company:</span> {job.company}
-            </p>
-            {job.company_website && (
-              <a
-                href={job.company_website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-primary-400 hover:text-primary-300 transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Visit Company Website
-              </a>
-            )}
-          </div>
-        </div>
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <button className="btn-primary py-3 font-semibold rounded-lg transition-all hover:shadow-lg">
-            Apply Now
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleGenerateLearningPath(job)}
+            disabled={learningPathState.loadingId === job.id}
+            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary-500 text-white text-sm font-semibold hover:bg-primary-600 disabled:opacity-60 transition-colors"
+          >
+            {learningPathState.loadingId === job.id ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Generate Learning Path
+              </>
+            )}
           </button>
-          <button className="btn-secondary py-3 font-semibold rounded-lg transition-all hover:shadow-lg">
-            Know More
-          </button>
+          {job.company_website && (
+            <a
+              href={job.company_website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-lg border border-primary-300 text-primary-600 hover:bg-primary-50 text-sm font-medium transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          )}
         </div>
+
+        {/* Status Messages */}
+        {learningPathState.success && (
+          <div className="mt-3 flex items-center gap-2 text-green-600 text-xs bg-green-50 border border-green-200 px-3 py-2 rounded">
+            <CheckCircle className="w-4 h-4" />
+            <span>{learningPathState.success}</span>
+          </div>
+        )}
+        {learningPathState.error && (
+          <div className="mt-3 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">
+            {learningPathState.error}
+          </div>
+        )}
       </motion.div>
     )
   }
@@ -267,14 +271,14 @@ export default function JobsPage() {
           className="mb-8"
         >
           <h1 className="text-4xl font-bold mb-2">Job Opportunities</h1>
-          <p className="text-gray-400">Browse {total} job listings | Page {page} of {Math.ceil(total / pageSize)}</p>
+          <p className="text-gray-600">Browse {total} job listings tailored for you</p>
         </motion.div>
 
         {/* Filters */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8 bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
+          className="mb-8 bg-white border border-primary-200 rounded-xl p-4 shadow-sm"
         >
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             {/* Search */}
@@ -284,10 +288,7 @@ export default function JobsPage() {
                 type="text"
                 placeholder="Search title or company..."
                 value={filters.q}
-                onChange={(e) => {
-                  setFilters({ ...filters, q: e.target.value })
-                  setPage(1)
-                }}
+                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
                 className="w-full bg-white border border-gray-300 rounded-lg px-10 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
               />
             </div>
@@ -299,10 +300,7 @@ export default function JobsPage() {
                 type="text"
                 placeholder="Location"
                 value={filters.location}
-                onChange={(e) => {
-                  setFilters({ ...filters, location: e.target.value })
-                  setPage(1)
-                }}
+                onChange={(e) => setFilters({ ...filters, location: e.target.value })}
                 className="w-full bg-white border border-gray-300 rounded-lg pl-10 pr-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
               />
             </div>
@@ -310,10 +308,7 @@ export default function JobsPage() {
             {/* Work Type */}
             <select
               value={filters.work_type}
-              onChange={(e) => {
-                setFilters({ ...filters, work_type: e.target.value })
-                setPage(1)
-              }}
+              onChange={(e) => setFilters({ ...filters, work_type: e.target.value })}
               className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
             >
               <option value="">All Types</option>
@@ -325,10 +320,7 @@ export default function JobsPage() {
             {/* Sort */}
             <select
               value={filters.sort}
-              onChange={(e) => {
-                setFilters({ ...filters, sort: e.target.value })
-                setPage(1)
-              }}
+              onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
               className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
             >
               <option value="popular">Popular</option>
@@ -338,87 +330,38 @@ export default function JobsPage() {
           </div>
         </motion.div>
 
-        {/* Split View */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Panel - Job List */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="lg:col-span-1"
-          >
-            <div className="sticky top-24">
-              <h2 className="text-lg font-semibold mb-4 text-gray-900">
-                {loading ? 'Loading jobs...' : `${jobs.length} Jobs`}
-              </h2>
-              <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
-                {loading ? (
-                  Array(5).fill(0).map((_, i) => (
-                    <div key={i} className="h-24 bg-gray-100 border border-gray-200 rounded-lg animate-pulse" />
-                  ))
-                ) : jobs.length > 0 ? (
-                  <AnimatePresence>
-                    {jobs.map((job) => (
-                      <JobCard
-                        key={job.id}
-                        job={job}
-                        isSelected={selectedJob?.id === job.id}
-                        onClick={() => handleJobSelect(job)}
-                      />
-                    ))}
-                  </AnimatePresence>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-400">No jobs found. Try adjusting your filters.</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Pagination */}
-              {Math.ceil(total / pageSize) > 1 && (
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="flex-1 btn-secondary text-sm py-2 disabled:opacity-50"
-                  >
-                    ← Prev
-                  </button>
-                  <span className="flex items-center px-2 text-sm text-gray-400">
-                    {page}/{Math.ceil(total / pageSize)}
-                  </span>
-                  <button
-                    onClick={() => setPage(p => Math.min(Math.ceil(total / pageSize), p + 1))}
-                    disabled={page === Math.ceil(total / pageSize)}
-                    className="flex-1 btn-secondary text-sm py-2 disabled:opacity-50"
-                  >
-                    Next →
-                  </button>
-                </div>
-              )}
-            </div>
-          </motion.div>
-
-          {/* Right Panel - Job Details */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="lg:col-span-2"
-          >
-            <div className="sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto pr-2">
-              <AnimatePresence mode="wait">
-                {detailsLoading ? (
-                  <div className="space-y-4">
-                    {Array(4).fill(0).map((_, i) => (
-                      <div key={i} className="h-20 bg-gray-100 border border-gray-200 rounded-lg animate-pulse" />
-                    ))}
-                  </div>
-                ) : (
-                  <JobDetails job={selectedJob} />
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
+        {/* Jobs Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <AnimatePresence>
+            {jobs.map((job) => (
+              <JobCard key={job.id} job={job} />
+            ))}
+          </AnimatePresence>
         </div>
+
+        {/* Loading more indicator */}
+        {loading && (
+          <div className="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array(9).fill(0).map((_, i) => (
+              <div key={i} className="h-80 bg-gray-200 border border-gray-300 rounded-xl animate-pulse" />
+            ))}
+          </div>
+        )}
+
+        {/* Infinite scroll trigger */}
+        <div ref={observerTarget} className="mt-12 text-center">
+          {!hasMore && jobs.length > 0 && (
+            <p className="text-gray-600">No more jobs to load</p>
+          )}
+        </div>
+
+        {/* Empty state */}
+        {!loading && jobs.length === 0 && (
+          <div className="text-center py-12">
+            <Briefcase className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-600">No jobs found. Try adjusting your filters.</p>
+          </div>
+        )}
       </div>
     </div>
   )

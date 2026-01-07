@@ -436,6 +436,89 @@ class InterviewService:
         self.db.refresh(learning_path)
         
         return learning_path
+
+    # -----------------------------------------------------
+    # Job-based learning path generation
+    # -----------------------------------------------------
+    def create_learning_path_from_job(
+        self,
+        applicant_id: int,
+        job
+    ) -> LearningPath:
+        """Create a learning path from a job's requirements vs applicant skills."""
+
+        applicant_skills = self.get_applicant_skills(applicant_id)
+
+        # Normalize required skills from the job posting
+        raw_required = getattr(job, 'required_skills', []) or []
+        required_skills = []
+        for item in raw_required:
+            if isinstance(item, dict):
+                name = item.get('name') or item.get('skill')
+                if name:
+                    required_skills.append(str(name))
+            else:
+                required_skills.append(str(item))
+
+        # Build skill gap map (strong if present in resume, weak otherwise)
+        skill_gaps: Dict[str, str] = {}
+        applicant_lower = {s.lower(): s for s in applicant_skills}
+        for skill in required_skills:
+            if skill.lower() in applicant_lower:
+                skill_gaps[skill] = "strong"
+            else:
+                skill_gaps[skill] = "weak"
+
+        priority_skills = [s for s, lvl in skill_gaps.items() if lvl == "weak"][:5] or list(skill_gaps.keys())[:5]
+
+        # Fetch resources and practice problems with job context to get tailored videos/resources
+        print(f"[LearningPath] Fetching resources for skills: {list(skill_gaps.keys())}")
+        resources = self.content_fetcher.fetch_learning_resources(
+            skill_gaps=skill_gaps,
+            count_per_skill=3,
+            job_title=getattr(job, 'title', None),
+            job_description=getattr(job, 'description', None)
+        )
+        print(f"[LearningPath] Fetched {len(resources) if resources else 0} resources")
+
+        topics_outline = self.content_fetcher.generate_topic_outline(
+            skill_gaps=skill_gaps,
+            job_title=getattr(job, 'title', None),
+            job_description=getattr(job, 'description', None)
+        )
+
+        practice_problems = []
+        for skill in priority_skills[:2]:
+            problems = self.content_fetcher.fetch_practice_problems(
+                skill=skill,
+                difficulty="easy",
+                count=5
+            )
+            practice_problems.extend(problems)
+
+        print(f"[LearningPath] Creating path with {len(resources)} courses, {len(practice_problems)} problems")
+        
+        learning_path = LearningPath(
+            applicant_id=applicant_id,
+            job_id=getattr(job, 'id', None),
+            generated_from='job',  # job-based generation without interview
+            source_session_id=None,
+            skill_gaps=skill_gaps,
+            recommended_courses=resources if resources else [],
+            recommended_projects=[],
+            practice_problems=practice_problems if practice_problems else [],
+            topics_outline=topics_outline if topics_outline else [],
+            priority_skills=priority_skills,
+            status='active'
+        )
+
+        self.db.add(learning_path)
+        self.db.commit()
+        self.db.refresh(learning_path)
+        
+        print(f"[LearningPath] Path created successfully with ID: {learning_path.id}")
+
+        return learning_path
     
     def get_session_history(self, applicant_id: int) -> Dict:
         """

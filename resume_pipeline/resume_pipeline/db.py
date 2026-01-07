@@ -309,6 +309,7 @@ class Job(Base):
     meta = relationship('JobMetadata', back_populates='job', uselist=False, cascade='all, delete-orphan')
     recommendations = relationship('JobRecommendation', back_populates='job', cascade='all, delete-orphan')
     applications = relationship('JobApplication', back_populates='job', cascade='all, delete-orphan')
+    learning_paths = relationship('LearningPath', back_populates='job', cascade='all, delete-orphan')
 
 
 class JobMetadata(Base):
@@ -596,9 +597,10 @@ class LearningPath(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    job_id = Column(Integer, ForeignKey('jobs.id', ondelete='SET NULL'), nullable=True, index=True)
     
     # Source of learning path
-    generated_from = Column(Enum('interview', 'assessment', 'manual', name='path_source'), default='interview')
+    generated_from = Column(Enum('interview', 'assessment', 'manual', 'job', name='path_source'), default='interview')
     source_session_id = Column(Integer, ForeignKey('interview_sessions.id', ondelete='SET NULL'), nullable=True)
     
     # Path details
@@ -606,6 +608,7 @@ class LearningPath(Base):
     recommended_courses = Column(JSON, nullable=True)  # [{"title": "...", "url": "...", "provider": "Udemy"}]
     recommended_projects = Column(JSON, nullable=True)  # [{"title": "...", "description": "..."}]
     practice_problems = Column(JSON, nullable=True)  # Coding problems from Google Search
+    topics_outline = Column(JSON, nullable=True)  # Structured topics tree with videos/resources
     
     # Priority areas
     priority_skills = Column(JSON, nullable=True)  # ["DSA", "DBMS"] - top 3 skills to focus on
@@ -620,6 +623,7 @@ class LearningPath(Base):
     # Relationships
     applicant = relationship('Applicant', back_populates='learning_paths')
     source_session = relationship('InterviewSession', back_populates='learning_paths', foreign_keys=[source_session_id])
+    job = relationship('Job', back_populates='learning_paths')
 
 
 # ============================================================
@@ -674,6 +678,7 @@ class CreditTransaction(Base):
     activity_type = Column(Enum(
         'full_interview', 'micro_session', 'coding_question', 
         'project_idea', 'weekly_refill', 'admin_adjustment',
+        'learning_path_generation',
         name='activity_type'
     ), nullable=True, index=True)
     

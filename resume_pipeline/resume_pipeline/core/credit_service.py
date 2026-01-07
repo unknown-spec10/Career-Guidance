@@ -352,5 +352,95 @@ class CreditService:
                 'micro_session': CREDIT_CONFIG['MICRO_SESSION_COST'],
                 'coding_question': CREDIT_CONFIG['CODING_QUESTION_COST'],
                 'project_idea': CREDIT_CONFIG['PROJECT_IDEA_COST'],
+                'learning_path': CREDIT_CONFIG['LEARNING_PATH_GENERATION_COST'],
             }
         }
+    
+    def check_and_deduct_credits(
+        self,
+        applicant_id: int,
+        activity_type: str,
+        credits_required: int
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check if user has enough credits and deduct them if available.
+        
+        Returns:
+            (success: bool, error_message: Optional[str])
+        """
+        account = self.get_or_create_account(applicant_id)
+        self.check_and_refill(account)
+        
+        current_credits = getattr(account, 'current_credits', 0)
+        if current_credits < credits_required:
+            next_refill = getattr(account, 'next_refill_at', datetime.datetime.utcnow())
+            days_until = max(0, (next_refill - datetime.datetime.utcnow()).days)
+            return False, f"Insufficient credits. Need {credits_required}, have {current_credits}. Next refill in {days_until} days."
+        
+        # Deduct credits temporarily (will be recorded later with transaction)
+        account.current_credits = current_credits - credits_required
+        self.db.commit()
+        
+        return True, None
+    
+    def record_transaction(
+        self,
+        applicant_id: int,
+        transaction_type: str,
+        amount: int,
+        activity_type: str,
+        reference_id: Optional[int] = None,
+        reference_type: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> CreditTransaction:
+        """
+        Record a credit transaction (after credits already deducted).
+        """
+        account = self.get_or_create_account(applicant_id)
+        
+        transaction = CreditTransaction(
+            account_id=account.id,
+            transaction_type=transaction_type,
+            amount=amount,
+            balance_after=getattr(account, 'current_credits', 0),
+            activity_type=activity_type,
+            reference_id=reference_id,
+            reference_type=reference_type,
+            description=description
+        )
+        self.db.add(transaction)
+        
+        # Update total spent
+        if transaction_type == 'spend':
+            account.total_spent = getattr(account, 'total_spent', 0) + abs(amount)
+        
+        self.db.commit()
+        self.db.refresh(transaction)
+        return transaction
+    
+    def refund_credits(
+        self,
+        applicant_id: int,
+        credits: int,
+        reason: str
+    ) -> CreditTransaction:
+        """
+        Refund credits to user (e.g., if operation fails).
+        """
+        account = self.get_or_create_account(applicant_id)
+        
+        account.current_credits = getattr(account, 'current_credits', 0) + credits
+        
+        transaction = CreditTransaction(
+            account_id=account.id,
+            transaction_type='refund',
+            amount=credits,
+            balance_after=account.current_credits,
+            activity_type='refund',
+            description=f"Refund: {reason}"
+        )
+        self.db.add(transaction)
+        self.db.commit()
+        self.db.refresh(transaction)
+        
+        return transaction

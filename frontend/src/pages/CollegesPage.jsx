@@ -1,30 +1,66 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { GraduationCap, MapPin, Users, Award, Building2, Globe, ExternalLink, Sparkles, Search, SortAsc } from 'lucide-react'
+import { Building2, MapPin, Star, Trophy, Users, BookOpen, Phone, Globe, Search } from 'lucide-react'
 import { useDebounce } from '../hooks/useDebounce'
 import api from '../config/api'
-import { PAGINATION, DEBOUNCE_DELAYS } from '../config/constants'
-import EmptyState from '../components/EmptyState'
+import { DEBOUNCE_DELAYS } from '../config/constants'
 
 export default function CollegesPage() {
   const [colleges, setColleges] = useState([])
-  const [selectedCollege, setSelectedCollege] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [pageSize] = useState(20)
+  const pageSize = 9 // 3x3 grid = 9 colleges per page
+  const observerTarget = useRef(null)
+  const hasMoreRef = useRef(hasMore)
+  const loadingRef = useRef(loading)
   const [filters, setFilters] = useState({
     q: '',
     location: '',
-    min_jee_rank: '',
+    tier: '',
     sort: 'popular'
   })
   const debouncedFilters = useDebounce(filters, DEBOUNCE_DELAYS.FILTER)
 
+  // Update refs when state changes
+  useEffect(() => {
+    hasMoreRef.current = hasMore
+    loadingRef.current = loading
+  }, [hasMore, loading])
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setPage(1)
+    setColleges([])
+    setHasMore(true)
+  }, [debouncedFilters])
+
+  // Fetch colleges when page changes
   useEffect(() => {
     fetchColleges()
-  }, [debouncedFilters, page])
+  }, [page, debouncedFilters])
+
+  // Infinite scroll observer - set up once
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
+          console.log('Intersection detected - loading more colleges')
+          setPage(p => p + 1)
+        }
+      },
+      { threshold: 0.01, rootMargin: '200px' }
+    )
+    
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current)
+    }
+    
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
 
   const fetchColleges = async () => {
     try {
@@ -35,262 +71,164 @@ export default function CollegesPage() {
           limit: pageSize,
           q: debouncedFilters.q,
           location: debouncedFilters.location,
-          min_jee_rank: debouncedFilters.min_jee_rank,
+          tier: debouncedFilters.tier,
           sort: debouncedFilters.sort
         }
       })
-      setColleges(response.data?.colleges || response.data || [])
+      const newColleges = response.data?.colleges || response.data || []
       setTotal(response.data?.total || 0)
-      if (response.data?.colleges?.length > 0 && !selectedCollege) {
-        setSelectedCollege(response.data.colleges[0])
+      
+      if (page === 1) {
+        setColleges(newColleges)
+      } else {
+        setColleges(prev => [...prev, ...newColleges])
       }
+      
+      setHasMore(newColleges.length === pageSize)
     } catch (error) {
       console.error('Error fetching colleges:', error)
-      setColleges([])
+      setHasMore(false)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleCollegeSelect = (college) => {
-    setSelectedCollege(college)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+  const getTierBadgeStyle = (tier) => {
+    const tiers = {
+      'Tier 1': { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300' },
+      'Tier 2': { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' },
+      'Tier 3': { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300' },
+    }
+    return tiers[tier] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-300' }
   }
 
-  const CollegeCard = ({ college, isSelected, onClick }) => {
-    // Calculate match percentage (mock calculation)
-    const matchPercentage = college.match_score || Math.floor(Math.random() * 40 + 60)
+  const CollegeCard = ({ college }) => {
+    const getStableMatchPercentage = (collegeId) => {
+      const hash = collegeId * 12345 % 100
+      return Math.max(60, (hash * 1.5) % 40 + 60)
+    }
+    const matchPercentage = college.match_score || Math.round(getStableMatchPercentage(college.id))
     const getMatchColor = (percentage) => {
       if (percentage >= 80) return 'bg-green-500'
       if (percentage >= 60) return 'bg-primary-500'
       return 'bg-yellow-500'
     }
+    const tierStyle = getTierBadgeStyle(college.tier)
 
     return (
       <motion.div
         layout
-        whileHover={{ scale: 1.02 }}
-        onClick={onClick}
-        className={`p-4 rounded-lg border cursor-pointer transition-all duration-300 ${
-          isSelected
-            ? 'bg-primary-500/10 border-primary-500 shadow-lg shadow-primary-500/20'
-            : 'bg-white border-gray-200 hover:border-primary-500 hover:shadow-md'
-        }`}
-      >
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-            <GraduationCap className="w-5 h-5 text-primary-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <h3 className="font-semibold text-sm line-clamp-1">{college.name}</h3>
-              <div className={`${getMatchColor(matchPercentage)} text-white px-2 py-0.5 rounded text-xs font-bold flex-shrink-0`}>
-                {matchPercentage}%
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
-              <MapPin className="w-3 h-3" />
-              <span className="truncate">{college.location_city}, {college.location_state}</span>
-            </div>
-            {college.nirf_ranking && (
-              <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                <Award className="w-3 h-3" />
-                <span>NIRF #{college.nirf_ranking}</span>
-              </div>
-            )}
-          </div>
-          {isSelected && (
-            <Sparkles className="w-4 h-4 text-primary-400 flex-shrink-0" />
-          )}
-        </div>
-      </motion.div>
-    )
-  }
-
-  const CollegeDetails = ({ college }) => {
-    if (!college) {
-      return (
-        <div className="flex items-center justify-center h-full">
-          <EmptyState icon="search" title="Select a college" message="Choose a college from the list to view details" />
-        </div>
-      )
-    }
-
-    return (
-      <motion.div
-        key={college.id}
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -20 }}
-        className="space-y-6"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="bg-white border border-primary-200 rounded-xl p-6 hover:shadow-lg transition-shadow"
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-primary-900/30 to-primary-800/30 border border-primary-500/20 rounded-xl p-6">
-          <div className="flex items-start gap-4">
-            <div className="w-16 h-16 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-              <GraduationCap className="w-8 h-8 text-primary-400" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-3xl font-bold mb-2">{college.name}</h2>
-              <p className="text-lg text-gray-700 mb-4">{college.location_city}, {college.location_state}</p>
-              <div className="flex flex-wrap gap-4">
-                {college.nirf_ranking && (
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <Award className="w-4 h-4" />
-                    <span>NIRF Rank: {college.nirf_ranking}</span>
-                  </div>
-                )}
-                {college.established_year && (
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <Building2 className="w-4 h-4" />
-                    <span>Est. {college.established_year}</span>
-                  </div>
-                )}
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex-1">
+            <div className="flex items-start gap-3 mb-2">
+              <div className="w-12 h-12 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-6 h-6 text-primary-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-gray-900">{college.name}</h3>
+                <p className="text-sm text-gray-600">{college.location_city}, {college.location_state}</p>
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Key Information Grid */}
-        <div className="grid grid-cols-2 gap-4">
-          {college.total_seats && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1">Total Seats</p>
-              <p className="text-lg font-bold text-primary-400">{college.total_seats}</p>
-            </div>
-          )}
-          {college.jee_cutoff_general && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1">JEE Cutoff (General)</p>
-              <p className="text-lg font-bold text-primary-400">{college.jee_cutoff_general}</p>
-            </div>
-          )}
-          {college.acceptance_rate && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1">Acceptance Rate</p>
-              <p className="text-lg font-bold text-primary-400">{college.acceptance_rate}%</p>
-            </div>
-          )}
-          {college.student_faculty_ratio && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1">Student-Faculty Ratio</p>
-              <p className="text-lg font-bold text-primary-400">{college.student_faculty_ratio}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Programs Offered */}
-        {college.programs && college.programs.length > 0 && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <GraduationCap className="w-5 h-5 text-primary-400" />
-              Programs Offered
-            </h3>
-            <div className="space-y-2">
-              {college.programs.map((program, idx) => (
-                <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="bg-white border border-gray-200 rounded-lg p-3 flex items-start gap-3 hover:border-primary-300 transition-colors"
-                >
-                  <div className="w-8 h-8 bg-primary-500/20 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-xs font-bold text-primary-400">{idx + 1}</span>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm">{program.name || program}</p>
-                    {program.duration && (
-                      <p className="text-xs text-gray-500 mt-1">Duration: {program.duration} years</p>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+          <div className={`${getMatchColor(matchPercentage)} text-white px-3 py-1 rounded-lg text-sm font-bold flex-shrink-0`}>
+            {matchPercentage}%
           </div>
-        )}
+        </div>
 
-        {/* College Description */}
+        {/* Tier and Rating */}
+        <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-200">
+          <div className={`${tierStyle.bg} ${tierStyle.text} ${tierStyle.border} px-3 py-1 rounded-full text-xs font-semibold border`}>
+            {college.tier}
+          </div>
+          {college.nirf_rank && (
+            <div className="flex items-center gap-1 text-sm">
+              <Trophy className="w-4 h-4 text-yellow-500" />
+              <span className="font-semibold text-gray-700">NIRF #{college.nirf_rank}</span>
+            </div>
+          )}
+          {college.rating && (
+            <div className="flex items-center gap-1 text-sm">
+              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+              <span className="font-semibold text-gray-700">{college.rating}/5</span>
+            </div>
+          )}
+        </div>
+
+        {/* Key Stats */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          {college.total_students && (
+            <div className="flex items-center gap-2 text-sm">
+              <Users className="w-4 h-4 text-primary-400" />
+              <div>
+                <p className="text-xs text-gray-600">Students</p>
+                <p className="font-semibold text-gray-700">{college.total_students.toLocaleString()}</p>
+              </div>
+            </div>
+          )}
+          {college.placement_rate && (
+            <div className="flex items-center gap-2 text-sm">
+              <Trophy className="w-4 h-4 text-primary-400" />
+              <div>
+                <p className="text-xs text-gray-600">Placement</p>
+                <p className="font-semibold text-gray-700">{Math.round(college.placement_rate)}%</p>
+              </div>
+            </div>
+          )}
+          {college.avg_package && (
+            <div className="flex items-center gap-2 text-sm">
+              <BookOpen className="w-4 h-4 text-primary-400" />
+              <div>
+                <p className="text-xs text-gray-600">Avg Package</p>
+                <p className="font-semibold text-gray-700">₹{(college.avg_package / 100000).toFixed(1)}L</p>
+              </div>
+            </div>
+          )}
+          {college.cut_off && (
+            <div className="flex items-center gap-2 text-sm">
+              <Star className="w-4 h-4 text-primary-400" />
+              <div>
+                <p className="text-xs text-gray-600">Cut-off</p>
+                <p className="font-semibold text-gray-700">{college.cut_off}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Description */}
         {college.description && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-primary-400" />
-              About College
-            </h3>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-sm">
-                {college.description}
-              </p>
-            </div>
-          </div>
+          <p className="text-sm text-gray-700 mb-4 line-clamp-2">
+            {college.description}
+          </p>
         )}
 
-        {/* Campus Infrastructure */}
-        {college.infrastructure && college.infrastructure.length > 0 && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-primary-400" />
-              Campus Infrastructure
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {college.infrastructure.map((item, idx) => (
-                <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="bg-primary-500/10 border border-primary-500/30 rounded-lg p-3 text-center"
-                >
-                  <p className="text-sm font-medium text-primary-300">{item}</p>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Contact Information */}
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <Globe className="w-5 h-5 text-primary-400" />
-            Contact & Website
-          </h3>
-          <div className="space-y-3 text-sm text-gray-600\">
-            {college.website && (
-              <a
-                href={college.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-primary-400 hover:text-primary-300 transition-colors break-all"
-              >
-                <ExternalLink className="w-4 h-4 flex-shrink-0" />
-                {college.website}
-              </a>
-            )}
-            {college.phone && (
-              <div className="flex items-start gap-2">
-                <span className="text-gray-600 flex-shrink-0">📞</span>
-                <span>{college.phone}</span>
-              </div>
-            )}
-            {college.email && (
-              <div className="flex items-start gap-2">
-                <span className="text-gray-600 flex-shrink-0">📧</span>
-                <a href={`mailto:${college.email}`} className="text-primary-400 hover:text-primary-300 transition-colors break-all">
-                  {college.email}
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <button className="btn-primary py-3 font-semibold rounded-lg transition-all hover:shadow-lg">
-            Apply Now
-          </button>
-          <button className="btn-secondary py-3 font-semibold rounded-lg transition-all hover:shadow-lg">
-            Know More
-          </button>
+        {/* Contact & Website */}
+        <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
+          {college.phone && (
+            <a
+              href={`tel:${college.phone}`}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 text-sm font-medium transition-colors"
+            >
+              <Phone className="w-4 h-4" />
+              <span className="hidden sm:inline">Call</span>
+            </a>
+          )}
+          {college.website && (
+            <a
+              href={college.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary-500 text-white hover:bg-primary-600 text-sm font-medium transition-colors"
+            >
+              <Globe className="w-4 h-4" />
+              <span className="hidden sm:inline">Visit</span>
+            </a>
+          )}
         </div>
       </motion.div>
     )
@@ -305,15 +243,15 @@ export default function CollegesPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <h1 className="text-4xl font-bold mb-2">Colleges & Universities</h1>
-          <p className="text-gray-400">Browse {total} colleges | Page {page} of {Math.ceil(total / pageSize)}</p>
+          <h1 className="text-4xl font-bold mb-2">College Listings</h1>
+          <p className="text-gray-600">Browse {total} colleges matched for you</p>
         </motion.div>
 
         {/* Filters */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8 bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
+          className="mb-8 bg-white border border-primary-200 rounded-xl p-4 shadow-sm"
         >
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             {/* Search */}
@@ -323,10 +261,7 @@ export default function CollegesPage() {
                 type="text"
                 placeholder="Search college name..."
                 value={filters.q}
-                onChange={(e) => {
-                  setFilters({ ...filters, q: e.target.value })
-                  setPage(1)
-                }}
+                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
                 className="w-full bg-white border border-gray-300 rounded-lg px-10 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
               />
             </div>
@@ -338,112 +273,69 @@ export default function CollegesPage() {
                 type="text"
                 placeholder="Location"
                 value={filters.location}
-                onChange={(e) => {
-                  setFilters({ ...filters, location: e.target.value })
-                  setPage(1)
-                }}
+                onChange={(e) => setFilters({ ...filters, location: e.target.value })}
                 className="w-full bg-white border border-gray-300 rounded-lg pl-10 pr-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
               />
             </div>
 
+            {/* Tier */}
+            <select
+              value={filters.tier}
+              onChange={(e) => setFilters({ ...filters, tier: e.target.value })}
+              className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
+            >
+              <option value="">All Tiers</option>
+              <option value="Tier 1">Tier 1</option>
+              <option value="Tier 2">Tier 2</option>
+              <option value="Tier 3">Tier 3</option>
+            </select>
+
             {/* Sort */}
             <select
               value={filters.sort}
-              onChange={(e) => {
-                setFilters({ ...filters, sort: e.target.value })
-                setPage(1)
-              }}
+              onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
               className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
             >
               <option value="popular">Popular</option>
-              <option value="recent">Recent</option>
-              <option value="nirf">NIRF Rank</option>
+              <option value="rating">Top Rated</option>
               <option value="name">A-Z</option>
+              <option value="placement">Best Placements</option>
             </select>
           </div>
         </motion.div>
 
-        {/* Split View */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Panel - College List */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="lg:col-span-1"
-          >
-            <div className="sticky top-24">
-              <h2 className="text-lg font-semibold mb-4 text-gray-900">
-                {loading ? 'Loading colleges...' : `${colleges.length} Colleges`}
-              </h2>
-              <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
-                {loading ? (
-                  Array(5).fill(0).map((_, i) => (
-                    <div key={i} className="h-24 bg-gray-100 border border-gray-200 rounded-lg animate-pulse" />
-                  ))
-                ) : colleges.length > 0 ? (
-                  <AnimatePresence>
-                    {colleges.map((college) => (
-                      <CollegeCard
-                        key={college.id}
-                        college={college}
-                        isSelected={selectedCollege?.id === college.id}
-                        onClick={() => handleCollegeSelect(college)}
-                      />
-                    ))}
-                  </AnimatePresence>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-400">No colleges found. Try adjusting your filters.</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Pagination */}
-              {Math.ceil(total / pageSize) > 1 && (
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="flex-1 btn-secondary text-sm py-2 disabled:opacity-50"
-                  >
-                    ← Prev
-                  </button>
-                  <span className="flex items-center px-2 text-sm text-gray-400">
-                    {page}/{Math.ceil(total / pageSize)}
-                  </span>
-                  <button
-                    onClick={() => setPage(p => Math.min(Math.ceil(total / pageSize), p + 1))}
-                    disabled={page === Math.ceil(total / pageSize)}
-                    className="flex-1 btn-secondary text-sm py-2 disabled:opacity-50"
-                  >
-                    Next →
-                  </button>
-                </div>
-              )}
-            </div>
-          </motion.div>
-
-          {/* Right Panel - College Details */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="lg:col-span-2"
-          >
-            <div className="sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto pr-2">
-              <AnimatePresence mode="wait">
-                {detailsLoading ? (
-                  <div className="space-y-4">
-                    {Array(4).fill(0).map((_, i) => (
-                      <div key={i} className="h-20 bg-gray-100 border border-gray-200 rounded-lg animate-pulse" />
-                    ))}
-                  </div>
-                ) : (
-                  <CollegeDetails college={selectedCollege} />
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
+        {/* Colleges Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <AnimatePresence>
+            {colleges.map((college) => (
+              <CollegeCard key={college.id} college={college} />
+            ))}
+          </AnimatePresence>
         </div>
+
+        {/* Loading more indicator */}
+        {loading && (
+          <div className="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array(9).fill(0).map((_, i) => (
+              <div key={i} className="h-80 bg-gray-200 border border-gray-300 rounded-xl animate-pulse" />
+            ))}
+          </div>
+        )}
+
+        {/* Infinite scroll trigger */}
+        <div ref={observerTarget} className="mt-12 text-center">
+          {!hasMore && colleges.length > 0 && (
+            <p className="text-gray-600">No more colleges to load</p>
+          )}
+        </div>
+
+        {/* Empty state */}
+        {!loading && colleges.length === 0 && (
+          <div className="text-center py-12">
+            <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-600">No colleges found. Try adjusting your filters.</p>
+          </div>
+        )}
       </div>
     </div>
   )

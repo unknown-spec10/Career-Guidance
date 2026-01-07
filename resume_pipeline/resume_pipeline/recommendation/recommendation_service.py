@@ -304,19 +304,23 @@ class RecommendationService:
                     JobRecommendation.job_id == job.id
                 ).first()
                 
+                # Generate structured explanation
+                explanation = self._generate_structured_job_explanation(breakdown, job, normalized_data)
+                
                 if not rec:
                     rec = JobRecommendation(
                         applicant_id=applicant.id,
                         job_id=job.id,
                         score=match_score,
                         scoring_breakdown=breakdown,
-                        explain=breakdown
+                        explain=explanation
                     )
                     self.db.add(rec)
                 else:
                     # Update score
                     rec.score = match_score
                     rec.scoring_breakdown = breakdown
+                    rec.explain = explanation
                 
                 recommendations.append({
                     'id': job.id,
@@ -460,3 +464,39 @@ class RecommendationService:
             reasons.append("good profile match")
         
         return f"Recommended based on {' and '.join(reasons)} for {job.title}"
+    
+    def _generate_structured_job_explanation(self, breakdown: Dict, job: Job, normalized_data: Dict) -> Dict:
+        """Generate structured explanation for frontend display"""
+        reasons = []
+        
+        skills_score = breakdown['skills_score']
+        if skills_score >= 0.8:
+            reasons.append("Your skills are an excellent match for this role's requirements")
+        elif skills_score >= 0.6:
+            reasons.append("You have many of the key skills needed for this position")
+        elif skills_score >= 0.4:
+            reasons.append("You have some relevant skills that align with this role")
+        else:
+            reasons.append("This role could help you develop new valuable skills")
+        
+        exp_score = breakdown['experience_score']
+        if exp_score >= 0.8:
+            reasons.append("Your experience level matches or exceeds the requirements")
+        elif exp_score >= 0.5:
+            reasons.append("Your experience is relevant to this position")
+        
+        edu_score = breakdown['education_score']
+        if edu_score >= 0.8:
+            reasons.append("Your educational background aligns well with the role")
+        
+        interview_score = breakdown.get('interview_score')
+        if interview_score and interview_score >= 0.7:
+            reasons.append("Your strong interview performance indicates readiness for this role")
+        
+        if not reasons:
+            reasons.append("Your overall profile is a good fit for this opportunity")
+        
+        return {
+            "reasons": reasons,
+            "summary": f"Match score: {round(breakdown.get('skills_score', 0) * 100)}% skills, {round(breakdown.get('experience_score', 0) * 100)}% experience"
+        }

@@ -4,12 +4,23 @@ from typing import Dict
 import pytesseract
 from pdf2image import convert_from_path
 from pdfminer.high_level import extract_text
-import easyocr
-import pdfplumber
+import pdfplumber  # type: ignore
 
 from ..core.interfaces import TextExtractor, OCRService
 
-reader = easyocr.Reader(["en"])  # may be slow on import
+# Lazy-load easyocr to avoid import errors and slow startup
+_reader = None
+
+def get_reader():
+    global _reader
+    if _reader is None:
+        try:
+            import easyocr  # type: ignore
+            _reader = easyocr.Reader(["en"])
+        except Exception as e:
+            print(f"Warning: EasyOCR failed to load: {e}")
+            _reader = False  # Mark as failed
+    return _reader if _reader is not False else None
 
 class PdfTextExtractor(TextExtractor):
     def extract_text(self, path: str) -> str:
@@ -53,7 +64,10 @@ class TesseractOCR(OCRService):
         try:
             return pytesseract.image_to_string(path)
         except Exception:
-            result = reader.readtext(path, detail=0)
+            reader = get_reader()
+            if reader is None:
+                raise RuntimeError("EasyOCR not available and pytesseract failed")
+            result = reader.readtext(path, detail=0)  # type: ignore
             # Coerce each item to str before joining to satisfy typing and handle mixed item types
             return "\n".join(map(str, result))
 

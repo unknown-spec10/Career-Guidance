@@ -22,6 +22,11 @@ const CreditWidget = () => {
       setCredits(response.data)
     } catch (error) {
       console.error('Error fetching credits:', error)
+      // If 401/404, user is not authenticated or doesn't have an applicant profile
+      // Silently fail and hide the widget
+      if (error.response?.status === 401 || error.response?.status === 404) {
+        setCredits(null)
+      }
     } finally {
       setLoading(false)
     }

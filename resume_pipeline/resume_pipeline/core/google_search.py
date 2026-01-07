@@ -206,55 +206,96 @@ Make questions practical and commonly asked in interviews."""
     def fetch_learning_resources(
         self, 
         skill_gaps: Dict[str, str],
-        count_per_skill: int = 3
+        count_per_skill: int = 3,
+        job_title: str | None = None,
+        job_description: str | None = None
     ) -> List[Dict]:
         """
-        Fetch learning resources (courses, tutorials) for weak skills.
+        Fetch learning resources (YouTube videos and playlists) for weak skills.
         
         Args:
             skill_gaps: Dict of {skill_name: "weak|moderate|strong"}
             count_per_skill: Number of resources per weak skill
         
         Returns:
-            List of dicts with title, url, provider, focus
+            List of dicts with title, url, provider (YouTube), focus, and type (video|playlist)
         """
         all_resources = []
         
         # Focus on weak skills only
         weak_skills = [skill for skill, level in skill_gaps.items() if level == "weak"]
-        
-        for skill in weak_skills[:3]:  # Top 3 weak skills
-            # Search for courses
-            query = f"{skill} tutorial course 2024 site:udemy.com OR site:coursera.org OR site:youtube.com OR site:freecodecamp.org"
+        if not weak_skills:
+            weak_skills = list(skill_gaps.keys())[:3]
             
-            results = self._google_search(query, num_results=count_per_skill)
-            
-            for result in results:
-                all_resources.append({
-                    "title": result['title'],
-                    "url": result['url'],
-                    "provider": result['source'],
-                    "focus": skill,
-                    "type": "course"
-                })
+        role_context = ""
+        if job_title:
+            role_context += f" for the role '{job_title}'"
+        if job_description:
+            role_context += f". Job description: {job_description[:400]}"
         
-        # If no Google results, generate with Gemini
+        # Try Google Search first if API is configured
+        if self.api_key and self.search_engine_id and not self.quota_exhausted:
+            for skill in weak_skills[:3]:  # Top 3 weak skills
+                # Search specifically for YouTube videos and playlists
+                query = (
+                    f"{skill} tutorial playlist {job_title or ''} 2024 "
+                    "site:youtube.com"
+                )
+                
+                results = self._google_search(query, num_results=count_per_skill)
+                
+                for result in results:
+                    # Determine if it's a playlist or video
+                    res_type = "playlist" if "playlist" in result['url'].lower() else "video"
+                    all_resources.append({
+                        "title": result['title'],
+                        "url": result['url'],
+                        "provider": "YouTube",
+                        "focus": skill,
+                        "type": res_type,
+                        "context": role_context.strip()
+                    })
+        
+        # If no Google results or API not configured, use Gemini fallback
         if not all_resources:
-            print("Using Gemini fallback for learning resources")
-            prompt = f"""Generate learning resources for these weak skills: {', '.join(weak_skills)}.
+            print(f"Generating YouTube learning resources via Gemini (weak skills: {weak_skills})")
+            prompt = f"""Generate SPECIFIC, ACTIONABLE YouTube tutorial recommendations for learning these skills: {', '.join(weak_skills[:5])}{role_context}.
 
-Return JSON array:
+For EACH skill, provide 2-3 high-quality YouTube learning resources with:
+- EXACT video/playlist titles as they appear on YouTube
+- REAL YouTube channel names (freeCodeCamp, Traversy Media, The Net Ninja, Academind, Programming with Mosh, Code with Harry, etc.)
+- Direct YouTube URLs (watch?v= for individual videos, playlist?list= for playlists)
+- Each resource should teach ONE specific topic within the skill
+
+Return ONLY valid JSON array (no extra text):
 [
   {{
-    "title": "Course/Tutorial name",
-    "provider": "Udemy|Coursera|YouTube|FreeCodeCamp",
+    "title": "[Channel Name] - Specific Topic Tutorial Name",
+    "provider": "YouTube",
     "focus": "skill_name",
-    "type": "course|tutorial|documentation",
-    "url_hint": "Search term to find this resource"
+    "type": "video",
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  }},
+  {{
+    "title": "[Channel Name] - Complete [Skill] Course/Playlist",
+    "provider": "YouTube",
+    "focus": "skill_name",
+    "type": "playlist",
+    "url": "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
   }}
 ]
 
-Recommend free and popular resources."""
+CRITICAL REQUIREMENTS:
+1. Generate REAL, SPECIFIC tutorial titles - not generic channel names
+2. Include famous tutorial creators with their most popular courses
+3. For each skill: 1 complete course/playlist + 1-2 focused tutorials
+4. Example good titles:
+   - "freeCodeCamp - Python Tutorial for Beginners"
+   - "The Net Ninja - JavaScript Fundamentals (Full Course)"
+   - "Traversy Media - SQL Tutorial for Complete Beginners"
+   - "Code with Harry - Complete Data Structures & Algorithms"
+5. URLs must be real YouTube links (watch?v= or playlist?list= format)
+6. Return ONLY the JSON array, no markdown or other text"""
 
             try:
                 url = f"{self.gemini_client.base_url}/models/gemini-1.5-pro:generateContent?key={self.gemini_client.api_key}"
@@ -262,8 +303,8 @@ Recommend free and popular resources."""
                 body = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "temperature": 0.5,
-                        "maxOutputTokens": 1536,
+                        "temperature": 0.3,
+                        "maxOutputTokens": 2048,
                         "responseMimeType": "application/json"
                     }
                 }
@@ -273,12 +314,82 @@ Recommend free and popular resources."""
                     result = r.json()
                     if 'candidates' in result and len(result['candidates']) > 0:
                         generated_text = result['candidates'][0]['content']['parts'][0].get('text', '[]')
-                        resources = json.loads(generated_text)
-                        all_resources = resources if isinstance(resources, list) else []
+                        try:
+                            resources = json.loads(generated_text)
+                            if isinstance(resources, list):
+                                all_resources = resources
+                                print(f"[SUCCESS] Generated {len(all_resources)} YouTube resources via Gemini")
+                            else:
+                                print(f"Warning: Gemini returned non-list: {type(resources)}")
+                        except json.JSONDecodeError as je:
+                            print(f"Error parsing Gemini JSON response: {je}")
+                            print(f"Raw response: {generated_text[:200]}")
+                else:
+                    print(f"Gemini API error: {r.status_code} - {r.text[:200]}")
             except Exception as e:
-                print(f"Error generating learning resources: {e}")
+                print(f"Error generating learning resources via Gemini: {e}")
+        
+        if all_resources:
+            print(f"[SUCCESS] Fetched {len(all_resources)} learning resources")
+        else:
+            print("[WARNING] No learning resources could be fetched - returning empty list")
         
         return all_resources
+
+    def generate_topic_outline(
+        self,
+        skill_gaps: Dict[str, str],
+        job_title: Optional[str] = None,
+        job_description: Optional[str] = None,
+        max_topics: int = 3
+    ) -> List[Dict]:
+        """Generate a simple topic tree with brief details and YouTube links for weak skills."""
+        weak_skills = [s for s, lvl in skill_gaps.items() if lvl == "weak"]
+        if not weak_skills:
+            weak_skills = list(skill_gaps.keys())[:max_topics]
+
+        role_context = f" for the role '{job_title}'" if job_title else ""
+        if job_description:
+            role_context += f". Job description (trimmed): {job_description[:400]}"
+
+        prompt = f"""Create a concise learning outline{role_context} focused on these skills: {', '.join(weak_skills[:max_topics])}.
+
+Return JSON array of topics with subtopics:
+[
+  {{
+    "topic": "High-level topic",
+    "why_it_matters": "One-sentence relevance",
+    "youtube": [{{"title": "", "url": ""}}],
+    "subtopics": [
+      {{"title": "", "details": "1-2 sentences", "youtube": [{{"title": "", "url": ""}}]}}
+    ]
+  }}
+]
+
+Keep it compact (max 3 topics, each max 4 subtopics)."""
+
+        try:
+            url = f"{self.gemini_client.base_url}/models/gemini-1.5-pro:generateContent?key={self.gemini_client.api_key}"
+            headers = {"Content-Type": "application/json"}
+            body = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.5,
+                    "maxOutputTokens": 1024,
+                    "responseMimeType": "application/json"
+                }
+            }
+            r = requests.post(url, headers=headers, json=body, timeout=30)
+            if r.status_code == 200:
+                result = r.json()
+                if 'candidates' in result and len(result['candidates']) > 0:
+                    text = result['candidates'][0]['content']['parts'][0].get('text', '[]')
+                    outline = json.loads(text)
+                    return outline if isinstance(outline, list) else []
+        except Exception as e:
+            print(f"Gemini topic outline error: {e}")
+
+        return []
     
     def fetch_practice_problems(
         self, 

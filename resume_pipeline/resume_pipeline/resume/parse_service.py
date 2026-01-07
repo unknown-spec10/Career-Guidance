@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from typing import Tuple
-from jsonschema import validate, ValidationError
+from jsonschema import validate, ValidationError  # type: ignore
 import logging
 
 logger = logging.getLogger(__name__)
