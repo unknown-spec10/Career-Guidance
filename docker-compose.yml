@@ -1,0 +1,99 @@
+services:
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: career-guidance-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${MYSQL_DB:-resumes}
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: ${DB_USER_PASSWORD:-app_password}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./resume_pipeline/scripts:/docker-entrypoint-initdb.d
+    networks:
+      - career-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Backend Service
+  backend:
+    build:
+      context: ./resume_pipeline
+      dockerfile: Dockerfile
+    container_name: career-guidance-backend
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: ${DB_USER_PASSWORD:-app_password}
+      MYSQL_DB: ${MYSQL_DB:-resumes}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GOOGLE_SEARCH_API_KEY: ${GOOGLE_SEARCH_API_KEY:-}
+      GOOGLE_CSE_ID: ${GOOGLE_CSE_ID:-}
+      GMAIL_USER: ${GMAIL_USER:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      SECRET_KEY: ${SECRET_KEY}
+      FILE_STORAGE_PATH: /app/data/raw_files
+      GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-false}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/raw_files:/app/data/raw_files
+      - ./resume_pipeline/logs:/app/logs
+    networks:
+      - career-network
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: career-guidance-frontend
+    ports:
+      - "80:80"
+    networks:
+      - career-network
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # Optional: Adminer for database management UI
+  adminer:
+    image: adminer:latest
+    container_name: career-guidance-adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - career-network
+    depends_on:
+      - db
+    restart: unless-stopped
+    profiles: ["debug"]  # Only start if needed with --profile debug
+
+volumes:
+  db_data:
+
+networks:
+  career-network:
+    driver: bridge

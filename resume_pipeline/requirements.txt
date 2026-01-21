@@ -16,6 +16,7 @@ httpx>=0.26.0
 python-dotenv>=1.0.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
+email-validator>=2.0.0
 
 # Authentication & Security
 passlib[bcrypt]==1.7.4
@@ -31,11 +32,11 @@ google-generativeai>=0.3.0
 
 # Document Processing
 pytesseract>=0.3.10
+# torch will be installed separately with CPU-only flag in Dockerfile
 easyocr>=1.7.0
 pdfminer.six>=20221105
 pdf2image>=1.16.3
 pdfplumber>=0.10.3
-python-magic-bin>=0.4.14
 Pillow>=10.1.0
 
 # Vector Store & Embeddings (optional - uncomment as needed)
