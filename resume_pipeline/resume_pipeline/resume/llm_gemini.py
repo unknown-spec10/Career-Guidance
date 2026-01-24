@@ -209,7 +209,7 @@ Return ONLY the JSON object, no other text."""
         short_answer_count: int = 3
     ) -> dict:
         """
-        Generate personalized interview questions based on applicant's resume skills.
+        Generate MCQ interview questions using Gemini API.
         
         Args:
             applicant_skills: Skills extracted from resume
@@ -217,11 +217,11 @@ Return ONLY the JSON object, no other text."""
             difficulty: "easy", "medium", or "hard"
             session_type: "technical", "hr", "behavioral", or "mixed"
             previous_score: If available, adjust difficulty based on past performance
-            mcq_count: Number of MCQ questions (5-10)
-            short_answer_count: Number of short answer questions (2-5)
+            mcq_count: Number of MCQ questions to generate
+            short_answer_count: Number of short answer questions (usually 0)
         
         Returns:
-            Dict with 'questions' array containing generated questions
+            Dict with 'questions' array containing generated MCQ questions
         """
         # Adjust difficulty based on previous performance
         if previous_score and previous_score > 70:
@@ -229,71 +229,92 @@ Return ONLY the JSON object, no other text."""
             difficulty = difficulty_levels.get(difficulty, difficulty)
         
         focus_str = ', '.join(focus_areas) if focus_areas else ', '.join(applicant_skills[:5])
+        skills_str = ', '.join(applicant_skills[:10]) if applicant_skills else "Programming, Data Structures, Algorithms"
         
-        prompt = f"""Generate {mcq_count + short_answer_count} interview questions for a candidate with these skills: {', '.join(applicant_skills)}.
+        prompt = f"""You are an expert technical interviewer. Generate exactly {mcq_count} multiple choice questions (MCQ) for a {session_type} interview.
 
-Session Type: {session_type}
-Difficulty: {difficulty}
-Focus Areas: {focus_str}
+TOPICS TO COVER: {focus_str}
+CANDIDATE SKILLS: {skills_str}
+DIFFICULTY LEVEL: {difficulty}
 
-Generate:
-- {mcq_count} Multiple Choice Questions (MCQ) with 4 options each
-- {short_answer_count} Short Answer/Theory questions (expecting 3-5 sentence answers)
+INSTRUCTIONS:
+- Generate exactly {mcq_count} MCQ questions
+- Each question must have exactly 4 options (A, B, C, D)
+- One option must be the correct answer
+- Questions should test practical knowledge, not just definitions
+- Include code snippets or examples where relevant
+- Mix conceptual and problem-solving questions
 
-Return ONLY valid JSON:
+OUTPUT FORMAT - Return ONLY this JSON structure, nothing else:
 {{
   "questions": [
     {{
       "question_type": "mcq",
-      "question_text": "Clear, specific question text",
+      "question_text": "What is the time complexity of binary search?",
       "difficulty": "{difficulty}",
-      "category": "DSA|DBMS|OS|Python|Java|OOP|etc",
-      "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
-      "correct_answer": "Option A text",
-      "skills_tested": ["skill1", "skill2"],
-      "expected_answer_points": ["key point 1", "key point 2"],
+      "category": "DSA",
+      "options": ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+      "correct_answer": "O(log n)",
+      "skills_tested": ["Algorithms", "Time Complexity"],
       "max_score": 10.0
     }},
     {{
-      "question_type": "short_answer",
-      "question_text": "Clear question requiring 3-5 sentence explanation",
+      "question_type": "mcq", 
+      "question_text": "Which data structure uses LIFO principle?",
       "difficulty": "{difficulty}",
-      "category": "DSA|DBMS|OS|Python|Java|OOP|etc",
-      "expected_answer_points": ["key concept 1", "key concept 2", "example usage"],
-      "skills_tested": ["skill1", "skill2"],
+      "category": "DSA",
+      "options": ["Queue", "Stack", "Array", "Linked List"],
+      "correct_answer": "Stack",
+      "skills_tested": ["Data Structures"],
       "max_score": 10.0
     }}
   ]
 }}
 
-Make questions resume-specific and practical. For technical sessions, focus on {focus_str}. For HR/behavioral, ask situational questions."""
+Generate {mcq_count} unique, challenging MCQ questions about {focus_str}. Return ONLY valid JSON."""
 
         url = f"{self.base_url}/models/{settings.GEMINI_LARGE_MODEL}:generateContent?key={self.api_key}"
         headers = {"Content-Type": "application/json"}
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.7,  # Higher for diverse questions
+                "temperature": 0.8,
                 "topK": 40,
                 "topP": 0.95,
-                "maxOutputTokens": 4096,
+                "maxOutputTokens": 8192,
                 "responseMimeType": "application/json"
             }
         }
         
         try:
-            r = requests.post(url, headers=headers, json=body, timeout=60)
+            print(f"🔄 Calling Gemini API for {mcq_count} MCQ questions...")
+            r = requests.post(url, headers=headers, json=body, timeout=90)
+            
             if r.status_code != 200:
+                print(f"❌ Gemini API error: {r.status_code} - {r.text[:500]}")
                 return {"error": f"Gemini API error: {r.status_code}", "questions": []}
             
             result = r.json()
             if 'candidates' in result and len(result['candidates']) > 0:
                 generated_text = result['candidates'][0]['content']['parts'][0].get('text', '{}')
-                return json.loads(generated_text)
+                print(f"✅ Gemini response received, parsing JSON...")
+                parsed = json.loads(generated_text)
+                questions = parsed.get('questions', [])
+                print(f"✅ Parsed {len(questions)} questions from Gemini")
+                
+                # Validate each question has required fields
+                for i, q in enumerate(questions):
+                    print(f"  Question {i+1}: type={q.get('question_type')}, has_options={bool(q.get('options'))}, has_correct={bool(q.get('correct_answer'))}")
+                
+                return parsed
             
-            return {"error": "No valid response", "questions": []}
+            print("❌ No candidates in Gemini response")
+            return {"error": "No valid response from Gemini", "questions": []}
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON parsing error: {e}")
+            return {"error": f"Failed to parse Gemini response: {str(e)}", "questions": []}
         except Exception as e:
-            print(f"Error generating questions: {e}")
+            print(f"❌ Error generating questions: {e}")
             return {"error": str(e), "questions": []}
 
     def evaluate_answer(

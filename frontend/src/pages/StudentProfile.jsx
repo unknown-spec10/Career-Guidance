@@ -358,15 +358,15 @@ export default function StudentProfile() {
                   exit={{ opacity: 0, y: -20 }}
                 >
                   <div className="mb-6">
-                    <h2 className="text-2xl font-bold mb-2">Profile Information</h2>
-                    <p className="text-gray-400">Update your account details and personal information</p>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Profile Information</h2>
+                    <p className="text-gray-600">Update your account details and personal information</p>
                   </div>
 
                   <form onSubmit={handleUpdateProfile} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
-                          <User className="w-4 h-4 text-primary-400" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
+                          <User className="w-4 h-4 text-indigo-600" />
                           <span>Full Name</span>
                         </label>
                         <input
@@ -380,8 +380,8 @@ export default function StudentProfile() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
-                          <Mail className="w-4 h-4 text-gray-400" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
+                          <Mail className="w-4 h-4 text-indigo-600" />
                           <span>Email Address</span>
                         </label>
                         <input
@@ -394,15 +394,15 @@ export default function StudentProfile() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-2">Role</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
                         <div className="px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-900">
                           Student
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
-                          <Calendar className="w-4 h-4 text-gray-600" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
+                          <Calendar className="w-4 h-4 text-indigo-600" />
                           <span>Member Since</span>
                         </label>
                         <div className="px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-900">
@@ -497,48 +497,37 @@ export default function StudentProfile() {
                     <div>
                       <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
                         <Code className="w-5 h-5 text-primary-400" />
-                        <span>Skills</span>
+                        <span>Skills ({resumeData.skills.length})</span>
                       </h3>
-                      <div className="space-y-3">
-                        {resumeData.skills.map((skill, index) => (
-                          <div key={index} className="flex items-center space-x-3">
-                            {editingResume ? (
-                              <>
-                                <input
-                                  type="text"
-                                  value={skill.name || ''}
-                                  onChange={(e) => updateSkill(index, 'name', e.target.value)}
-                                  className="input flex-1"
-                                  placeholder="Skill name"
-                                />
-                                <select
-                                  value={skill.proficiency || 'intermediate'}
-                                  onChange={(e) => updateSkill(index, 'proficiency', e.target.value)}
-                                  className="input w-40"
-                                >
-                                  <option value="beginner">Beginner</option>
-                                  <option value="intermediate">Intermediate</option>
-                                  <option value="advanced">Advanced</option>
-                                  <option value="expert">Expert</option>
-                                </select>
-                                <button
-                                  onClick={() => removeSkill(index)}
-                                  className="p-2 text-red-400 hover:text-red-300"
-                                >
-                                  <X className="w-5 h-5" />
-                                </button>
-                              </>
-                            ) : (
-                              <div className="flex-1 px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg\">
-                                <span className="font-medium">{skill.name}</span>
-                                {skill.proficiency && (
-                                  <span className="ml-3 text-sm text-gray-400">({skill.proficiency})</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {editingResume && (
+                      {editingResume ? (
+                        <div className="space-y-3">
+                          {resumeData.skills.map((skill, index) => (
+                            <div key={index} className="flex items-center space-x-3">
+                              <input
+                                type="text"
+                                value={typeof skill === 'string' ? skill : (skill.name || '')}
+                                onChange={(e) => updateSkill(index, 'name', e.target.value)}
+                                className="input flex-1"
+                                placeholder="Skill name"
+                              />
+                              <select
+                                value={skill.proficiency || 'intermediate'}
+                                onChange={(e) => updateSkill(index, 'proficiency', e.target.value)}
+                                className="input w-40"
+                              >
+                                <option value="beginner">Beginner</option>
+                                <option value="intermediate">Intermediate</option>
+                                <option value="advanced">Advanced</option>
+                                <option value="expert">Expert</option>
+                              </select>
+                              <button
+                                onClick={() => removeSkill(index)}
+                                className="p-2 text-red-400 hover:text-red-300"
+                              >
+                                <X className="w-5 h-5" />
+                              </button>
+                            </div>
+                          ))}
                           <button
                             onClick={addSkill}
                             className="flex items-center space-x-2 text-primary-400 hover:text-primary-300"
@@ -546,11 +535,25 @@ export default function StudentProfile() {
                             <Plus className="w-4 h-4" />
                             <span>Add Skill</span>
                           </button>
-                        )}
-                        {!editingResume && resumeData.skills.length === 0 && (
-                          <p className="text-gray-500 italic">No skills added yet</p>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {resumeData.skills.map((skill, index) => {
+                            const skillName = typeof skill === 'string' ? skill : skill.name
+                            return (
+                              <span
+                                key={index}
+                                className="px-3 py-1.5 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium"
+                              >
+                                {skillName}
+                              </span>
+                            )
+                          })}
+                          {resumeData.skills.length === 0 && (
+                            <p className="text-gray-500 italic">No skills added yet</p>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Education Section */}
@@ -670,15 +673,15 @@ export default function StudentProfile() {
                   exit={{ opacity: 0, y: -20 }}
                 >
                   <div className="mb-6">
-                    <h2 className="text-2xl font-bold mb-2">Security Settings</h2>
-                    <p className="text-gray-400">Update your password and manage account security</p>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Security Settings</h2>
+                    <p className="text-gray-600">Update your password and manage account security</p>
                   </div>
 
                   <form onSubmit={handleChangePassword} className="space-y-6">
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
-                          <Lock className="w-4 h-4 text-primary-400" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
+                          <Lock className="w-4 h-4 text-indigo-600" />
                           <span>Current Password</span>
                         </label>
                         <input
@@ -691,8 +694,8 @@ export default function StudentProfile() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
-                          <Lock className="w-4 h-4 text-primary-400" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
+                          <Lock className="w-4 h-4 text-indigo-600" />
                           <span>New Password</span>
                         </label>
                         <input
@@ -705,8 +708,8 @@ export default function StudentProfile() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-2 flex items-center space-x-2">
-                          <Lock className="w-4 h-4 text-primary-400" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
+                          <Lock className="w-4 h-4 text-indigo-600" />
                           <span>Confirm New Password</span>
                         </label>
                         <input
@@ -719,9 +722,9 @@ export default function StudentProfile() {
                       </div>
                     </div>
 
-                    <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
-                      <h3 className="font-semibold text-blue-400 mb-2">Password Requirements:</h3>
-                      <ul className="text-sm text-gray-400 space-y-1">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h3 className="font-semibold text-blue-800 mb-2">Password Requirements:</h3>
+                      <ul className="text-sm text-blue-700 space-y-1">
                         <li>• At least 8 characters long</li>
                         <li>• Mix of uppercase and lowercase letters recommended</li>
                         <li>• Include numbers and special characters for better security</li>

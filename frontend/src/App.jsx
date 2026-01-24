@@ -37,6 +37,7 @@ import CollegeDashboard from './pages/CollegeDashboard'
 import CollegeProfile from './pages/CollegeProfile'
 import AddProgramPage from './pages/AddProgramPage'
 import AdminReviewsPage from './pages/AdminDashboard'
+import AskPage from './pages/AskPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import Footer from './components/Footer'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -75,6 +76,7 @@ function AppContent() {
           <Route path="/college/:collegeId" element={<CollegeDetailsPage />} />
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/job/:jobId" element={<JobDetailsPage />} />
+          <Route path="/ask" element={<AskPage />} />
 
           {/* Student Routes */}
           <Route

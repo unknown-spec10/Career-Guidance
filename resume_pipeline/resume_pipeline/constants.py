@@ -14,16 +14,104 @@ MAX_RESUME_TEXT_WORDS = 2000  # Maximum words before summarization
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 
-# Recommendation Scoring Weights (adjusted for interview integration)
+# ============================================================================
+# COLLEGE RECOMMENDATION WEIGHTS
+# Focus: Academic performance, entrance exam ranks, research potential
+# Industry Standard: For higher education, academic metrics are primary indicators
+# ============================================================================
+COLLEGE_RECOMMENDATION_WEIGHTS = {
+    # Academic Factors (Total: 60%)
+    'CGPA_WEIGHT': 0.25,              # GPA/CGPA from current/previous education
+    'JEE_RANK_WEIGHT': 0.20,          # JEE/entrance exam rank (important for IITs/NITs)
+    'ACADEMIC_ACHIEVEMENTS_WEIGHT': 0.15,  # Publications, research, academic awards
+    
+    # Skill & Project Factors (Total: 25%)
+    'SKILLS_WEIGHT': 0.15,            # Technical skills relevant to programs
+    'PROJECTS_WEIGHT': 0.10,          # Academic/research projects
+    
+    # Performance Factors (Total: 15%)
+    'INTERVIEW_WEIGHT': 0.10,         # Mock interview performance
+    'CERTIFICATIONS_WEIGHT': 0.05,    # Relevant certifications
+    
+    # Thresholds
+    'MIN_MATCH_SCORE': 0.25,          # Minimum 25% match to recommend
+    'HIGH_MATCH_THRESHOLD': 0.70,     # 70%+ considered excellent match
+    
+    # JEE Rank Scoring Brackets (for IIT/NIT eligibility)
+    'JEE_RANK_BRACKETS': {
+        'excellent': (1, 1000),        # Top 1000 - perfect score
+        'very_good': (1001, 5000),     # 1001-5000 - 0.9 score
+        'good': (5001, 15000),         # 5001-15000 - 0.75 score
+        'average': (15001, 50000),     # 15001-50000 - 0.5 score
+        'below_average': (50001, 100000),  # 50001-100000 - 0.3 score
+    },
+    
+    # CGPA Scoring (normalized to 10-point scale)
+    'CGPA_BRACKETS': {
+        'excellent': (9.0, 10.0),      # 9+ CGPA - full score
+        'very_good': (8.0, 8.99),      # 8-8.99 - 0.85 score
+        'good': (7.0, 7.99),           # 7-7.99 - 0.7 score
+        'average': (6.0, 6.99),        # 6-6.99 - 0.5 score
+        'below_average': (5.0, 5.99),  # 5-5.99 - 0.3 score
+    }
+}
+
+# ============================================================================
+# JOB RECOMMENDATION WEIGHTS
+# Focus: Skills match, experience, location preferences, industry fit
+# Industry Standard: Skills-first matching with experience as key differentiator
+# ============================================================================
+JOB_RECOMMENDATION_WEIGHTS = {
+    # Skills & Technical Factors (Total: 45%)
+    'SKILLS_WEIGHT': 0.35,            # Primary: Technical skill match
+    'CERTIFICATIONS_WEIGHT': 0.10,    # Industry certifications
+    
+    # Experience Factors (Total: 25%)
+    'EXPERIENCE_WEIGHT': 0.20,        # Years & relevance of experience
+    'PROJECTS_WEIGHT': 0.05,          # Practical project experience
+    
+    # Fit Factors (Total: 20%)
+    'LOCATION_WEIGHT': 0.10,          # Location/remote preference match
+    'SALARY_EXPECTATION_WEIGHT': 0.05,  # Salary range alignment
+    'WORK_TYPE_WEIGHT': 0.05,         # Full-time/Part-time/Contract match
+    
+    # Performance Factors (Total: 10%)
+    'INTERVIEW_WEIGHT': 0.08,         # Mock interview performance
+    'EDUCATION_WEIGHT': 0.02,         # Basic education requirements
+    
+    # Thresholds
+    'MIN_MATCH_SCORE': 0.30,          # Minimum 30% match to recommend
+    'HIGH_MATCH_THRESHOLD': 0.75,     # 75%+ considered excellent match
+    
+    # Experience Scoring
+    'EXPERIENCE_SCORING': {
+        'exact_match': 1.0,           # Meets required experience exactly
+        'over_qualified': 0.85,       # 2+ years over requirement
+        'under_qualified_1yr': 0.7,   # 1 year under requirement
+        'under_qualified_2yr': 0.4,   # 2 years under requirement
+        'fresher_allowed': 1.0,       # Fresher role with no experience
+        'fresher_not_allowed': 0.2,   # Entry role but experience required
+    },
+    
+    # Skill Match Scoring
+    'SKILL_MATCH_SCORING': {
+        'exact_match': 1.0,           # Has exact required skill
+        'similar_match': 0.7,         # Has similar/related skill
+        'transferable': 0.4,          # Has transferable skill
+        'no_match': 0.0,              # No matching skill
+    }
+}
+
+# Legacy weights (kept for backward compatibility)
 RECOMMENDATION_WEIGHTS = {
-    'JEE_RANK_SCORE': 35.0,  # Reduced from 40
-    'CGPA_SCORE': 25.0,  # Reduced from 30
-    'SKILLS_SCORE': 25.0,  # Reduced from 30
-    'INTERVIEW_SCORE': 15.0,  # NEW - based on mock interview performance
-    'ACADEMIC_SCORE': 20.0,  # Reduced from 25
-    'EXPERIENCE_SCORE': 20.0,  # Reduced from 25
-    'ASSESSMENT_SCORE': 10.0,  # NEW - bonus for skill assessments
-    'MIN_JOB_RECOMMENDATION_SCORE': 35.0,  # Reduced from 40
+    'JEE_RANK_SCORE': 35.0,
+    'CGPA_SCORE': 25.0,
+    'SKILLS_SCORE': 25.0,
+    'INTERVIEW_SCORE': 15.0,
+    'ACADEMIC_SCORE': 20.0,
+    'EXPERIENCE_SCORE': 20.0,
+    'ASSESSMENT_SCORE': 10.0,
+    'MIN_JOB_RECOMMENDATION_SCORE': 35.0,
 }
 
 # Interview & Assessment Configuration
@@ -31,8 +119,8 @@ INTERVIEW_CONFIG = {
     'SESSION_DURATION_SECONDS': 1800,  # 30 minutes for full interview
     'MICRO_SESSION_DURATION_SECONDS': 300,  # 5 minutes for micro-session
     'SCORE_FRESHNESS_MONTHS': 6,  # Prompt retake after 6 months
-    'MCQ_COUNT_RANGE': (5, 10),  # 5-10 MCQ questions per session
-    'SHORT_ANSWER_COUNT_RANGE': (2, 5),  # 2-5 short answer questions
+    'MCQ_COUNT_RANGE': (10, 10),  # 10 MCQ questions per session (Gemini-style)
+    'SHORT_ANSWER_COUNT_RANGE': (0, 0),  # 0 short answer questions (focus on MCQ)
     'MIN_PASSING_SCORE': 40.0,  # Minimum score to pass
     'DIFFICULTY_ADJUSTMENT_THRESHOLD': 70.0,  # Increase difficulty if score > 70
     'MAX_SESSIONS_PER_DAY': 10,  # Max any interview sessions per day

@@ -126,11 +126,12 @@ class InterviewService:
     def generate_questions(
         self,
         session: InterviewSession,
-        mcq_count: int = 7,
-        short_answer_count: int = 3
+        mcq_count: int = 10,
+        short_answer_count: int = 0
     ) -> List[InterviewQuestion]:
         """
-        Generate personalized questions for the session using Gemini + Google Search.
+        Generate MCQ questions for the session using Gemini API only.
+        No fallbacks - if Gemini fails, raise an error.
         """
         applicant_id = getattr(session, 'applicant_id', 0)
         applicant_skills = self.get_applicant_skills(applicant_id)
@@ -139,9 +140,10 @@ class InterviewService:
         # Get focus areas
         focus_areas = getattr(session, 'focus_skills', None)
         
-        # Generate questions with Gemini
+        # Generate questions with Gemini API only
+        print(f"🎯 Generating {mcq_count} MCQ questions via Gemini API...")
         result = self.gemini_client.generate_interview_questions(
-            applicant_skills=applicant_skills or ["Programming", "Software Development"],
+            applicant_skills=applicant_skills or ["Programming", "Data Structures", "Algorithms"],
             focus_areas=focus_areas,
             difficulty=getattr(session, 'difficulty_level', 'medium'),
             session_type=getattr(session, 'session_type', 'technical'),
@@ -150,37 +152,40 @@ class InterviewService:
             short_answer_count=short_answer_count
         )
         
+        # Check for errors
+        if result.get('error'):
+            raise ValueError(f"Gemini API error: {result['error']}")
+        
         questions_data = result.get('questions', [])
         
-        # If Gemini fails, try fetching from Google Search
-        if not questions_data and focus_areas:
-            print("Gemini generation failed, trying Google Search fallback")
-            for skill in focus_areas[:2]:
-                search_results = self.content_fetcher.fetch_interview_questions(
-                    category=str(skill),
-                    difficulty=getattr(session, 'difficulty_level', 'medium'),
-                    count=3
-                )
-                
-                for idx, item in enumerate(search_results):
-                    questions_data.append({
-                        "question_type": "short_answer",
-                        "question_text": item['title'],
-                        "difficulty": session.difficulty_level,
-                        "category": skill,
-                        "expected_answer_points": [item['snippet']],
-                        "skills_tested": [skill],
-                        "max_score": 10.0,
-                        "source_url": item['url']
-                    })
+        if not questions_data:
+            raise ValueError("Gemini API returned no questions. Please try again.")
+        
+        # Validate MCQ questions have proper structure
+        valid_questions = []
+        for q in questions_data:
+            if q.get('question_type') == 'mcq':
+                # Ensure MCQ has options and correct_answer
+                if q.get('options') and len(q.get('options', [])) >= 2 and q.get('correct_answer'):
+                    valid_questions.append(q)
+                else:
+                    print(f"⚠️ Skipping invalid MCQ: missing options or correct_answer")
+            else:
+                # Include short answer questions as-is
+                valid_questions.append(q)
+        
+        if not valid_questions:
+            raise ValueError("No valid MCQ questions generated. Please try again.")
+        
+        print(f"✅ Generated {len(valid_questions)} valid questions")
         
         # Create InterviewQuestion objects
         questions = []
-        for idx, q_data in enumerate(questions_data):
+        for idx, q_data in enumerate(valid_questions):
             question = InterviewQuestion(
                 session_id=session.id,
                 question_order=idx + 1,
-                question_type=q_data.get('question_type', 'short_answer'),
+                question_type=q_data.get('question_type', 'mcq'),
                 question_text=q_data.get('question_text', ''),
                 difficulty=q_data.get('difficulty', session.difficulty_level),
                 category=q_data.get('category', 'General'),
@@ -189,8 +194,7 @@ class InterviewService:
                 expected_answer_points=q_data.get('expected_answer_points'),
                 max_score=q_data.get('max_score', 10.0),
                 skills_tested=q_data.get('skills_tested'),
-                generated_by='gemini',
-                source_url=q_data.get('source_url')
+                generated_by='gemini'
             )
             
             self.db.add(question)

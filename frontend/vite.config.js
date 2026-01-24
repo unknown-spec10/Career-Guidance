@@ -11,15 +11,15 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       proxy: {
         '/api': {
-          target: apiUrl,
+          target: 'http://localhost:8000',
           changeOrigin: true,
         },
         '/upload': {
-          target: apiUrl,
+          target: 'http://localhost:8000',
           changeOrigin: true,
         },
         '/parse': {
-          target: apiUrl,
+          target: 'http://localhost:8000',
           changeOrigin: true,
         }
       }

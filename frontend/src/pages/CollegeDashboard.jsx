@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Building2, Users, FileText, CheckCircle, XCircle, 
-  Clock, PlusCircle, AlertTriangle, LogOut, User 
+  Clock, PlusCircle, AlertTriangle, LogOut, User, X
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
@@ -24,6 +24,8 @@ export default function CollegeDashboard() {
   const [applications, setApplications] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalFilter, setModalFilter] = useState('all') // 'all', 'pending', 'approved'
 
   const handleLogout = () => {
     secureStorage.clear()
@@ -89,6 +91,148 @@ export default function CollegeDashboard() {
     }
   }
 
+  const getFilteredPrograms = () => {
+    if (modalFilter === 'all') return programs
+    if (modalFilter === 'pending') return programs.filter(p => p.status === 'pending')
+    if (modalFilter === 'approved') return programs.filter(p => p.status === 'approved')
+    return programs
+  }
+
+  const openModal = (filter) => {
+    setModalFilter(filter)
+    setModalOpen(true)
+  }
+
+  const closeModal = () => {
+    setModalOpen(false)
+  }
+
+  // Modal Component
+  const ProgramsModal = () => {
+    const filteredPrograms = getFilteredPrograms()
+    
+    return (
+      <>
+        {/* Backdrop */}
+        {modalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={closeModal}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+          />
+        )}
+        
+        {/* Modal */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={modalOpen ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.95, y: 20 }}
+          transition={{ duration: 0.3 }}
+          className={`fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none ${
+            modalOpen ? 'pointer-events-auto' : ''
+          }`}
+        >
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-2xl font-bold text-gray-900">
+                {modalFilter === 'all' ? 'All Programs' : modalFilter === 'pending' ? 'Pending Programs' : 'Approved Programs'}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="p-2 hover:bg-gray-200 rounded-lg transition-colors text-gray-600 hover:text-gray-900"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex gap-2 px-6 pt-4 border-b border-gray-200 flex-wrap">
+              {[
+                { value: 'all', label: 'All', count: programs.length },
+                { value: 'pending', label: 'Pending', count: programs.filter(p => p.status === 'pending').length },
+                { value: 'approved', label: 'Approved', count: programs.filter(p => p.status === 'approved').length }
+              ].map(tab => (
+                <button
+                  key={tab.value}
+                  onClick={() => setModalFilter(tab.value)}
+                  className={`px-4 py-2 rounded-lg transition-colors mb-4 text-sm font-medium ${
+                    modalFilter === tab.value
+                      ? 'bg-primary-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {tab.label} ({tab.count})
+                </button>
+              ))}
+            </div>
+
+            {/* Content */}
+            <div className="overflow-y-auto flex-1">
+              {filteredPrograms.length === 0 ? (
+                <div className="flex items-center justify-center h-40">
+                  <p className="text-gray-600">No programs found</p>
+                </div>
+              ) : (
+                <div className="space-y-3 p-6">
+                  {filteredPrograms.map((program) => (
+                    <motion.div
+                      key={program.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-primary-300 hover:shadow-md transition-all"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <h3 className="text-lg font-semibold text-gray-900">{program.program_name}</h3>
+                        {getStatusBadge(program.status)}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                        <div>
+                          <p className="text-xs text-gray-500">Duration</p>
+                          <p className="font-medium">{program.duration_months} months</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Status</p>
+                          <p className="font-medium capitalize">{program.status}</p>
+                        </div>
+                      </div>
+                      {program.program_description && (
+                        <p className="mt-3 text-sm text-gray-600 line-clamp-2">{program.program_description}</p>
+                      )}
+                      {program.required_skills && (
+                        <div className="mt-3">
+                          <p className="text-xs text-gray-500 mb-2">Required Skills</p>
+                          <div className="flex flex-wrap gap-1">
+                            {(Array.isArray(program.required_skills) ? program.required_skills : []).map((skill, idx) => (
+                              <span key={idx} className="px-2 py-1 bg-primary-100 border border-primary-200 rounded text-xs text-primary-700">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-gray-200 bg-gray-50 p-4 flex justify-end gap-3">
+              <button
+                onClick={closeModal}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-lg transition-colors font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </>
+    )
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
@@ -114,6 +258,7 @@ export default function CollegeDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
+      <ProgramsModal />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -156,7 +301,8 @@ export default function CollegeDashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER }}
-            className="card"
+            className="card cursor-pointer hover:shadow-lg hover:border-primary-500/50 transition-all"
+            onClick={() => openModal('all')}
           >
             <div className="flex items-center justify-between">
               <div>
@@ -171,7 +317,8 @@ export default function CollegeDashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 2 }}
-            className="card"
+            className="card cursor-pointer hover:shadow-lg hover:border-yellow-500/50 transition-all"
+            onClick={() => openModal('pending')}
           >
             <div className="flex items-center justify-between">
               <div>
@@ -186,7 +333,8 @@ export default function CollegeDashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 3 }}
-            className="card"
+            className="card cursor-pointer hover:shadow-lg hover:border-green-500/50 transition-all"
+            onClick={() => openModal('approved')}
           >
             <div className="flex items-center justify-between">
               <div>

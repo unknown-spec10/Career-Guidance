@@ -47,6 +47,9 @@ from sqlalchemy import desc
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import repository factory
+from .repos.factory import DatabaseFactory
+
 # Rate limiting storage (in-memory, consider Redis for production)
 rate_limiting_storage = defaultdict(list)
 
@@ -77,6 +80,9 @@ def validate_env():
     mysql_user = settings.MYSQL_USER
     mysql_db = settings.MYSQL_DB
 
+    # Treat SQLite DSN (default for demos) as valid, so MySQL vars are optional
+    is_sqlite_dsn = bool(mysql_dsn and str(mysql_dsn).startswith("sqlite"))
+
     if not mysql_host and not mysql_dsn:
         errors.append("MYSQL_HOST is missing (or provide MYSQL_DSN)")
     if not mysql_user and not mysql_dsn:
@@ -87,9 +93,9 @@ def validate_env():
     # Critical: JWT Secret Key
     secret = settings.SECRET_KEY or ""
     if secret == DEFAULT_SECRET:
-        errors.append("SECRET_KEY equals the sample default; generate a new 64-hex value")
+        warnings.append("SECRET_KEY equals the sample default; generate a new 64-hex value")
     if len(secret) < 32:
-        errors.append("SECRET_KEY must be at least 32 characters long")
+        warnings.append("SECRET_KEY should be at least 32 characters long")
 
     # Important: Gemini API (warn if not set, as it may use mock mode)
     if not settings.GEMINI_API_KEY:
@@ -159,6 +165,43 @@ def get_db():
     finally:
         db.close()
 
+# Repository dependencies
+def get_firestore_client():
+    """Get Firestore client (cloud only)"""
+    import firebase_admin
+    from firebase_admin import firestore as fb_firestore
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
+    return fb_firestore.client()
+
+def get_college_repo():
+    """Get college repository based on APP_ENV"""
+    backend = DatabaseFactory.get_backend()
+    CollegeRepoClass = DatabaseFactory.get_college_repository()
+    if backend == 'cloud':
+        from .repos.firestore_impl import FirestoreCollegeRepository
+        db_client = get_firestore_client()
+        return FirestoreCollegeRepository(db_client)
+    else:
+        from .repos.mysql_impl import MySQLCollegeRepository
+        from .db import SessionLocal
+        session = SessionLocal()
+        return MySQLCollegeRepository(session)
+
+def get_job_repo():
+    """Get job repository based on APP_ENV"""
+    backend = DatabaseFactory.get_backend()
+    JobRepoClass = DatabaseFactory.get_job_repository()
+    if backend == 'cloud':
+        from .repos.firestore_impl import FirestoreJobRepository
+        db_client = get_firestore_client()
+        return FirestoreJobRepository(db_client)
+    else:
+        from .repos.mysql_impl import MySQLJobRepository
+        from .db import SessionLocal
+        session = SessionLocal()
+        return MySQLJobRepository(session)
+
 # File size validation
 async def validate_file_size(file: UploadFile, max_size_mb: int = MAX_FILE_SIZE_MB):
     """Validate uploaded file size"""
@@ -181,42 +224,134 @@ app = FastAPI(
 )
 
 # Add CORS middleware for frontend
+# Parse allowed origins from config (comma-separated string)
+allow_origins_str = settings.CORS_ORIGINS
+allow_origins = [origin.strip() for origin in allow_origins_str.split(",") if origin.strip()]
+
+# Log CORS configuration on startup
+logger.info(f"CORS Origins configured: {allow_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # Frontend dev servers
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Debug endpoint to verify Firestore seeding (cloud only)
+@app.get("/api/debug/firestore-counts")
+async def firestore_counts():
+    try:
+        import os
+        app_env = os.environ.get("APP_ENV", "local").lower()
+        # Allow in any env, but indicate which backend is active
+        import firebase_admin
+        from firebase_admin import firestore as fb_firestore
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app()
+        db_client = fb_firestore.client()
+
+        def _count(col_name: str) -> int:
+            return sum(1 for _ in db_client.collection(col_name).stream())
+
+        counts = {
+            "backend": "firestore",
+            "app_env": app_env,
+            "users": _count("users"),
+            "colleges": _count("colleges"),
+            "jobs": _count("jobs"),
+            "applicants": _count("applicants"),
+            "college_recommendations": _count("college_recommendations"),
+            "job_recommendations": _count("job_recommendations"),
+            "credit_accounts": _count("credit_accounts"),
+        }
+        return counts
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firestore check failed: {e}")
+
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup"""
+    """Initialize database and RAG system on startup"""
     try:
         # Validate environment variables first
         validate_env()
+        logger.info(f"DB DSN resolved to: {settings.MYSQL_DSN}")
         
-        # Create database if not exists
-        conn = pymysql.connect(
-            host=settings.MYSQL_HOST or 'localhost',
-            port=settings.MYSQL_PORT or 3306,
-            user=settings.MYSQL_USER or 'root',
-            password=settings.MYSQL_PASSWORD or ''
-        )
-        cursor = conn.cursor()
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DB or 'resumes'}")
-        conn.commit()
-        conn.close()
-        logger.info(f"✓ Database '{settings.MYSQL_DB}' ready")
+        # Prefer SQLite when MYSQL_HOST is not provided (Cloud Run demo default)
+        if not settings.MYSQL_HOST:
+            from .db import init_db
+            init_db()
+            logger.info("✓ SQLite database initialized (demo mode, no MYSQL_HOST provided)")
+        else:
+            # Create database if not exists (MySQL path)
+            conn = pymysql.connect(
+                host=settings.MYSQL_HOST,
+                port=settings.MYSQL_PORT or 3306,
+                user=settings.MYSQL_USER or 'root',
+                password=settings.MYSQL_PASSWORD or ''
+            )
+            cursor = conn.cursor()
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DB or 'resumes'}")
+            conn.commit()
+            conn.close()
+            logger.info(f"✓ Database '{settings.MYSQL_DB}' ready")
+            
+            # Create tables
+            from .db import init_db
+            init_db()
+            logger.info("✓ Database tables initialized")
         
-        # Create tables
-        from .db import init_db
-        init_db()
-        logger.info("✓ Database tables initialized")
+        # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible)
+        try:
+            from .rag.rag_service import get_rag_service
+            rag_service = get_rag_service()
+            
+            # Optional: Initialize on startup to avoid first-query latency
+            # Comment out if you prefer lazy initialization for faster startup
+            if settings.RAG_PRELOAD_ON_STARTUP:
+                logger.info("Pre-initializing RAG system (docs indexing may take a few seconds)...")
+                init_success = rag_service.initialize(force_rebuild=False)
+                if init_success:
+                    logger.info("✓ RAG system initialized successfully")
+                else:
+                    logger.warning("⚠ RAG system initialization failed, will retry on first query")
+            else:
+                logger.info("RAG system will initialize on first query (lazy mode)")
+            
+            # Start file watcher for automatic doc rebuild
+            watcher_started = rag_service.start_file_watcher()
+            if watcher_started:
+                logger.info("✓ Documentation file watcher started")
+            else:
+                logger.warning("⚠ File watcher not available (watchdog may not be installed)")
+                
+        except ImportError:
+            logger.warning("RAG system not available (rag module not found)")
+        except Exception as e:
+            logger.error(f"Error initializing RAG system: {e}")
+            # Don't fail startup if RAG fails - it's optional
         
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Graceful shutdown - stop file watcher and cleanup"""
+    try:
+        from .rag.rag_service import get_rag_service
+        rag_service = get_rag_service()
+        
+        # Stop file watcher
+        rag_service.stop_file_watcher()
+        logger.info("✓ Documentation file watcher stopped")
+        
+    except Exception as e:
+        logger.warning(f"Error during RAG shutdown: {e}")
+    
+    logger.info("Application shutdown completed")
 
 DATA_ROOT = Path(settings.FILE_STORAGE_PATH)
 
@@ -2012,123 +2147,36 @@ async def get_pending_reviews(
 async def get_colleges(
     skip: int = 0,
     limit: int = 20,
-    cursor: Optional[int] = None,
-    q: Optional[str] = None,
-    location: Optional[str] = None,
-    min_jee_rank: Optional[str] = None,
-    min_cgpa: Optional[str] = None,
-    programs_min: Optional[str] = None,
-    sort: Optional[str] = None,
+    current_user = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get all colleges with eligibility info. Supports cursor-based pagination."""
-    from .db import CollegeEligibility, CollegeMetadata
-    
-    # Fetch all data in batch queries to avoid N+1
-    base_query = db.query(College)
-    if q:
-        like = f"%{q}%"
-        base_query = base_query.filter(College.name.ilike(like))
-    if location:
-        like_loc = f"%{location}%"
-        base_query = base_query.filter(
-            (College.location_city.ilike(like_loc)) | (College.location_state.ilike(like_loc))
+    """Get colleges. College users cannot access this endpoint."""
+    # Block college users from accessing the colleges listing
+    if current_user and getattr(current_user, 'role', None) == 'college':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="College users cannot browse other colleges"
         )
     
-    # Apply cursor for pagination
-    if cursor is not None:
-        base_query = base_query.filter(College.id > cursor)
-
-    # Pre-calc program counts for filtering by programs_min later
-    colleges_all = base_query.all()
-    college_ids_all = [c.id for c in colleges_all]
-    program_counts_all = {getattr(row[0], 'value', row[0]): int(row[1]) for row in db.query(CollegeProgram.college_id, func.count(CollegeProgram.id)).filter(CollegeProgram.college_id.in_(college_ids_all)).group_by(CollegeProgram.college_id).all()}  # type: ignore
-
-    # Eligibility filters (min_jee_rank, min_cgpa) need CollegeEligibility
-    from .db import CollegeEligibility, CollegeMetadata
-    elig_map = {getattr(e, 'college_id'): e for e in db.query(CollegeEligibility).filter(CollegeEligibility.college_id.in_(college_ids_all)).all()}
-    meta_map = {getattr(m, 'college_id'): m for m in db.query(CollegeMetadata).filter(CollegeMetadata.college_id.in_(college_ids_all)).all()}
-
-    # Normalize numeric query params (treat empty string as None)
-    try:
-        min_jee_rank_val = int(min_jee_rank) if (min_jee_rank is not None and str(min_jee_rank).strip() != "") else None
-    except ValueError:
-        min_jee_rank_val = None
-    try:
-        min_cgpa_val = float(min_cgpa) if (min_cgpa is not None and str(min_cgpa).strip() != "") else None
-    except ValueError:
-        min_cgpa_val = None
-    try:
-        programs_min_val = int(programs_min) if (programs_min is not None and str(programs_min).strip() != "") else None
-    except ValueError:
-        programs_min_val = None
-
-    # Apply server-side filtering using computed maps
-    filtered_ids: List[int] = []
-    for c in colleges_all:
-        cid = getattr(c, 'id')
-        e = elig_map.get(cid)
-        if min_jee_rank_val is not None:
-            # include if college cutoff is None or >= provided rank
-            if (e is not None) and (getattr(e, 'min_jee_rank', None) is not None) and (int(getattr(e, 'min_jee_rank')) < int(min_jee_rank_val)):
-                continue
-        if min_cgpa_val is not None:
-            ecg = getattr(e, 'min_cgpa', None) if e is not None else None
-            if (ecg is not None) and (float(ecg) > float(min_cgpa_val)):
-                continue
-        if programs_min_val is not None:
-            if program_counts_all.get(cid, 0) < int(programs_min_val):
-                continue
-        filtered_ids.append(cid)
-
-    # Sorting
-    sort_key = (sort or "popular").lower()
-    name_map = {getattr(x, 'id'): (getattr(x, 'name') or '') for x in colleges_all}
-    def sort_value(cid: int):
-        if sort_key == "name":
-            name = name_map.get(cid, "")
-            return (name or "").lower()
-        # default popularity
-        m = meta_map.get(cid)
-        pop = getattr(m, 'popularity_score', None) if m is not None else None
-        return float(pop) if pop is not None else 0.0
-
-    sorted_ids = sorted(filtered_ids, key=sort_value, reverse=(sort_key == "popular"))
-    total = len(sorted_ids)
-    ids_page = sorted_ids[skip:skip+limit]
-    colleges = [c for c in colleges_all if c.id in ids_page]
-    
-    college_ids = [c.id for c in colleges]
-    eligibilities = {cid: elig_map.get(cid) for cid in college_ids}
-    metadatas = {cid: meta_map.get(cid) for cid in college_ids}
-    program_counts = {cid: program_counts_all.get(cid, 0) for cid in college_ids}
+    college_repo = get_college_repo()
+    colleges = await college_repo.list_all(limit=limit, offset=skip)
     
     result = []
-    for college in colleges:
-        eligibility = eligibilities.get(college.id)
-        metadata = metadatas.get(college.id)
-        
+    for c in colleges:
         result.append({
-            "id": college.id,
-            "name": college.name,
-            "slug": college.slug,
-            "location_city": college.location_city,
-            "location_state": college.location_state,
-            "country": college.country,
-            "description": college.description,
-            "website": college.website,
-            "min_jee_rank": eligibility.min_jee_rank if eligibility else None,
-            "min_cgpa": float(eligibility.min_cgpa) if eligibility and eligibility.min_cgpa is not None else None,  # type: ignore
-            "seats": eligibility.seats if eligibility else None,
-            "programs_count": program_counts.get(college.id, 0) if hasattr(college, 'id') else 0,  # type: ignore
-            "popularity_score": float(metadata.popularity_score) if metadata and metadata.popularity_score is not None else 0.0  # type: ignore
+            "id": c.get('id'),
+            "name": c.get('name'),
+            "location": c.get('location') or c.get('location_city'),
+            "ranking": c.get('ranking'),
+            "description": c.get('description'),
+            "website": c.get('website'),
+            "established_year": c.get('established_year')
         })
     
-    next_cursor = result[-1]["id"] if result and cursor is not None else None
     return {
         "colleges": result,
-        "total": total if cursor is None else None,
-        "next_cursor": next_cursor
+        "total": len(result),
+        "next_cursor": None
     }
 
 
@@ -2182,114 +2230,33 @@ async def get_college_details(college_id: int, db: Session = Depends(get_db)):
 async def get_jobs(
     skip: int = 0,
     limit: int = 20,
-    cursor: Optional[int] = None,
-    location: Optional[str] = None,
-    work_type: Optional[str] = None,
-    q: Optional[str] = None,
-    skills: Optional[str] = None,
-    min_popularity: Optional[str] = None,
-    sort: Optional[str] = None,
-    db: Session = Depends(get_db)
+    location: Optional[str] = None
 ):
-    """Get all APPROVED jobs with filters, excluding expired jobs. Supports cursor-based pagination."""
-    from datetime import datetime
-    from .db import JobMetadata
-    
-    # Only show approved jobs to public
-    now = datetime.utcnow()
-    query = db.query(Job).filter(
-        Job.status == 'approved',
-        (Job.expires_at.is_(None)) | (Job.expires_at > now)
-    )
-    
-    if location:
-        query = query.filter(Job.location_city.ilike(f"%{location}%"))
-    if work_type:
-        query = query.filter(Job.work_type == work_type)
-    if q:
-        like = f"%{q}%"
-        query = query.filter((Job.title.ilike(like)) | (Job.description.ilike(like)))
-    
-    # Apply cursor or offset
-    if cursor is not None:
-        query = query.filter(Job.id < cursor)
-    else:
-        query = query.offset(skip)
-    
-    jobs = query.limit(limit + 1).all()  # Fetch one extra to check if there's more
-    has_more = len(jobs) > limit
-    if has_more:
-        jobs = jobs[:limit]
-    
-    total = None if cursor is not None else query.count()
-    
-    # Batch fetch employers and metadata
-    job_ids = [j.id for j in jobs]
-    employer_ids = list(set([j.employer_id for j in jobs]))
-    employers = {e.id: e for e in db.query(Employer).filter(Employer.id.in_(employer_ids)).all()}
-    metadatas = {m.job_id: m for m in db.query(JobMetadata).filter(JobMetadata.job_id.in_(job_ids)).all()}
-
-    # Filter by skills and min_popularity using loaded metadata and job fields
-    skills_list = []
-    if skills:
-        skills_list = [s.strip().lower() for s in skills.split(',') if s.strip()]
-    try:
-        min_popularity_val = float(min_popularity) if (min_popularity is not None and str(min_popularity).strip() != "") else None
-    except ValueError:
-        min_popularity_val = None
-    def job_matches(j):
-        if min_popularity_val is not None:
-            md = metadatas.get(j.id)
-            pop_val = getattr(md, 'popularity', None) if md is not None else None
-            pop = float(pop_val) if pop_val is not None else 0.0
-            if pop < float(min_popularity_val):
-                return False
-        if skills_list:
-            req = j.required_skills if isinstance(j.required_skills, list) else []
-            req_names = [(x.get('name', '') if isinstance(x, dict) else str(x)).lower() for x in req]
-            # require that each provided skill has a match in required
-            for s in skills_list:
-                if not any(s in rn for rn in req_names):
-                    return False
-        return True
-
-    jobs = [j for j in jobs if job_matches(j)]
-    total = len(jobs)
-
-    # Sorting
-    sort_key = (sort or "popular").lower()
-    def sort_val(j):
-        if sort_key == "recent":
-            ca = getattr(j, 'created_at', None)
-            return ca or dt.datetime.min
-        if sort_key == "title":
-            return (j.title or "").lower()
-        md = metadatas.get(j.id)
-        pop_val = getattr(md, 'popularity', None) if md is not None else None
-        return float(pop_val) if pop_val is not None else 0.0
-    reverse = sort_key in ("popular", "recent")
-    jobs = sorted(jobs, key=sort_val, reverse=reverse)
-    jobs = jobs[0:limit] if skip == 0 else jobs[skip:skip+limit]
+    """Get all active jobs - Repository pattern version"""
+    job_repo = get_job_repo()
+    jobs = await job_repo.list_active(location=location, limit=limit)
     
     result = []
-    for job in jobs:
-        employer = employers.get(job.employer_id)
-        metadata = metadatas.get(job.id)
-        
+    for j in jobs:
         result.append({
-            "id": job.id,
-            "title": job.title,
-            "company": employer.company_name if employer else "Unknown",
-            "location_city": job.location_city,
-            "work_type": job.work_type,
-            "min_experience_years": float(job.min_experience_years) if job.min_experience_years is not None else 0.0,  # type: ignore
-            "min_cgpa": float(job.min_cgpa) if job.min_cgpa is not None else None,  # type: ignore
-            "required_skills": job.required_skills,
-            "optional_skills": job.optional_skills,
-            "expires_at": job.expires_at.isoformat() if job.expires_at is not None else None,
-            "tags": metadata.tags if metadata else [],
-            "popularity": float(metadata.popularity) if metadata and metadata.popularity is not None else 0.0  # type: ignore
+            "id": j.get('id'),
+            "title": j.get('title'),
+            "company": j.get('company'),
+            "location": j.get('location'),
+            "salary_min": j.get('salary_min'),
+            "salary_max": j.get('salary_max'),
+            "currency": j.get('currency', 'LPA'),
+            "description": j.get('description'),
+            "requirements": j.get('requirements', []),
+            "posted_date": j.get('posted_date'),
+            "expires_at": j.get('expires_at')
         })
+    
+    return {
+        "jobs": result,
+        "total": len(result),
+        "next_cursor": None
+    }
     
     next_cursor = result[-1]["id"] if result and (cursor is not None or has_more) else None
     return {
@@ -4524,14 +4491,246 @@ def award_learning_bonus(
 
 
 # ============================================================
+# RAG (Retrieval Augmented Generation) Q&A Endpoints
+# ============================================================
+from pydantic import BaseModel, Field
+
+class RAGQuery(BaseModel):
+    """Request model for RAG question"""
+    query: str = Field(..., min_length=3, max_length=500, description="User's question")
+
+class RAGSource(BaseModel):
+    """Source document reference"""
+    file: str
+    section: str
+    relevance: float
+    preview: str
+
+class RAGAnswerResponse(BaseModel):
+    """Response from RAG system"""
+    query: str
+    answer: str
+    sources: List[RAGSource]
+    metadata: dict = Field(default_factory=dict)
+
+class RAGSuggestionsResponse(BaseModel):
+    """Suggested questions response"""
+    suggestions: List[str]
+
+class RAGStatsResponse(BaseModel):
+    """RAG system statistics"""
+    is_initialized: bool
+    total_chunks: int
+    cache_size: int
+    gemini_configured: bool
+    model: str
+    total_rebuilds: int = 0
+    last_rebuild_time: Optional[str] = None
+    rebuild_duration: float = 0
+
+
+# RAG rate limiting (separate from other endpoints)
+rag_rate_limiter: dict = defaultdict(lambda: {"count": 0, "reset_time": 0})
+RAG_RATE_LIMIT = 20  # requests per minute
+RAG_RATE_WINDOW = 60  # seconds
+
+
+def check_rag_rate_limit(user_id: str) -> tuple[bool, str]:
+    """Check rate limit for RAG requests"""
+    current_time = time()
+    user_limits = rag_rate_limiter[user_id]
+    
+    if current_time > user_limits["reset_time"]:
+        user_limits["count"] = 0
+        user_limits["reset_time"] = current_time + RAG_RATE_WINDOW
+    
+    if user_limits["count"] >= RAG_RATE_LIMIT:
+        remaining = int(user_limits["reset_time"] - current_time)
+        return False, f"Rate limit exceeded. Please wait {remaining} seconds."
+    
+    user_limits["count"] += 1
+    return True, ""
+
+
+@app.post("/api/rag/ask", response_model=RAGAnswerResponse)
+async def rag_ask_question(
+    body: RAGQuery,
+    request: Request,
+    current_user = Depends(get_current_user_optional)
+):
+    """
+    Ask a question about the Career Guidance AI application.
+    
+    The RAG system uses documentation as its knowledge base and provides
+    answers with source citations.
+    
+    Rate limits:
+    - 20 requests per minute per user
+    - Abuse prevention for off-topic/spam queries
+    """
+    from .rag import get_rag_service
+    
+    # Get user identifier for rate limiting
+    user_id = str(current_user.id) if current_user else (request.client.host if request.client else "anonymous")
+    
+    # Check rate limit
+    allowed, error_msg = check_rag_rate_limit(user_id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=error_msg)
+    
+    # Get RAG service
+    rag_service = get_rag_service()
+    
+    # Initialize if needed
+    if not rag_service._is_initialized:
+        if not rag_service.initialize():
+            raise HTTPException(
+                status_code=503,
+                detail="RAG system is temporarily unavailable. Please try again later."
+            )
+    
+    # Process query
+    response, error = await rag_service.ask(
+        query=body.query,
+        user_id=user_id,
+        use_cache=True
+    )
+    
+    if error or response is None:
+        raise HTTPException(status_code=400, detail=error or "Failed to process query")
+    
+    return RAGAnswerResponse(
+        query=response.query,
+        answer=response.answer,
+        sources=[RAGSource(**s) for s in response.sources],
+        metadata=response.metadata
+    )
+
+
+@app.get("/api/rag/suggestions", response_model=RAGSuggestionsResponse)
+async def rag_get_suggestions():
+    """
+    Get suggested questions that users can ask.
+    
+    Returns a list of common questions about the application.
+    """
+    from .rag import get_rag_service
+    
+    rag_service = get_rag_service()
+    suggestions = rag_service.get_suggested_questions()
+    
+    return RAGSuggestionsResponse(suggestions=suggestions)
+
+
+@app.get("/api/rag/stats", response_model=RAGStatsResponse)
+async def rag_get_stats(
+    current_user = Depends(require_role("admin"))
+):
+    """
+    Get RAG system statistics (admin only).
+    
+    Returns information about the RAG system state including
+    indexing status, cache size, rebuild metrics, and Gemini API configuration.
+    """
+    from .rag import get_rag_service
+    
+    rag_service = get_rag_service()
+    stats = rag_service.get_stats()
+    
+    return RAGStatsResponse(
+        is_initialized=stats['is_initialized'],
+        total_chunks=stats['total_chunks'],
+        cache_size=stats['cache_size'],
+        gemini_configured=stats['gemini_configured'],
+        model=stats['model'],
+        total_rebuilds=rag_service._rebuild_stats.get('total_rebuilds', 0),
+        last_rebuild_time=rag_service._rebuild_stats.get('last_rebuild_time'),
+        rebuild_duration=rag_service._rebuild_stats.get('rebuild_duration', 0)
+    )
+
+
+@app.post("/api/rag/initialize")
+async def rag_initialize(
+    force_rebuild: bool = False,
+    current_user = Depends(require_role("admin"))
+):
+    """
+    Initialize or rebuild the RAG index (admin only).
+    
+    Use force_rebuild=True to rebuild the index even if cached.
+    """
+    from .rag import get_rag_service
+    
+    rag_service = get_rag_service()
+    success = rag_service.initialize(force_rebuild=force_rebuild)
+    
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to initialize RAG system. Check documentation path."
+        )
+    
+    return {
+        "status": "success",
+        "message": "RAG system initialized successfully",
+        "stats": rag_service.get_stats()
+    }
+
+
+@app.get("/api/rag/rebuild-status")
+async def rag_rebuild_status(
+    current_user = Depends(require_role("admin"))
+):
+    """
+    Get file watcher and rebuild status (admin only).
+    
+    Returns:
+    - watcher_state: File monitoring status
+    - rebuild_stats: Index rebuild metrics
+    - file_hashes: Per-file content hashes (for delta update support)
+    """
+    from .rag import get_rag_service
+    
+    rag_service = get_rag_service()
+    
+    # Get watcher stats
+    watcher_stats = rag_service.get_file_watcher_stats()
+    
+    # Get rebuild stats
+    rebuild_stats = {
+        'total_rebuilds': rag_service._rebuild_stats.get('total_rebuilds', 0),
+        'last_rebuild_time': rag_service._rebuild_stats.get('last_rebuild_time'),
+        'rebuild_duration': rag_service._rebuild_stats.get('rebuild_duration', 0),
+        'chunks_indexed': rag_service._rebuild_stats.get('chunks_indexed', 0),
+        'rebuild_in_progress': rag_service._rebuild_in_progress
+    }
+    
+    # Get file hashes (truncated for readability)
+    file_hashes = rag_service._file_hashes.copy()
+    file_hashes_summary = {
+        'total_files': len(file_hashes),
+        'files': {name: hash[:8] + '...' for name, hash in file_hashes.items()}
+    }
+    
+    return {
+        "status": "success",
+        "watcher_state": watcher_stats,
+        "rebuild_stats": rebuild_stats,
+        "file_hashes": file_hashes_summary,
+        "rag_initialized": rag_service._is_initialized
+    }
+
+
+# ============================================================
 # Local development entrypoint (reads host/port from .env via settings)
 # ============================================================
 if __name__ == "__main__":
     import uvicorn
-    # Use configured API host/port from settings; default values are set in config.py
+    # Cloud Run: bind to 0.0.0.0, read PORT from env; no reload for production
+    port = int(os.getenv("PORT", 8000))
     uvicorn.run(
         "resume_pipeline.app:app",
-        host=settings.API_HOST,
-        port=settings.API_PORT,
-        reload=True
+        host="0.0.0.0",
+        port=port,
+        reload=False
     )

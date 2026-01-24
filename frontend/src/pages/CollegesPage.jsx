@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Building2, MapPin, Star, Trophy, Users, BookOpen, Phone, Globe, Search } from 'lucide-react'
 import { useDebounce } from '../hooks/useDebounce'
 import api from '../config/api'
 import { DEBOUNCE_DELAYS } from '../config/constants'
+import { useAuth } from '../hooks/useAuth'
 
 export default function CollegesPage() {
+  const navigate = useNavigate()
+  const { user, loading: authLoading } = useAuth()
   const [colleges, setColleges] = useState([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
@@ -23,6 +27,13 @@ export default function CollegesPage() {
   })
   const debouncedFilters = useDebounce(filters, DEBOUNCE_DELAYS.FILTER)
 
+  // Redirect college users to their dashboard (they should not see all colleges)
+  useEffect(() => {
+    if (!authLoading && user?.role === 'college') {
+      navigate('/college/dashboard', { replace: true })
+    }
+  }, [authLoading, user, navigate])
+
   // Update refs when state changes
   useEffect(() => {
     hasMoreRef.current = hasMore
@@ -38,8 +49,9 @@ export default function CollegesPage() {
 
   // Fetch colleges when page changes
   useEffect(() => {
+    if (authLoading || user?.role === 'college') return
     fetchColleges()
-  }, [page, debouncedFilters])
+  }, [page, debouncedFilters, authLoading, user])
 
   // Infinite scroll observer - set up once
   useEffect(() => {
@@ -232,6 +244,10 @@ export default function CollegesPage() {
         </div>
       </motion.div>
     )
+  }
+
+  if (user?.role === 'college') {
+    return null
   }
 
   return (

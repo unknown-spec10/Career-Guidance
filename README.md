@@ -2,6 +2,18 @@
 
 An AI-powered career guidance platform that provides intelligent resume parsing, college recommendations, and job matching using advanced NLP and machine learning techniques.
 
+## � Documentation
+
+Complete documentation is in the **[`docs/`](docs/)** folder:
+
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Complete system architecture, dual-database design, cost model
+- **[DATABASE.md](docs/DATABASE.md)** - 🆕 Database reference (18 tables, repository pattern, CRUD operations)
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Deployment guide for local, Docker, and GCP Cloud Run
+- **[IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md)** - Developer guide for repository pattern and features
+- **[QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** - Quick reference for common commands
+- **[DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md)** - Project delivery summary and handoff notes
+- **[DOCS_INDEX.md](docs/DOCS_INDEX.md)** - Navigation hub for all documentation
+
 ## 🚀 Features
 
 ### Core Functionality
@@ -13,6 +25,7 @@ An AI-powered career guidance platform that provides intelligent resume parsing,
 - **RESTful API**: FastAPI backend with complete CRUD operations
 - **Mock Interviews**: AI-powered practice sessions with skill assessments
 - **Credit System**: Fair-use quota management to prevent API cost overruns
+- **Dual-Database**: MySQL (local dev) + Firestore (cloud production) via repository pattern
 
 ### Security & Authentication
 - **User Authentication**: JWT-based authentication with role-based access control
@@ -94,100 +107,93 @@ Career Guidance/
 - **Custom Hooks**: useToast, useOptimistic, useAuth for state management
 
 ### Database
-- **MySQL**: Relational database with 18 tables
+- **Local**: MySQL 8.0+ with 18 tables
   - Core: Users, Applicants, Uploads, LLMParsedRecords
   - College-side: Colleges, Eligibility, Programs, Metadata, ApplicabilityLogs
   - Job-side: Employers, Jobs, JobMetadata, JobRecommendations
   - Interview: InterviewSessions, InterviewQuestions, InterviewAnswers
   - Credit: CreditAccounts, CreditTransactions, CreditUsageStats
   - Auxiliary: CanonicalSkills, AuditLogs, HumanReviews
+- **Cloud**: Firestore (serverless NoSQL, scale-to-zero, ~$0.01/month)
+- **Switching**: Environment-based via `APP_ENV=local|cloud`
 
-## 🚦 Getting Started
+## 🚦 Quick Start
 
-### Prerequisites
-- Python 3.9+
-- Node.js 18+
-- MySQL 8.0+
-- Google Gemini API Key
-- Gmail account (with app password for email verification)
+For detailed setup instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-### Backend Setup
+### ⚡ 5-Minute Local Setup
 
-1. **Clone and navigate to project**
-```bash
-cd "D:\Career Guidence"
-```
-
-2. **Create and activate virtual environment**
-```bash
-python -m venv myenv
-myenv\Scripts\Activate.ps1  # Windows PowerShell
-```
-
-3. **Install dependencies**
-```bash
-cd resume_pipeline
+```powershell
+# 1. Backend
+cd "D:\Career Guidence\resume_pipeline"
+python -m venv ..\myenv
+..\myenv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
 
-4. **Configure environment**
-```bash
-# Copy .env.example to .env and fill in your credentials
-cp .env.example .env
-```
+# 2. Configure (copy .env.example to .env and fill credentials)
+Copy-Item .env.example .env
+# Edit .env with your API keys
 
-Edit `.env`:
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-GOOGLE_SEARCH_API_KEY=your_google_search_key
-GOOGLE_CSE_ID=your_custom_search_engine_id
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=your_password
-MYSQL_DB=resumes
-FILE_STORAGE_PATH=./data/raw_files
-GMAIL_USER=your-email@gmail.com
-GMAIL_APP_PASSWORD=your_16_char_app_password
-```
-
-5. **Initialize database** (automatic on first run)
-```bash
-# Database is created automatically when you start the server
-# Or manually run:
-python scripts/init_db.py
-```
-
-6. **Seed with sample data** (optional)
-```bash
-python scripts/seed_database.py
-```
-
-7. **Start backend server**
-```bash
-cd resume_pipeline
+# 3. Start backend
 uvicorn resume_pipeline.app:app --reload --port 8000
-```
 
-Backend will be available at: `http://localhost:8000`
-API docs at: `http://localhost:8000/docs`
-
-### Frontend Setup
-
-1. **Navigate to frontend directory**
-```bash
-cd frontend
-```
-
-2. **Install dependencies**
-```bash
+# 4. Frontend (new terminal)
+cd ..\frontend
 npm install
-```
-
-3. **Start development server**
-```bash
 npm run dev
 ```
+
+**Access**:
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+### Environment Variables
+
+Create `.env` in `resume_pipeline/`:
+```env
+# Database Selection
+APP_ENV=local
+
+# MySQL (Local)
+MYSQL_HOST=localhost
+MYSQL_USER=career_user
+MYSQL_PASSWORD=yourpassword
+MYSQL_DB=career_guidance
+
+# AI Services
+GEMINI_API_KEY=your_gemini_api_key
+GROQ_API_KEY=your_groq_api_key
+
+# Email (Gmail SMTP)
+GMAIL_USER=your-email@gmail.com
+GMAIL_APP_PASSWORD=your_16_char_app_password
+
+# Security
+SECRET_KEY=your-super-secret-jwt-key-min-32-chars
+
+# Frontend
+FRONTEND_URL=http://localhost:5173
+CORS_ORIGINS=http://localhost:5173
+```
+
+**Get API Keys**:
+- Gemini: https://aistudio.google.com/apikey
+- Gmail App Password: https://myaccount.google.com/apppasswords
+
+### Database Setup
+
+**Option A: Docker (Recommended)**
+```powershell
+docker run -d --name career-mysql `
+  -e MYSQL_ROOT_PASSWORD=rootpassword `
+  -e MYSQL_DATABASE=career_guidance `
+  -e MYSQL_USER=career_user `
+  -e MYSQL_PASSWORD=yourpassword `
+  -p 3306:3306 mysql:8.0
+```
+
+**Option B: Manual MySQL Installation**
 
 Frontend will be available at: `http://localhost:3000`
 
@@ -195,40 +201,43 @@ Frontend will be available at: `http://localhost:3000`
 
 ## 📊 Database Schema
 
-### Core Tables
+### Database Tables (MySQL Local / Firestore Cloud)
+
+#### Core Tables/Collections
 - `users`: User accounts with roles (student/employer/college/admin)
 - `applicants`: Applicant profiles with location preferences
 - `uploads`: File uploads (resumes, marksheets)
 - `llm_parsed_records`: Parsed resume data with confidence scores
 - `embeddings_index`: Vector embeddings for semantic search
 
-### College Recommendation
+#### College Recommendation
 - `colleges`: College master data
 - `college_eligibility`: Admission criteria (JEE, CGPA)
 - `college_programs`: Available programs and courses
 - `college_metadata`: Additional info (skills, popularity)
 - `college_applicability_logs`: Recommendation history
+- `college_recommendations`: Applicant → College matches
 
-### Job Matching
+#### Job Matching
 - `employers`: Company information
 - `jobs`: Job listings with requirements
 - `job_metadata`: Tags and popularity scores
 - `job_recommendations`: Job matches with scoring
 
-### Interview & Assessment
+#### Interview & Assessment
 - `interview_sessions`: Mock interview sessions with scores
 - `interview_questions`: Questions for each session
 - `interview_answers`: Student answers with AI evaluation
 - `skill_assessments`: Skill verification quizzes
 - `learning_paths`: Personalized learning recommendations
 
-### Credit System
+#### Credit System
 - `credit_accounts`: User credit balances and refill timestamps
 - `credit_transactions`: Audit log of all credit activity
 - `credit_usage_stats`: Daily/weekly rate limiting counters
 - `system_configuration`: Admin-configurable system settings
 
-### Auxiliary
+#### Auxiliary
 - `canonical_skills`: Standardized skill taxonomy
 - `audit_logs`: System activity tracking
 - `human_reviews`: Manual corrections and feedback
@@ -237,55 +246,71 @@ Frontend will be available at: `http://localhost:3000`
 
 ## 🔌 API Endpoints
 
-### Statistics
+For complete API documentation, see [ARCHITECTURE.md](ARCHITECTURE.md#api-contracts).
+
+### Key Endpoints
+
+**Public**:
 - `GET /api/stats` - Dashboard statistics
-
-### Applicants
-- `GET /api/applicants` - List all applicants (paginated)
-- `GET /api/applicant/{id}` - Get applicant details
+- `GET /api/colleges` - List colleges (paginated)
+- `GET /api/jobs?location={loc}` - List active jobs
 - `POST /upload` - Upload resume
-- `POST /parse/{applicant_id}` - Parse uploaded resume
+- `POST /parse/{applicant_id}` - Parse resume
 
-### Colleges
-- `GET /api/colleges` - List all colleges (paginated)
-- `GET /api/college/{id}` - Get college details
+**Authenticated**:
+- `GET /api/recommendations/{applicant_id}` - Get recommendations
+- `POST /api/interview/start` - Start mock interview
+- `GET /api/credit/account` - User credit balance
+- `GET /api/interview/history` - Interview sessions
 
-### Jobs
-- `GET /api/jobs?location={loc}&work_type={type}` - List jobs with filters
-- `GET /api/job/{id}` - Get job details
-
-### Recommendations
-- `GET /api/recommendations/{applicant_id}` - Get recommendations for applicant
-
-### Interviews
-- `POST /api/interviews/start` - Start mock interview session
-- `GET /api/interviews/{id}/questions` - Get next question
-- `POST /api/interviews/{id}/submit-answer` - Submit and evaluate answer
-- `GET /api/interviews/history` - View all interview sessions
-
-### Credit System
-- `GET /api/credits/balance` - User credit balance and usage
-- `GET /api/credits/transactions` - Credit transaction history
-- `POST /api/credits/check` - Validate eligibility before activity
-
-### Authentication
-- `POST /api/auth/register` - Register new account (verification email sent)
-- `POST /api/auth/login` - Login and get JWT token
-- `POST /api/auth/forgot-password` - Request password reset code
-- `POST /api/auth/reset-password` - Reset password with code
+**Admin**:
+- `POST /api/admin/college` - Create college
+- `POST /api/admin/job` - Create job
+- `GET /api/admin/users` - List all users
 
 ---
 
 ## 📈 Data Flow
 
 1. **Resume Upload**: User uploads resume through frontend
-2. **File Storage**: Backend saves file and creates upload record
-3. **AI Parsing**: Google Gemini extracts structured data
-4. **Normalization**: Data is validated and normalized
-5. **Skill Mapping**: Skills matched against canonical taxonomy
-6. **Recommendation**: Scoring algorithm rates colleges/jobs
-7. **Interview Optional**: Students can boost scores with mock interviews
-8. **Display**: Results shown in interactive dashboard
+2. **File Storage**: Backend saves file to `/data/raw_files/` (local) or `/tmp/data/` (cloud)
+3. **AI Parsing**: Google Gemini extracts structured data (education, skills, experience)
+4. **Normalization**: Data validated and normalized via Pydantic schemas
+5. **Skill Mapping**: Skills matched against canonical taxonomy (word-boundary regex)
+6. **Recommendation**: Scoring algorithm rates colleges/jobs:
+   - 35% JEE rank
+   - 25% CGPA
+   - 25% skill match
+   - 15% interview score
+   - 20% academic/experience fit
+7. **Interview Optional**: Students can boost scores with mock interviews (up to 15 points)
+8. **Display**: Results shown in interactive dashboard with status tracking
+
+---
+
+## 🏗️ Repository Pattern Architecture
+
+This project implements a **dual-database architecture** using the repository pattern:
+
+**Local Development** (`APP_ENV=local`):
+- Uses MySQL via SQLAlchemy
+- Full SQL query support
+- Complex JOINs and transactions
+- Excellent debugging experience
+
+**Cloud Production** (`APP_ENV=cloud`):
+- Uses Firestore via firebase-admin
+- Serverless, scale-to-zero
+- ~$0.01/month when idle
+- Auto-scaling for traffic
+
+**Benefits**:
+- ✅ Single codebase for both environments
+- ✅ Database-agnostic business logic
+- ✅ 95%+ cost savings vs Cloud SQL
+- ✅ Easy testing with both backends
+
+For implementation details, see [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md).
 
 ---
 
@@ -478,104 +503,95 @@ Sample data:
 
 ## 📝 Development
 
+For detailed development guides, see [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md).
+
+### Quick Development Workflow
+
+**Backend**:
+```powershell
+cd resume_pipeline
+myenv\Scripts\Activate.ps1
+uvicorn resume_pipeline.app:app --reload --port 8000
+pytest tests/ -v  # Run tests
+```
+
+**Frontend**:
+```powershell
+cd frontend
+npm run dev      # Start dev server
+npm run build    # Build for production
+```
+
 ### Adding New Features
 
-#### Backend
-1. Add routes in `app.py`
-2. Add models in `db.py`
-3. Update constants in `constants.py`
-4. Add schemas in `schemas.py`
-
-#### Frontend
-1. Create components in `src/components/`
-2. Create pages in `src/pages/`
-3. Add routes in `App.jsx`
-4. Add navigation links in `Navbar.jsx`
-
-#### Database
-1. Update models in `db.py`
-2. Delete database to recreate:
-   ```sql
-   DROP DATABASE resumes;
-   ```
-3. Restart server (auto-creates DB)
-4. Reseed data: `python scripts/seed_database.py`
-
-### Code Style
-- **Backend**: Follow PEP 8
-- **Frontend**: ESLint + Prettier
-- **Type Hints**: Use in Python files
-- **PropTypes/TypeScript**: For React components
-
----
-
-## 🛠️ Development Workflow
-
-### Backend Development
-```bash
-# Activate environment
-myenv\Scripts\Activate.ps1
-
-# Start server with auto-reload
-cd resume_pipeline
-uvicorn resume_pipeline.app:app --reload --port 8000
-
-# Run tests
-pytest tests/ -v
-
-# Check code style
-flake8 resume_pipeline/
-```
-
-### Frontend Development
-```bash
-cd frontend
-
-# Start dev server (with HMR)
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
-```
+See [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md#adding-new-features) for:
+- Adding new repository interfaces
+- Implementing MySQL/Firestore repositories
+- Integrating with FastAPI routes
+- Writing tests
 
 ### Database Inspection
-```bash
-# Connect to MySQL
-mysql -u root -p
 
-# Use database
-USE resumes;
-
-# Show tables
+**MySQL (Local)**:
+```sql
+mysql -u career_user -p
+USE career_guidance;
 SHOW TABLES;
-
-# Query data
 SELECT * FROM applicants LIMIT 5;
 ```
 
-### API Testing
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **Postman/Insomnia**: Import endpoints from Swagger
+**Firestore (Cloud)**:
+```powershell
+# View in Firebase Console
+# https://console.firebase.google.com/project/resume-app-10864/firestore
+
+# Or use gcloud
+gcloud firestore documents list users --limit 5
+```
 
 ---
 
 ## 🚀 Deployment
 
+For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+### Quick Deploy to GCP
+
+```powershell
+# Deploy backend to Cloud Run
+cd resume_pipeline
+docker build -f Dockerfile.prod -t gcr.io/resume-app-10864/backend:latest .
+docker push gcr.io/resume-app-10864/backend:latest
+gcloud run deploy career-backend --image gcr.io/resume-app-10864/backend:latest
+
+# Deploy frontend to Firebase Hosting
+cd ../frontend
+npm run build
+firebase deploy --only hosting
+```
+
+**Automated**: Run `.\redeploy.ps1` from project root
+
+### Production URLs
+
+- **Frontend**: https://resume-app-10864.web.app
+- **Backend**: https://career-backend-xxxx-uc.a.run.app
+- **Firestore**: https://console.firebase.google.com/project/resume-app-10864/firestore
+
 ### Pre-Deployment Checklist
+
 - [ ] All tests passing (`pytest tests/`)
 - [ ] No console errors in browser
 - [ ] Email verification working
 - [ ] File uploads functional
-- [ ] Database migrations applied
-- [ ] Environment variables configured
-- [ ] CORS origins restricted to production domains
+- [ ] Environment variables configured in Cloud Run
+- [ ] Firestore database created and seeded
+- [ ] `APP_ENV=cloud` set in Cloud Run
+- [ ] CORS origins updated for production
 - [ ] Strong `SECRET_KEY` generated (32+ characters)
-- [ ] Gmail app password created
-- [ ] SSL certificate ready (recommended)
+- [ ] SSL certificate ready (auto-provided by Cloud Run/Firebase)
+
+
 
 ### Backend Deployment
 
@@ -585,107 +601,91 @@ SELECT * FROM applicants LIMIT 5;
 pip install gunicorn
 
 # Run with 4 workers
-gunicorn resume_pipeline.app:app \
-  --workers 4 \
-  --worker-class uvicorn.workers.UvicornWorker \
-  --bind 0.0.0.0:8000 \
-  --timeout 120 \
-  --access-logfile logs/access.log \
-  --error-logfile logs/error.log
-```
-
-#### Windows with NSSM (Non-Sucking Service Manager)
-```powershell
-# Download NSSM from https://nssm.cc/download
-# Install service
-nssm install CareerGuidanceAPI "D:\Career Guidence\myenv\Scripts\uvicorn.exe"
-nssm set CareerGuidanceAPI AppParameters "resume_pipeline.app:app --host 0.0.0.0 --port 8000"
-nssm set CareerGuidanceAPI AppDirectory "D:\Career Guidence\resume_pipeline"
-
-# Start service
-nssm start CareerGuidanceAPI
-```
-
-### Frontend Deployment
-```bash
-cd frontend
-
-# Build optimized bundle
-npm run build
-
-# Output goes to dist/ folder
-# Deploy dist/ folder to your hosting (Vercel, Netlify, AWS, etc.)
-```
-
-### Environment Variables (Production)
-Create `.env` with:
-```env
-# Backend Security
-SECRET_KEY=your_secret_key_here_minimum_32_characters
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# Database
-MYSQL_HOST=your_prod_host
-MYSQL_PORT=3306
-MYSQL_USER=career_guidance_user
-MYSQL_PASSWORD=strong_password_here
-MYSQL_DB=resumes
-
-# AI Services
-GEMINI_API_KEY=your_gemini_api_key
-
-# Email
-GMAIL_USER=your-app-email@gmail.com
-GMAIL_APP_PASSWORD=your_16_character_app_password
-
-# Frontend
-FRONTEND_URL=https://yourdomain.com
-```
-
 ---
 
 ## 📦 Project Statistics
 
-- **50 Applicants** with complete profiles
-- **10 Colleges** with eligibility criteria
-- **40 Job Listings** from 12 employers
-- **444 Recommendations** (189 college + 255 job)
-- **15 Canonical Skills** in taxonomy
+- **50+ Applicants** with complete profiles
+- **10+ Colleges** with eligibility criteria
+- **40+ Job Listings** from multiple employers
+- **Dual Database**: MySQL (local) + Firestore (cloud)
+- **18 Database Tables**: Users, Applicants, Colleges, Jobs, Recommendations, Interviews, Credits
 - **~85% Average Match Score** for recommendations
-
----
-
-## 🤝 Contributing
-
-1. Create feature branch
-2. Make changes with proper tests
-3. Update documentation
-4. Submit pull request
-
----
-
-## 📄 License
-
-This project is for educational purposes.
+- **Cost**: ~$0.01/month when idle on GCP
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Database Connection Issues
-- Verify MySQL is running
-- Check credentials in `.env`
-- Ensure database exists (created automatically on startup)
+For detailed troubleshooting, see [DEPLOYMENT.md](DEPLOYMENT.md#troubleshooting).
 
-### Frontend Not Loading
-- Check backend is running on port 8000
-- Verify CORS settings in `app.py`
-- Clear browser cache
+### Common Issues
 
-### Gemini API Errors
-- Verify API key is valid
-- Check rate limits
+**Port already in use**:
+```powershell
+netstat -ano | findstr :8000
+taskkill /PID <PID> /F
+```
+
+**MySQL connection refused**:
+```powershell
+# Check MySQL is running
+Get-Service MySQL80
+Start-Service MySQL80
+
+# Test connection
+mysql -h localhost -u career_user -p
+```
+
+**Gemini API errors**:
+- Verify API key in `.env`
+- Check rate limits: https://aistudio.google.com/apikey
+- Test API key with sample request
+
+**CORS errors in browser**:
+- Verify `CORS_ORIGINS` includes frontend URL
+- Restart backend after changing `.env`
+
+**Firestore permission denied**:
+```powershell
+# Re-authenticate
+gcloud auth application-default login
+
+# Verify project
+gcloud config get-value project
+```
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Make changes with proper tests
+4. Update documentation
+5. Commit changes (`git commit -m 'Add amazing feature'`)
+6. Push to branch (`git push origin feature/amazing-feature`)
+7. Submit pull request
+
+---
+
+## 📄 License
+
+This project is for educational purposes. See LICENSE file for details.
+
+---
+
+## 📞 Support & Resources
+
+- **Documentation**: See [ARCHITECTURE.md](ARCHITECTURE.md), [DEPLOYMENT.md](DEPLOYMENT.md), [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
+- **API Docs**: http://localhost:8000/docs (when running locally)
+- **Issues**: Create GitHub issue for bugs or feature requests
+
+---
+
+**Last Updated**: January 23, 2026  
+**Version**: 2.0  
+**Status**: ✅ Production Ready (Cloud + Local)
 - Review error logs in terminal
 
 ### Email Issues

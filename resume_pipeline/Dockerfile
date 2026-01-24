@@ -44,12 +44,12 @@ COPY . .
 # Create data directory for uploaded files
 RUN mkdir -p /app/data/raw_files
 
-# Expose port
-EXPOSE 8000
+# Expose port expected by Cloud Run
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/api/stats', timeout=5)"
+    CMD python -c "import requests; requests.get('http://localhost:8080/api/stats', timeout=5)"
 
-# Run application
-CMD ["uvicorn", "resume_pipeline.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run application (Cloud Run provides PORT; default to 8080)
+CMD ["sh", "-c", "uvicorn resume_pipeline.app:app --host 0.0.0.0 --port ${PORT:-8080}"]

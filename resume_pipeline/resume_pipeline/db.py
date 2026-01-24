@@ -3,6 +3,7 @@ from sqlalchemy import (
     ForeignKey, Index, UniqueConstraint, create_engine
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.pool import StaticPool
 from .config import settings
 import datetime
 
@@ -770,7 +771,18 @@ class ResumeParsed(Base):
 if settings.MYSQL_DSN is None:
     raise RuntimeError("MYSQL_DSN is not set in settings; cannot create engine")
 
-engine = create_engine(settings.MYSQL_DSN, echo=False, future=True)
+# SQLite in-memory needs shared connections across threads; StaticPool + check_same_thread=False
+if settings.MYSQL_DSN.startswith("sqlite"):
+    engine = create_engine(
+        settings.MYSQL_DSN,
+        echo=False,
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+else:
+    engine = create_engine(settings.MYSQL_DSN, echo=False, future=True)
+
 SessionLocal = sessionmaker(bind=engine)
 
 

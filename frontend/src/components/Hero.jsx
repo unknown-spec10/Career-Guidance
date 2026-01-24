@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Sparkles, ArrowRight, TrendingUp, Star } from 'lucide-react'
+import { Sparkles, ArrowRight, TrendingUp, Star, HelpCircle } from 'lucide-react'
 
 export default function Hero() {
   return (
@@ -57,7 +57,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8"
           >
             <a 
               href="/register" 
@@ -76,6 +76,23 @@ export default function Hero() {
                 <TrendingUp className="w-5 h-5" />
                 <span>See How It Works</span>
               </span>
+            </a>
+          </motion.div>
+
+          {/* Know More Button */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.35 }}
+            className="flex justify-center mb-16"
+          >
+            <a 
+              href="/ask" 
+              className="group inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium text-primary-600 bg-primary-50 border border-primary-200 rounded-full hover:bg-primary-100 hover:border-primary-300 transition-all duration-200"
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span>Have questions? Ask our AI Assistant</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-200" />
             </a>
           </motion.div>
 

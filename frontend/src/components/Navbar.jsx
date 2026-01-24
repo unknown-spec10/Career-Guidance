@@ -57,7 +57,6 @@ export default function Navbar() {
         return [
           { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { to: '/college/add-program', label: 'Add Program', icon: PlusCircle },
-          { to: '/colleges', label: 'All Colleges', icon: Building2 },
         ]
       case 'admin':
         return [
