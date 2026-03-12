@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 # Load .env from workspace root if present
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=False)
 
 class Settings(BaseSettings):
     # Prefer separate fields; fallback to PG_DSN if fully provided
