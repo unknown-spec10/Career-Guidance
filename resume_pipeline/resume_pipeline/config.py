@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     
     # JWT Authentication
-    SECRET_KEY: str = "change-this-secret-key-in-production-use-openssl-rand-hex-32"
+    SECRET_KEY: str = "placeholder-replace-with-env-var-in-production"  # Set SECRET_KEY env var in production
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     
