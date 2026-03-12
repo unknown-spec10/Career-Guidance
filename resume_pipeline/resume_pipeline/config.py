@@ -1,12 +1,19 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 from pathlib import Path
 from urllib.parse import quote_plus
+import os
 
-# Load .env from workspace root if present
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=False)
+# In production (Render), OS env vars are already set — do NOT let .env override them.
+# In local dev, .env is not present in the container so this only runs locally.
+_env_file = Path(__file__).resolve().parents[2] / ".env"
+if not os.environ.get("RENDER"):
+    load_dotenv(dotenv_path=_env_file, override=False)
 
 class Settings(BaseSettings):
+    # Pydantic-settings: only read from OS environment, never from .env files.
+    # This ensures Render's injected env vars always win over any baked-in .env.
+    model_config = SettingsConfigDict(env_file=None, extra="ignore")
     # Prefer separate fields; fallback to PG_DSN if fully provided
     PG_HOST: str | None = None
     PG_PORT: int | None = None
