@@ -133,7 +133,7 @@ settings = Settings()
 #   2. Whether startup skips CREATE DATABASE (Supabase manages the DB)
 # ============================================================================
 _pg_host = settings.PG_HOST or ""
-IS_SUPABASE: bool = "supabase.co" in _pg_host
+IS_SUPABASE: bool = "supabase.co" in _pg_host or "supabase.com" in _pg_host
 
 # Build DSN from parts if PG_DSN not explicitly set
 if not settings.PG_DSN:
@@ -162,5 +162,5 @@ if not settings.PG_DSN:
         IS_SUPABASE = False
 else:
     # If an explicit PG_DSN was provided, still detect Supabase from it
-    IS_SUPABASE = "supabase.co" in settings.PG_DSN
+    IS_SUPABASE = "supabase.co" in settings.PG_DSN or "supabase.com" in settings.PG_DSN
 
