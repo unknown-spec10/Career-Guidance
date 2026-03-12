@@ -35,7 +35,7 @@ class User(Base):
     # Relationships
     applicant = relationship('Applicant', back_populates='user', uselist=False, cascade='all, delete-orphan')
     employer = relationship('Employer', back_populates='user', uselist=False, cascade='all, delete-orphan')
-    college = relationship('College', back_populates='user', uselist=False, cascade='all, delete-orphan')
+    college = relationship('College', back_populates='user', uselist=False, cascade='all, delete-orphan', foreign_keys='College.user_id')
     audit_logs = relationship('AuditLog', back_populates='user', cascade='all, delete-orphan')
     human_reviews = relationship('HumanReview', back_populates='reviewer', foreign_keys='HumanReview.reviewer_id')
 
@@ -138,16 +138,32 @@ class College(Base):
     website = Column(String(512), nullable=True)
     logo_url = Column(String(512), nullable=True)
     is_verified = Column(Boolean, default=False)
+    
+    # Data Collection & Verification Tracking
+    collection_status = Column(Enum('draft', 'submitted', 'approved', 'rejected', name='collection_status'), default='draft', index=True)
+    submitted_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    submitted_date = Column(DateTime, nullable=True)
+    approved_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    approved_date = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    
+    # Source Attribution (for audit trail)
+    data_sources = Column(JSON, nullable=True)
+    data_freshness_flag = Column(String(50), nullable=True)
+    last_verification_date = Column(DateTime, nullable=True)
+    
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
     # Relationships
-    user = relationship('User', back_populates='college')
+    user = relationship('User', back_populates='college', foreign_keys=[user_id])
     eligibility = relationship('CollegeEligibility', back_populates='college', cascade='all, delete-orphan')
     programs = relationship('CollegeProgram', back_populates='college', cascade='all, delete-orphan')
     meta = relationship('CollegeMetadata', back_populates='college', uselist=False, cascade='all, delete-orphan')
     recommendations = relationship('CollegeApplicabilityLog', back_populates='college', cascade='all, delete-orphan')
     applications = relationship('CollegeApplication', back_populates='college', cascade='all, delete-orphan')
+    submitted_user = relationship('User', foreign_keys=[submitted_by], overlaps='college,user')
+    approved_user = relationship('User', foreign_keys=[approved_by], overlaps='college,user')
 
 
 class CollegeEligibility(Base):
@@ -161,6 +177,21 @@ class CollegeEligibility(Base):
     eligible_degrees = Column(JSON, nullable=True)  # ["BCA", "BSc"]
     reserved_category_cutoffs = Column(JSON, nullable=True)
     seats = Column(Integer, default=0)
+    
+    # Source Attribution for Each Field
+    min_jee_rank_source = Column(String(512), nullable=True)
+    min_cgpa_source = Column(String(512), nullable=True)
+    seats_source = Column(String(512), nullable=True)
+    eligible_degrees_source = Column(String(512), nullable=True)
+    
+    # Verification Status (per field)
+    min_jee_rank_verified = Column(Boolean, default=False)
+    min_cgpa_verified = Column(Boolean, default=False)
+    seats_verified = Column(Boolean, default=False)
+    eligible_degrees_verified = Column(Boolean, default=False)
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
     # Relationships
     college = relationship('College', back_populates='eligibility')
@@ -180,6 +211,17 @@ class CollegeProgram(Base):
     rejection_reason = Column(Text, nullable=True)
     reviewed_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
+    
+    # Source Attribution
+    program_description_source = Column(String(512), nullable=True)
+    duration_months_source = Column(String(512), nullable=True)
+    required_skills_source = Column(String(512), nullable=True)
+    
+    # Verification Status
+    program_description_verified = Column(Boolean, default=False)
+    duration_months_verified = Column(Boolean, default=False)
+    required_skills_verified = Column(Boolean, default=False)
+    
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
@@ -197,6 +239,14 @@ class CollegeMetadata(Base):
     canonical_skills = Column(JSON, nullable=True)  # Skills college favors
     vector_store_id = Column(String(128), nullable=True)
     popularity_score = Column(Float, nullable=True)
+    
+    # Metadata Source Attribution
+    canonical_skills_source = Column(String(512), nullable=True)
+    popularity_score_source = Column(String(512), nullable=True)
+    
+    # Metadata Verification
+    canonical_skills_verified = Column(Boolean, default=False)
+    popularity_score_verified = Column(Boolean, default=False)
     
     # Relationships
     college = relationship('College', back_populates='meta')
@@ -768,20 +818,20 @@ class ResumeParsed(Base):
 # DATABASE SETUP
 # ============================================================
 
-if settings.MYSQL_DSN is None:
-    raise RuntimeError("MYSQL_DSN is not set in settings; cannot create engine")
+if settings.PG_DSN is None:
+    raise RuntimeError("PG_DSN is not set in settings; cannot create engine")
 
 # SQLite in-memory needs shared connections across threads; StaticPool + check_same_thread=False
-if settings.MYSQL_DSN.startswith("sqlite"):
+if settings.PG_DSN.startswith("sqlite"):
     engine = create_engine(
-        settings.MYSQL_DSN,
+        settings.PG_DSN,
         echo=False,
         future=True,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
 else:
-    engine = create_engine(settings.MYSQL_DSN, echo=False, future=True)
+    engine = create_engine(settings.PG_DSN, echo=False, future=True)
 
 SessionLocal = sessionmaker(bind=engine)
 

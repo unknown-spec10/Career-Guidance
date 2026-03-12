@@ -11,22 +11,23 @@ export default function MatchScore({ score, size = 'md', showLabel = true }) {
   }
 
   const config = sizes[size] || sizes.md
-  const percentage = Math.round(score * 100)
+  const safe = Math.max(0, Math.min(1, Number(score) || 0))
+  const percentage = Math.round(safe * 100)
   
   // Determine color based on score
-  const getColor = (score) => {
-    if (score >= 0.8) return 'green'
-    if (score >= 0.6) return 'blue'
-    if (score >= 0.4) return 'yellow'
+  const getColor = (s) => {
+    if (s >= 0.8) return 'green'
+    if (s >= 0.6) return 'blue'
+    if (s >= 0.4) return 'yellow'
     return 'red'
   }
 
-  const color = getColor(score)
+  const color = getColor(safe)
 
-  const getLabel = (score) => {
-    if (score >= 0.8) return 'Excellent Match'
-    if (score >= 0.6) return 'Good Match'
-    if (score >= 0.4) return 'Fair Match'
+  const getLabel = (s) => {
+    if (s >= 0.8) return 'Excellent Match'
+    if (s >= 0.6) return 'Good Match'
+    if (s >= 0.4) return 'Fair Match'
     return 'Low Match'
   }
 
@@ -42,7 +43,7 @@ export default function MatchScore({ score, size = 'md', showLabel = true }) {
           label=""
         />
         
-        {score >= 0.8 && (
+        {safe >= 0.8 && (
           <motion.div
             animate={{
               rotate: [0, 10, -10, 0],
@@ -67,7 +68,7 @@ export default function MatchScore({ score, size = 'md', showLabel = true }) {
           transition={{ delay: 0.5 }}
           className={`${config.text} font-medium text-gray-700`}
         >
-          {getLabel(score)}
+          {getLabel(safe)}
         </motion.p>
       )}
     </div>

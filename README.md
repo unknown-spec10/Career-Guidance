@@ -25,7 +25,7 @@ Complete documentation is in the **[`docs/`](docs/)** folder:
 - **RESTful API**: FastAPI backend with complete CRUD operations
 - **Mock Interviews**: AI-powered practice sessions with skill assessments
 - **Credit System**: Fair-use quota management to prevent API cost overruns
-- **Dual-Database**: MySQL (local dev) + Firestore (cloud production) via repository pattern
+- **PostgreSQL Database**: Single, reliable database via SQLAlchemy repository pattern
 
 ### Security & Authentication
 - **User Authentication**: JWT-based authentication with role-based access control
@@ -89,7 +89,7 @@ Career Guidance/
 ### Backend
 - **FastAPI**: High-performance web framework with async support
 - **SQLAlchemy**: ORM for database operations
-- **PyMySQL**: MySQL database driver
+- **psycopg2**: PostgreSQL database driver
 - **Google Gemini**: LLM for resume parsing & interview evaluation
 - **Pydantic**: Data validation and serialization
 - **JWT**: Token-based authentication
@@ -107,15 +107,13 @@ Career Guidance/
 - **Custom Hooks**: useToast, useOptimistic, useAuth for state management
 
 ### Database
-- **Local**: MySQL 8.0+ with 18 tables
+- **PostgreSQL 16**: All environments — local dev, Docker, and cloud production
   - Core: Users, Applicants, Uploads, LLMParsedRecords
   - College-side: Colleges, Eligibility, Programs, Metadata, ApplicabilityLogs
   - Job-side: Employers, Jobs, JobMetadata, JobRecommendations
   - Interview: InterviewSessions, InterviewQuestions, InterviewAnswers
   - Credit: CreditAccounts, CreditTransactions, CreditUsageStats
   - Auxiliary: CanonicalSkills, AuditLogs, HumanReviews
-- **Cloud**: Firestore (serverless NoSQL, scale-to-zero, ~$0.01/month)
-- **Switching**: Environment-based via `APP_ENV=local|cloud`
 
 ## 🚦 Quick Start
 
@@ -152,14 +150,12 @@ npm run dev
 
 Create `.env` in `resume_pipeline/`:
 ```env
-# Database Selection
-APP_ENV=local
-
-# MySQL (Local)
-MYSQL_HOST=localhost
-MYSQL_USER=career_user
-MYSQL_PASSWORD=yourpassword
-MYSQL_DB=career_guidance
+# PostgreSQL
+PG_HOST=localhost
+PG_PORT=5432
+PG_USER=postgres
+PG_PASSWORD=yourpassword
+PG_DB=career_guidance
 
 # AI Services
 GEMINI_API_KEY=your_gemini_api_key
@@ -185,23 +181,23 @@ CORS_ORIGINS=http://localhost:5173
 
 **Option A: Docker (Recommended)**
 ```powershell
-docker run -d --name career-mysql `
-  -e MYSQL_ROOT_PASSWORD=rootpassword `
-  -e MYSQL_DATABASE=career_guidance `
-  -e MYSQL_USER=career_user `
-  -e MYSQL_PASSWORD=yourpassword `
-  -p 3306:3306 mysql:8.0
+docker run -d --name career-postgres `
+  -e POSTGRES_PASSWORD=yourpassword `
+  -e POSTGRES_DB=career_guidance `
+  -e POSTGRES_USER=postgres `
+  -p 5432:5432 postgres:16
 ```
 
-**Option B: Manual MySQL Installation**
-
-Frontend will be available at: `http://localhost:3000`
+**Option B: Docker Compose (full stack)**
+```powershell
+docker-compose up -d
+```
 
 ---
 
 ## 📊 Database Schema
 
-### Database Tables (MySQL Local / Firestore Cloud)
+### Database Tables (PostgreSQL)
 
 #### Core Tables/Collections
 - `users`: User accounts with roles (student/employer/college/admin)
@@ -290,25 +286,13 @@ For complete API documentation, see [ARCHITECTURE.md](ARCHITECTURE.md#api-contra
 
 ## 🏗️ Repository Pattern Architecture
 
-This project implements a **dual-database architecture** using the repository pattern:
-
-**Local Development** (`APP_ENV=local`):
-- Uses MySQL via SQLAlchemy
-- Full SQL query support
-- Complex JOINs and transactions
-- Excellent debugging experience
-
-**Cloud Production** (`APP_ENV=cloud`):
-- Uses Firestore via firebase-admin
-- Serverless, scale-to-zero
-- ~$0.01/month when idle
-- Auto-scaling for traffic
+This project uses the **repository pattern** to keep business logic decoupled from the database.
+All repositories use PostgreSQL via SQLAlchemy (`pg_impl.py`), accessed through `factory.py`.
 
 **Benefits**:
-- ✅ Single codebase for both environments
-- ✅ Database-agnostic business logic
-- ✅ 95%+ cost savings vs Cloud SQL
-- ✅ Easy testing with both backends
+- ✅ Business logic is database-agnostic
+- ✅ Easy to test with mocks
+- ✅ Single consistent data store across all environments
 
 For implementation details, see [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md).
 
@@ -526,27 +510,17 @@ npm run build    # Build for production
 
 See [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md#adding-new-features) for:
 - Adding new repository interfaces
-- Implementing MySQL/Firestore repositories
+- Implementing PostgreSQL repositories
 - Integrating with FastAPI routes
 - Writing tests
 
 ### Database Inspection
 
-**MySQL (Local)**:
+**PostgreSQL**:
 ```sql
-mysql -u career_user -p
-USE career_guidance;
-SHOW TABLES;
+psql -U postgres -d career_guidance
+\dt            -- list tables
 SELECT * FROM applicants LIMIT 5;
-```
-
-**Firestore (Cloud)**:
-```powershell
-# View in Firebase Console
-# https://console.firebase.google.com/project/resume-app-10864/firestore
-
-# Or use gcloud
-gcloud firestore documents list users --limit 5
 ```
 
 ---
@@ -555,28 +529,16 @@ gcloud firestore documents list users --limit 5
 
 For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-### Quick Deploy to GCP
+### Quick Deploy with Docker Compose
 
 ```powershell
-# Deploy backend to Cloud Run
-cd resume_pipeline
-docker build -f Dockerfile.prod -t gcr.io/resume-app-10864/backend:latest .
-docker push gcr.io/resume-app-10864/backend:latest
-gcloud run deploy career-backend --image gcr.io/resume-app-10864/backend:latest
+# From project root
+docker-compose up -d
 
-# Deploy frontend to Firebase Hosting
-cd ../frontend
-npm run build
-firebase deploy --only hosting
+# Initialize database
+docker-compose exec backend python scripts/init_db.py
+docker-compose exec backend python scripts/seed_database.py
 ```
-
-**Automated**: Run `.\redeploy.ps1` from project root
-
-### Production URLs
-
-- **Frontend**: https://resume-app-10864.web.app
-- **Backend**: https://career-backend-xxxx-uc.a.run.app
-- **Firestore**: https://console.firebase.google.com/project/resume-app-10864/firestore
 
 ### Pre-Deployment Checklist
 
@@ -584,12 +546,10 @@ firebase deploy --only hosting
 - [ ] No console errors in browser
 - [ ] Email verification working
 - [ ] File uploads functional
-- [ ] Environment variables configured in Cloud Run
-- [ ] Firestore database created and seeded
-- [ ] `APP_ENV=cloud` set in Cloud Run
+- [ ] Environment variables configured (`PG_HOST`, `PG_USER`, `PG_PASSWORD`, `PG_DB`, `GEMINI_API_KEY`, `SECRET_KEY`)
+- [ ] PostgreSQL database reachable and initialized (`init_db.py`)
 - [ ] CORS origins updated for production
 - [ ] Strong `SECRET_KEY` generated (32+ characters)
-- [ ] SSL certificate ready (auto-provided by Cloud Run/Firebase)
 
 
 
@@ -597,10 +557,10 @@ firebase deploy --only hosting
 
 #### Linux/Mac with Gunicorn
 ```bash
-# Install Gunicorn
 pip install gunicorn
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker resume_pipeline.app:app --bind 0.0.0.0:8000
+```
 
-# Run with 4 workers
 ---
 
 ## 📦 Project Statistics
@@ -608,10 +568,9 @@ pip install gunicorn
 - **50+ Applicants** with complete profiles
 - **10+ Colleges** with eligibility criteria
 - **40+ Job Listings** from multiple employers
-- **Dual Database**: MySQL (local) + Firestore (cloud)
+- **PostgreSQL**: Single database for all environments
 - **18 Database Tables**: Users, Applicants, Colleges, Jobs, Recommendations, Interviews, Credits
 - **~85% Average Match Score** for recommendations
-- **Cost**: ~$0.01/month when idle on GCP
 
 ---
 
@@ -627,14 +586,13 @@ netstat -ano | findstr :8000
 taskkill /PID <PID> /F
 ```
 
-**MySQL connection refused**:
+**PostgreSQL connection refused**:
 ```powershell
-# Check MySQL is running
-Get-Service MySQL80
-Start-Service MySQL80
+# Check PostgreSQL is running
+Get-Service postgresql*
 
 # Test connection
-mysql -h localhost -u career_user -p
+psql -h localhost -U postgres -d career_guidance
 ```
 
 **Gemini API errors**:
@@ -645,15 +603,6 @@ mysql -h localhost -u career_user -p
 **CORS errors in browser**:
 - Verify `CORS_ORIGINS` includes frontend URL
 - Restart backend after changing `.env`
-
-**Firestore permission denied**:
-```powershell
-# Re-authenticate
-gcloud auth application-default login
-
-# Verify project
-gcloud config get-value project
-```
 
 ---
 
@@ -680,52 +629,6 @@ This project is for educational purposes. See LICENSE file for details.
 - **Documentation**: See [ARCHITECTURE.md](ARCHITECTURE.md), [DEPLOYMENT.md](DEPLOYMENT.md), [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
 - **API Docs**: http://localhost:8000/docs (when running locally)
 - **Issues**: Create GitHub issue for bugs or feature requests
-
----
-
-**Last Updated**: January 23, 2026  
-**Version**: 2.0  
-**Status**: ✅ Production Ready (Cloud + Local)
-- Review error logs in terminal
-
-### Email Issues
-- Verify Gmail 2FA enabled
-- Check app password (not regular password)
-- Ensure GMAIL_USER and GMAIL_APP_PASSWORD set in `.env`
-
-### Port Already in Use
-```powershell
-# Find process on port 8000
-netstat -ano | findstr :8000
-
-# Kill process
-taskkill /PID <process_id> /F
-```
-
-### Module Not Found
-```powershell
-# Ensure virtual environment is activated
-myenv\Scripts\Activate.ps1
-
-# Reinstall dependencies
-pip install -r requirements.txt --force-reinstall
-```
-
-### Frontend Build Errors
-```powershell
-# Clear cache and reinstall
-rm -r node_modules package-lock.json
-npm install
-```
-
----
-
-## 📞 Support
-
-For issues or questions, check the logs:
-- Backend: Terminal running uvicorn
-- Frontend: Browser console (F12)
-- Database: MySQL logs
 
 ---
 
@@ -781,5 +684,5 @@ For issues or questions, check the logs:
 
 ---
 
-**Last Updated**: January 17, 2026
-**Version**: 3.0.0
+**Last Updated**: March 12, 2026
+**Version**: 3.0.0 (PostgreSQL, no Firebase)

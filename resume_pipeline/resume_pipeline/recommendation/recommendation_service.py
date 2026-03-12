@@ -5,15 +5,18 @@ and job (skills/experience-focused) recommendations following industry best prac
 
 College Recommendations: Prioritize academic performance, entrance exams, research
 Job Recommendations: Prioritize skills match, experience, location, industry fit
+
+Uses semantic skill matching (embeddings + taxonomy) for intelligent skill normalization.
 """
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session, joinedload
 from ..config import settings
-from ..constants import COLLEGE_RECOMMENDATION_WEIGHTS, JOB_RECOMMENDATION_WEIGHTS
+from ..constants import COLLEGE_RECOMMENDATION_WEIGHTS, JOB_RECOMMENDATION_WEIGHTS, SEMANTIC_MATCHING_CONFIG
 from ..db import (
     Applicant, LLMParsedRecord, College, CollegeProgram, CollegeEligibility,
     Job, InterviewSession, CollegeApplicabilityLog, JobRecommendation
 )
+from ..core.semantic_matching import SemanticMatcher
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,6 +49,16 @@ class RecommendationService:
     
     def __init__(self, db: Session):
         self.db = db
+        # Initialize semantic matcher (singleton, lazy loads embeddings)
+        try:
+            self.semantic_matcher = SemanticMatcher()
+            if self.semantic_matcher.enabled:
+                logger.info("Semantic skill matching enabled")
+            else:
+                logger.warning("Semantic skill matching disabled (missing dependencies or taxonomy)")
+        except Exception as e:
+            logger.error(f"Failed to initialize semantic matcher: {e}")
+            self.semantic_matcher = None
         
     def get_recommendations(self, applicant_id: int) -> Dict:
         """Get all recommendations for an applicant"""
@@ -118,7 +131,8 @@ class RecommendationService:
             )
             
             if match_score >= min_score:
-                # Add to DB session
+                # Add to DB session (store as 0-100 percentage)
+                score_percent = match_score * 100
                 rec_log = self.db.query(CollegeApplicabilityLog).filter(
                     CollegeApplicabilityLog.applicant_id == applicant.id,
                     CollegeApplicabilityLog.college_id == college.id
@@ -128,13 +142,13 @@ class RecommendationService:
                     rec_log = CollegeApplicabilityLog(
                         applicant_id=applicant.id,
                         college_id=college.id,
-                        recommend_score=match_score,
+                        recommend_score=score_percent,
                         explain=breakdown
                     )
                     self.db.add(rec_log)
                 else:
                     # Update score
-                    rec_log.recommend_score = match_score
+                    rec_log.recommend_score = score_percent
                     rec_log.explain = breakdown
                 
                 recommendations.append({
@@ -192,7 +206,7 @@ class RecommendationService:
         cgpa_score = self._calculate_cgpa_score(education)
         jee_score = self._calculate_jee_rank_score(jee_rank, college)
         academic_score = self._calculate_academic_achievements_score(normalized_data)
-        skills_score = self._calculate_skills_match(skills, college)
+        skills_score, skills_breakdown = self._calculate_skills_match(skills, college)
         projects_score = self._calculate_projects_score(projects, is_academic=True)
         cert_score = self._calculate_certifications_score(certifications)
         
@@ -228,6 +242,7 @@ class RecommendationService:
             'jee_rank_score': round(jee_score, 3),
             'academic_score': round(academic_score, 3),
             'skills_score': round(skills_score, 3),
+            'skills_breakdown': skills_breakdown,  # Include detailed skill matching info
             'projects_score': round(projects_score, 3),
             'certifications_score': round(cert_score, 3),
             'interview_score': round(interview_score, 3) if interview_score else None,
@@ -363,16 +378,29 @@ class RecommendationService:
         
         return 0.2
     
-    def _calculate_skills_match(self, applicant_skills: List, college: College) -> float:
-        """Calculate skill match score (0-1)"""
+    def _calculate_skills_match(self, applicant_skills: List, college: College) -> Tuple[float, Dict]:
+        """
+        Calculate skill match score for college using semantic matching.
+        
+        Returns: (match_score, detailed_breakdown)
+        """
         if not applicant_skills:
-            return 0.0
+            return 0.0, {"skills_score": 0.0, "matched_skills": [], "missing_skills": []}
         
         # Get college programs and their required skills
         programs = college.programs
         if not programs:
-            return 0.5  # Neutral score if no specific requirements
+            return 0.5, {"skills_score": 0.5, "matched_skills": [], "missing_skills": []}
         
+        # Use semantic matching if enabled and available
+        if settings.SEMANTIC_MATCHING_ENABLED and self.semantic_matcher and self.semantic_matcher.enabled:
+            return self._calculate_skills_match_semantic(applicant_skills, programs)
+        else:
+            # Fallback to simple string matching
+            return self._calculate_skills_match_simple(applicant_skills, programs)
+    
+    def _calculate_skills_match_simple(self, applicant_skills: List, programs: List) -> Tuple[float, Dict]:
+        """Fallback: Simple string matching (old behavior)"""
         # Extract applicant skill names
         applicant_skill_names = set()
         for skill in applicant_skills:
@@ -391,7 +419,70 @@ class RecommendationService:
                     match_ratio = matches / len(required)
                     best_match = max(best_match, match_ratio)
         
-        return min(1.0, best_match + 0.2)  # Bonus for having skills
+        final_score = min(1.0, best_match + 0.2)
+        return final_score, {
+            "skills_score": round(final_score, 3),
+            "matched_skills": list(applicant_skill_names),
+            "matching_type": "simple_string_match"
+        }
+    
+    def _calculate_skills_match_semantic(self, applicant_skills: List, programs: List) -> Tuple[float, Dict]:
+        """Semantic skill matching using embeddings + taxonomy"""
+        try:
+            # Normalize applicant skills
+            applicant_skill_list = []
+            for skill in applicant_skills:
+                skill_name = skill.get('name', '') if isinstance(skill, dict) else str(skill)
+                if skill_name:
+                    applicant_skill_list.append(skill_name)
+            
+            # Use batch matching
+            applicant_matches = self.semantic_matcher.match_skills_batch(
+                applicant_skill_list,
+                threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
+            )
+            
+            applicant_canonical = set()
+            for match in applicant_matches:
+                if match["canonical"]:
+                    applicant_canonical.add(match["canonical"].lower())
+            
+            # Check against all programs
+            best_score = 0.0
+            all_required = set()
+            
+            for program in programs:
+                if program.required_skills:
+                    required_list = [s if isinstance(s, str) else s.get('name', '') for s in program.required_skills]
+                    required_matches = self.semantic_matcher.match_skills_batch(
+                        required_list,
+                        threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
+                    )
+                    
+                    required_canonical = set()
+                    for match in required_matches:
+                        if match["canonical"]:
+                            required_canonical.add(match["canonical"].lower())
+                    
+                    all_required.update(required_canonical)
+                    
+                    # Calculate match for this program
+            if required_canonical:
+                exact_matches = len(applicant_canonical & required_canonical)
+                partial_matches = 0
+                
+                for req_skill in required_canonical:
+                    if req_skill not in applicant_canonical:
+                        related = self.semantic_matcher.get_related_skills(req_skill)
+                        if any(r.lower() in applicant_canonical for r in related):
+                            partial_matches += 1
+                
+                program_score = (exact_matches + partial_matches * 0.5) / len(required_canonical)
+                best_score = max(best_score, program_score)
+            return best_score, {"skills_score": round(best_score, 3)}
+        except Exception as e:
+            logger.error(f"Error in semantic skill matching: {e}")
+            return self._calculate_skills_match_simple(applicant_skills, programs)
     
     def _calculate_education_match(self, education: List[Dict], college: College) -> float:
         """Calculate education match score (0-1)"""
@@ -476,14 +567,19 @@ class RecommendationService:
         recommendations = []
         min_score = settings.MIN_JOB_REC_SCORE  # Use job-specific minimum
         
+        logger.info(f"Starting job recommendation generation for applicant {applicant.id}. Min score threshold: {min_score}")
+        
         for job in jobs:
             # Calculate match score with applicant context for location matching
             match_score, breakdown = self._calculate_job_match(
                 normalized_data, job, interview_score, applicant
             )
             
+            logger.debug(f"Job {job.id} ({job.title}): score={match_score:.3f}, min={min_score}")
+            
             if match_score >= min_score:
-                # Get or create recommendation record
+                # Get or create recommendation record (store as 0-100 percentage)
+                score_percent = match_score * 100
                 rec = self.db.query(JobRecommendation).filter(
                     JobRecommendation.applicant_id == applicant.id,
                     JobRecommendation.job_id == job.id
@@ -496,14 +592,14 @@ class RecommendationService:
                     rec = JobRecommendation(
                         applicant_id=applicant.id,
                         job_id=job.id,
-                        score=match_score,
+                        score=score_percent,
                         scoring_breakdown=breakdown,
                         explain=explanation
                     )
                     self.db.add(rec)
                 else:
                     # Update score
-                    rec.score = match_score
+                    rec.score = score_percent
                     rec.scoring_breakdown = breakdown
                     rec.explain = explanation
                 
@@ -522,7 +618,12 @@ class RecommendationService:
                 })
         
         # Commit recommendation records
-        self.db.commit()
+        try:
+            self.db.commit()
+            logger.info(f"Generated {len(recommendations)} job recommendations for applicant {applicant.id}")
+        except Exception as e:
+            logger.error(f"Failed to commit job recommendations: {e}")
+            self.db.rollback()
         
         # Sort by match score and limit
         recommendations.sort(key=lambda x: x['match_score'], reverse=True)
@@ -564,7 +665,7 @@ class RecommendationService:
         education_weight = settings.JOB_REC_EDUCATION_WEIGHT
         
         # Calculate individual component scores (0-1 scale)
-        skills_score = self._calculate_job_skills_match(skills, job)
+        skills_score, skills_breakdown = self._calculate_job_skills_match(skills, job)
         experience_score = self._calculate_job_experience_match(experience, job)
         cert_score = self._calculate_job_certifications_match(certifications, job)
         location_score = self._calculate_location_match(personal, job, applicant)
@@ -605,6 +706,7 @@ class RecommendationService:
         # Build detailed breakdown
         breakdown = {
             'skills_score': round(skills_score, 3),
+            'skills_breakdown': skills_breakdown,  # Include detailed skill matching info
             'experience_score': round(experience_score, 3),
             'certifications_score': round(cert_score, 3),
             'location_score': round(location_score, 3),
@@ -681,13 +783,17 @@ class RecommendationService:
     
     def _calculate_salary_match(self, applicant: Optional[Applicant], job: Job) -> float:
         """Calculate salary expectation match (0-1)"""
+        # Safely access optional salary fields
+        min_salary = getattr(job, 'min_salary', None)
+        max_salary = getattr(job, 'max_salary', None)
+        
         # If no salary info available, return neutral
-        if not job.min_salary and not job.max_salary:
+        if not min_salary and not max_salary:
             return 0.7
         
         # For now, jobs with visible salary are preferred
         # Can be enhanced with actual salary expectation matching
-        if job.min_salary and job.max_salary:
+        if min_salary and max_salary:
             return 0.9  # Transparent salary = good match
         
         return 0.6
@@ -698,8 +804,8 @@ class RecommendationService:
             # No penalty for missing certifications unless required
             return 0.5
         
-        # Check if job has preferred certifications
-        job_certs = job.preferred_certifications or []
+        # Check if job has preferred certifications (optional field)
+        job_certs = getattr(job, 'preferred_certifications', None) or []
         if not job_certs:
             # Has certifications but job doesn't require any
             return 0.8 if certifications else 0.5
@@ -710,19 +816,31 @@ class RecommendationService:
             name = cert.get('name', '') if isinstance(cert, dict) else str(cert)
             applicant_certs.add(name.lower())
         
-        job_certs_lower = set(c.lower() for c in job_certs)
+        job_certs_lower = set(c.lower() for c in job_certs if c)
+        if not job_certs_lower:
+            return 0.7
+            
         matches = len(applicant_certs & job_certs_lower)
-        
-        if job_certs_lower:
-            return min(1.0, matches / len(job_certs_lower) + 0.3)
-        
-        return 0.7
+        return min(1.0, matches / len(job_certs_lower) + 0.3)
     
-    def _calculate_job_skills_match(self, applicant_skills: List, job: Job) -> float:
-        """Calculate skill match for job"""
-        if not applicant_skills or not job.required_skills:
-            return 0.3
+    def _calculate_job_skills_match(self, applicant_skills: List, job: Job) -> Tuple[float, Dict]:
+        """
+        Calculate skill match for job using semantic matching.
         
+        Returns: (match_score, detailed_breakdown)
+        """
+        if not applicant_skills or not job.required_skills:
+            return 0.3, {"skills_score": 0.3, "matched_skills": [], "missing_skills": []}
+        
+        # Use semantic matching if enabled and available
+        if settings.SEMANTIC_MATCHING_ENABLED and self.semantic_matcher and self.semantic_matcher.enabled:
+            return self._calculate_job_skills_match_semantic(applicant_skills, job)
+        else:
+            # Fallback to simple string matching
+            return self._calculate_job_skills_match_simple(applicant_skills, job)
+    
+    def _calculate_job_skills_match_simple(self, applicant_skills: List, job: Job) -> Tuple[float, Dict]:
+        """Fallback: Simple string matching (old behavior)"""
         # Extract applicant skill names
         applicant_skill_names = set()
         for skill in applicant_skills:
@@ -740,11 +858,113 @@ class RecommendationService:
                 required_skills.add(skill.lower())
         
         if not required_skills:
-            return 0.5
+            return 0.5, {"skills_score": 0.5, "matched_skills": [], "missing_skills": list(required_skills)}
         
         # Calculate match ratio
         matches = len(applicant_skill_names & required_skills)
-        return min(1.0, matches / len(required_skills))
+        score = min(1.0, matches / len(required_skills))
+        
+        return score, {
+            "skills_score": round(score, 3),
+            "matched_skills": list(applicant_skill_names & required_skills),
+            "missing_skills": list(required_skills - applicant_skill_names),
+            "matching_type": "simple_string_match"
+        }
+    
+    def _calculate_job_skills_match_semantic(self, applicant_skills: List, job: Job) -> Tuple[float, Dict]:
+        """Semantic skill matching using embeddings + taxonomy"""
+        try:
+            # Normalize applicant skills to canonical names
+            applicant_skill_list = []
+            for skill in applicant_skills:
+                skill_name = skill.get('name', '') if isinstance(skill, dict) else str(skill)
+                if skill_name:
+                    applicant_skill_list.append(skill_name)
+            
+            # Normalize job required skills
+            required_skill_list = []
+            for skill in job.required_skills:
+                skill_name = skill if isinstance(skill, str) else skill.get('name', '')
+                if skill_name:
+                    required_skill_list.append(skill_name)
+            
+            if not required_skill_list:
+                return 0.5, {"skills_score": 0.5, "matched_skills": [], "missing_skills": []}
+            
+            # Use batch matching for efficiency
+            applicant_matches = self.semantic_matcher.match_skills_batch(
+                applicant_skill_list,
+                threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
+            )
+            required_matches = self.semantic_matcher.match_skills_batch(
+                required_skill_list,
+                threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
+            )
+            
+            # Build canonical skill sets
+            applicant_canonical = set()
+            for match in applicant_matches:
+                if match["canonical"]:
+                    applicant_canonical.add(match["canonical"].lower())
+            
+            required_canonical = set()
+            required_skill_details = {}  # Track requirements
+            for match in required_matches:
+                if match["canonical"]:
+                    req_canonical = match["canonical"].lower()
+                    required_canonical.add(req_canonical)
+                    required_skill_details[req_canonical] = {
+                        "original": match["original"],
+                        "canonical": match["canonical"]
+                    }
+            
+            # Calculate matches with exact + related skills
+            matched_skills = []
+            partial_matches = []
+            
+            if required_canonical:
+                for req_skill in required_canonical:
+                    # Exact match
+                    if req_skill in applicant_canonical:
+                        matched_skills.append(req_skill)
+                    else:
+                        # Check related skills
+                        related = self.semantic_matcher.get_related_skills(req_skill)
+                        if any(r.lower() in applicant_canonical for r in related):
+                            partial_matches.append(req_skill)
+                
+                # Calculate score
+                exact_matches = len(matched_skills)
+                partial_match_score = len(partial_matches) * SEMANTIC_MATCHING_CONFIG["PARTIAL_CREDIT_FOR_RELATED"]
+                total_score = (exact_matches + partial_match_score) / len(required_canonical)
+                final_score = min(1.0, total_score)
+            else:
+                # No required skills to match
+                final_score = 0.5
+                exact_matches = 0
+                matched_skills = []
+                partial_matches = []
+            
+            # Build detailed breakdown
+            missing_skills = required_canonical - (set(matched_skills) | set(partial_matches))
+            
+            breakdown = {
+                "skills_score": round(final_score, 3),
+                "matched_skills": list(matched_skills),
+                "partial_matches": list(partial_matches),
+                "missing_skills": list(missing_skills),
+                "matching_type": "semantic_with_taxonomy",
+                "exact_matches": exact_matches,
+                "partial_matches_count": len(partial_matches),
+                "required_skills_count": len(required_canonical),
+            }
+            
+            return final_score, breakdown
+        
+        except Exception as e:
+            logger.error(f"Error in semantic skill matching: {e}")
+            # Fallback to simple matching on error
+            return self._calculate_job_skills_match_simple(applicant_skills, job)
     
     def _calculate_job_education_match(self, education: List[Dict], job: Job) -> float:
         """Calculate education match for job"""

@@ -13,50 +13,57 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 from datetime import datetime
 
-try:
+WATCHDOG_AVAILABLE = False  # Default; will be set to True if runtime import succeeds
+
+if TYPE_CHECKING:
+    # During type-checking, import real watchdog types for accuracy
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler, FileModifiedEvent, FileCreatedEvent, FileDeletedEvent
-    WATCHDOG_AVAILABLE = True
-except ImportError:
-    WATCHDOG_AVAILABLE = False
-    # Stub classes for when watchdog is not installed
-    class FileSystemEventHandler:
-        """Stub for watchdog FileSystemEventHandler"""
-        pass
-    
-    class FileEvent:
-        """Stub base event"""
-        is_directory: bool = False
-        src_path: str = ""
-    
-    class FileModifiedEvent(FileEvent):
-        """Stub for watchdog FileModifiedEvent"""
-        pass
-    
-    class FileCreatedEvent(FileEvent):
-        """Stub for watchdog FileCreatedEvent"""
-        pass
-    
-    class FileDeletedEvent(FileEvent):
-        """Stub for watchdog FileDeletedEvent"""
-        pass
-    
-    class Observer:
-        """Stub for watchdog Observer"""
-        def schedule(self, *args, **kwargs):
+else:
+    try:
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler, FileModifiedEvent, FileCreatedEvent, FileDeletedEvent
+        WATCHDOG_AVAILABLE = True
+    except ImportError:
+        WATCHDOG_AVAILABLE = False
+        # Runtime stubs when watchdog is not installed
+        class FileSystemEventHandler:  # type: ignore
+            """Stub for watchdog FileSystemEventHandler"""
             pass
         
-        def start(self):
+        class FileEvent:  # type: ignore
+            """Stub base event"""
+            is_directory: bool = False
+            src_path: str = ""
+        
+        class FileModifiedEvent(FileEvent):  # type: ignore
+            """Stub for watchdog FileModifiedEvent"""
             pass
         
-        def stop(self):
+        class FileCreatedEvent(FileEvent):  # type: ignore
+            """Stub for watchdog FileCreatedEvent"""
             pass
         
-        def join(self, timeout=None):
+        class FileDeletedEvent(FileEvent):  # type: ignore
+            """Stub for watchdog FileDeletedEvent"""
             pass
+        
+        class Observer:  # type: ignore
+            """Stub for watchdog Observer"""
+            def schedule(self, *args, **kwargs):
+                pass
+            
+            def start(self):
+                pass
+            
+            def stop(self):
+                pass
+            
+            def join(self, timeout=None):
+                pass
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +315,7 @@ class FileWatcher:
         self.hash_tracker = FileHashTracker(cache_path)
         
         # Observer state
-        self.observer: Optional[Observer] = None
+        self.observer: Optional[Any] = None  # runtime type guarded
         self._is_running = False
         self._lock = threading.Lock()
         

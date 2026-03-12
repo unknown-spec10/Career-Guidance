@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Briefcase, Building2, TrendingUp, Clock,
-  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2
+  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2, RefreshCcw
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -45,6 +45,7 @@ export default function StudentDashboard() {
   })
   const [applicantId, setApplicantId] = useState(null)
   const [noApplicantProfile, setNoApplicantProfile] = useState(false)
+  const [recalcLoading, setRecalcLoading] = useState(false)
 
   // Modal States
   const [easyApplyOpen, setEasyApplyOpen] = useState(false)
@@ -175,6 +176,8 @@ export default function StudentDashboard() {
       // Recommendations
       if (profileId) {
         const recRes = await api.get(`/api/recommendations/${profileId}`)
+        console.log('📊 Recommendations API response:', recRes.data)
+        console.log('📊 Job recommendations count:', recRes.data.job_recommendations?.length || 0)
         setRecommendations(recRes.data.job_recommendations || [])
         setNoApplicantProfile(false)
       }
@@ -189,6 +192,25 @@ export default function StudentDashboard() {
   useEffect(() => {
     fetchAll()
   }, [])
+
+  const handleRecomputeRecommendations = async () => {
+    if (!applicantId) return
+    try {
+      setRecalcLoading(true)
+      await api.post(`/api/applicant/${applicantId}/generate-recommendations`)
+      await fetchAll()
+      toast.success('Recommendations updated')
+      // Scroll to recommendations after refresh
+      if (recommendationsRef.current) {
+        recommendationsRef.current.scrollIntoView({ behavior: 'smooth' })
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail || 'Failed to regenerate recommendations'
+      toast.error(detail)
+    } finally {
+      setRecalcLoading(false)
+    }
+  }
 
   // --- Optimistic UI ---
   const {
@@ -365,6 +387,21 @@ export default function StudentDashboard() {
           </motion.div>
         )}
 
+        {/* --- RECOMMENDATIONS HEADER + ACTION --- */}
+        {!noApplicantProfile && (
+          <div className="flex items-center justify-between mb-4" ref={recommendationsRef}>
+            <h2 className="text-xl font-bold text-gray-900">Recommendations</h2>
+            <button
+              onClick={handleRecomputeRecommendations}
+              disabled={recalcLoading}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-colors ${recalcLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-500'}`}
+            >
+              <RefreshCcw className="w-4 h-4" />
+              <span>{recalcLoading ? 'Updating...' : 'Re-run Recommendations'}</span>
+            </button>
+          </div>
+        )}
+
         {/* --- RECOMMENDATIONS (Optimistic List) --- */}
         {recommendations.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -381,7 +418,11 @@ export default function StudentDashboard() {
                     <h3 className="font-bold text-lg leading-tight mb-1 text-gray-900">{rec.job?.title || rec.title}</h3>
                     <p className="text-sm text-gray-600">{rec.job?.company || rec.company}</p>
                   </div>
-                  <MatchScore score={rec.match_percentage ? rec.match_percentage / 100 : (rec.score || 0)} size="sm" showLabel={false} />
+                  <MatchScore
+                    score={((rec.match_score ?? rec.match_percentage ?? rec.score ?? 0) / 100)}
+                    size="sm"
+                    showLabel={false}
+                  />
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">

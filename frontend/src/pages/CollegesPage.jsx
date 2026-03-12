@@ -15,6 +15,7 @@ export default function CollegesPage() {
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [selectedCollege, setSelectedCollege] = useState(null)
   const pageSize = 9 // 3x3 grid = 9 colleges per page
   const observerTarget = useRef(null)
   const hasMoreRef = useRef(hasMore)
@@ -127,13 +128,26 @@ export default function CollegesPage() {
     }
     const tierStyle = getTierBadgeStyle(college.tier)
 
+    const handleCardClick = async () => {
+      try {
+        // Fetch full college details
+        const response = await api.get(`/api/college/${college.id}`)
+        setSelectedCollege(response.data.college)
+      } catch (error) {
+        console.error('Error fetching college details:', error)
+        // Fallback to card data if API fails
+        setSelectedCollege(college)
+      }
+    }
+
     return (
       <motion.div
         layout
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="bg-white border border-primary-200 rounded-xl p-6 hover:shadow-lg transition-shadow"
+        onClick={handleCardClick}
+        className="bg-white border border-primary-200 rounded-xl p-6 hover:shadow-lg hover:scale-105 transition-all cursor-pointer"
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-4 mb-4">
@@ -217,6 +231,26 @@ export default function CollegesPage() {
           <p className="text-sm text-gray-700 mb-4 line-clamp-2">
             {college.description}
           </p>
+        )}
+
+        {/* Programs Preview */}
+        {college.programs && college.programs.length > 0 && (
+          <div className="mb-4 pb-4 border-b border-gray-200">
+            <p className="text-xs font-semibold text-gray-600 mb-2">Programs Offered</p>
+            <div className="flex flex-wrap gap-2">
+              {college.programs.slice(0, 4).map((prog, idx) => {
+                const progName = prog.name || prog
+                return (
+                  <span key={idx} className="bg-blue-50 border border-blue-200 text-blue-700 px-2 py-1 rounded text-xs font-medium">
+                    {progName}
+                  </span>
+                )
+              })}
+              {college.programs.length > 4 && (
+                <span className="text-xs text-gray-600">+{college.programs.length - 4} more</span>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Contact & Website */}
@@ -353,6 +387,169 @@ export default function CollegesPage() {
           </div>
         )}
       </div>
+
+      {/* College Details Modal */}
+      <AnimatePresence>
+        {selectedCollege && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedCollege(null)}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 400 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            >
+              {console.log('Selected College Data:', selectedCollege)}
+              {/* Modal Header */}
+              <div className="sticky top-0 bg-gradient-to-r from-primary-500 to-primary-600 text-white p-6 flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold mb-2">{selectedCollege.name}</h2>
+                  <p className="text-primary-100 flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    {selectedCollege.location_city}, {selectedCollege.location_state}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedCollege(null)}
+                  className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 space-y-6">
+                {/* Basic Info */}
+                <div>
+                  {selectedCollege.location_city || selectedCollege.location_state || selectedCollege.country ? (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {selectedCollege.location_city && (
+                        <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">📍 {selectedCollege.location_city}</span>
+                      )}
+                      {selectedCollege.location_state && (
+                        <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">{selectedCollege.location_state}</span>
+                      )}
+                      {selectedCollege.country && (
+                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">🌏 {selectedCollege.country}</span>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Description */}
+                {selectedCollege.description && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">About</h3>
+                    <p className="text-gray-700 leading-relaxed">{selectedCollege.description}</p>
+                  </div>
+                )}
+
+                {/* Website & Contact */}
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Links</h3>
+                  <div className="space-y-3">
+                    {selectedCollege.website && (
+                      <a
+                        href={selectedCollege.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 p-3 bg-primary-50 border border-primary-200 rounded-lg hover:bg-primary-100 transition-colors"
+                      >
+                        <Globe className="w-5 h-5 text-primary-500 flex-shrink-0" />
+                        <span className="text-gray-900 font-medium truncate">{selectedCollege.website}</span>
+                      </a>
+                    )}
+                    {!selectedCollege.website && (
+                      <p className="text-gray-500 text-sm">No website available</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Programs */}
+                {selectedCollege.programs && selectedCollege.programs.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Programs Offered</h3>
+                    <div className="space-y-3">
+                      {selectedCollege.programs.map((program) => (
+                        <div key={program.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                          <h4 className="font-semibold text-gray-900">{program.program_name}</h4>
+                          {program.duration_months && (
+                            <p className="text-sm text-gray-600">⏱️ Duration: {program.duration_months} months</p>
+                          )}
+                          {program.description && (
+                            <p className="text-sm text-gray-700 mt-2">{program.description}</p>
+                          )}
+                          {program.required_skills && program.required_skills.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs font-semibold text-gray-600 mb-1">Required Skills:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {program.required_skills.map((skill, idx) => (
+                                  <span key={idx} className="bg-primary-100 text-primary-700 px-2 py-0.5 rounded text-xs">
+                                    {skill}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Eligibility */}
+                {selectedCollege.eligibility && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Eligibility Criteria</h3>
+                    <div className="space-y-2">
+                      {selectedCollege.eligibility.min_jee_rank && (
+                        <p className="text-sm text-gray-700">📊 Min JEE Rank: {selectedCollege.eligibility.min_jee_rank}</p>
+                      )}
+                      {selectedCollege.eligibility.min_cgpa && (
+                        <p className="text-sm text-gray-700">📈 Min CGPA: {selectedCollege.eligibility.min_cgpa}</p>
+                      )}
+                      {selectedCollege.eligibility.seats && (
+                        <p className="text-sm text-gray-700">🎓 Available Seats: {selectedCollege.eligibility.seats}</p>
+                      )}
+                      {selectedCollege.eligibility.eligible_degrees && selectedCollege.eligibility.eligible_degrees.length > 0 && (
+                        <div>
+                          <p className="text-sm text-gray-700 font-semibold mb-1">Eligible Degrees:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedCollege.eligibility.eligible_degrees.map((degree, idx) => (
+                              <span key={idx} className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs">
+                                {degree}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex gap-3">
+                <button
+                  onClick={() => setSelectedCollege(null)}
+                  className="flex-1 px-4 py-3 rounded-lg border border-gray-300 text-gray-900 font-semibold hover:bg-gray-100 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -29,6 +29,7 @@ import LearningPathPage from './pages/LearningPathPage'
 import MyLearningPathsPage from './pages/MyLearningPathsPage'
 import TransactionHistoryPage from './pages/TransactionHistoryPage'
 import AdminCreditManagement from './pages/AdminCreditManagement'
+import AdminCollegeCollection from './pages/AdminCollegeCollection'
 import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerProfile from './pages/EmployerProfile'
 import EmployerPostJob from './pages/EmployerPostJob'
@@ -234,6 +235,14 @@ function AppContent() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminCreditManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/college-collection"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminCollegeCollection />
               </ProtectedRoute>
             }
           />

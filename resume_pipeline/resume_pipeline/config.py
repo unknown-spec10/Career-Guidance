@@ -7,16 +7,15 @@ from urllib.parse import quote_plus
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
 
 class Settings(BaseSettings):
-    # Prefer separate fields; fallback to MYSQL_DSN if fully provided
-    MYSQL_HOST: str | None = None
-    MYSQL_PORT: int | None = None
-    MYSQL_USER: str | None = None
-    MYSQL_PASSWORD: str | None = None
-    MYSQL_DB: str | None = None
-    # Cloud Run demo: use in-memory SQLite by default (₹0 cost, scales to zero)
-    # Data resets on service restart (acceptable for demos)
-    # For persistence, set MYSQL_DSN to file-based SQLite or proper database
-    MYSQL_DSN: str | None = None
+    # Prefer separate fields; fallback to PG_DSN if fully provided
+    PG_HOST: str | None = None
+    PG_PORT: int | None = None
+    PG_USER: str | None = None
+    PG_PASSWORD: str | None = None
+    PG_DB: str | None = None
+    # Demo/test mode: use in-memory SQLite by default (no persistence)
+    # For production, set PG_DSN or the individual PG_* fields above
+    PG_DSN: str | None = None
     FILE_STORAGE_PATH: str = "./data/raw_files"
     GEMINI_API_KEY: str = ""
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
@@ -44,6 +43,19 @@ class Settings(BaseSettings):
     
     # Skill taxonomy (optional JSON file path)
     SKILL_TAXONOMY_PATH: str | None = None
+    SKILL_TAXONOMY_METADATA_PATH: str | None = None
+    
+    # ============================================================================
+    # SEMANTIC SKILL MATCHING CONFIGURATION
+    # Uses embeddings + taxonomy for intelligent skill normalization & matching
+    # ============================================================================
+    SEMANTIC_MATCHING_ENABLED: bool = True              # Feature toggle
+    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"     # Lightweight, fast local model
+    SEMANTIC_SIMILARITY_THRESHOLD: float = 0.70         # Min confidence for canonical match
+    RELATED_SKILL_WEIGHT: float = 0.60                  # Weight for related skill matches
+    EXACT_MATCH_WEIGHT: float = 1.0                     # Weight for exact matches
+    SEMANTIC_MATCH_WEIGHT: float = 0.85                 # Weight for embedding-based matches
+    CATEGORY_MATCH_WEIGHT: float = 0.40                 # Weight for same-category matches
     
     # Google Search API for skill taxonomy builder
     GOOGLE_API_KEY: str | None = None
@@ -59,7 +71,7 @@ class Settings(BaseSettings):
     
     # CORS Origins - configurable for cloud deployments
     # In development: localhost:3000 and localhost:5173
-    # In production: add your Firebase Hosting domain, Cloud Run domain, etc.
+    # In production: add your frontend domain, Cloud Run domain, etc.
     # Format: comma-separated list
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
@@ -103,7 +115,7 @@ class Settings(BaseSettings):
     # Recommendation thresholds
     MIN_RECOMMENDATION_SCORE: float = 0.25  # 25% minimum match score
     MIN_COLLEGE_REC_SCORE: float = 0.25     # College-specific minimum
-    MIN_JOB_REC_SCORE: float = 0.30         # Job-specific minimum (higher bar)
+    MIN_JOB_REC_SCORE: float = 0.10         # Job-specific minimum (lowered to 10% for testing)
     MAX_RECOMMENDATIONS: int = 10           # Maximum recommendations to return
     
     # RAG System Configuration
@@ -113,21 +125,42 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Build DSN from parts if MYSQL_DSN not explicitly set
-if not settings.MYSQL_DSN:
-    # Cloud Run demo: default to in-memory SQLite (₹0 cost, scales to zero)
-    # For production with persistence, set MYSQL_DSN environment variable
-    if settings.MYSQL_HOST:
-        # Only use MySQL if explicitly configured
-        host = settings.MYSQL_HOST or "localhost"
-        port = settings.MYSQL_PORT or 3306
-        user = settings.MYSQL_USER or "root"
-        pwd_raw = settings.MYSQL_PASSWORD or ""
+# ============================================================================
+# Environment auto-detection
+# Supabase hosts always contain "supabase.co" in PG_HOST.
+# This controls:
+#   1. Whether SSL is added to the DSN
+#   2. Whether startup skips CREATE DATABASE (Supabase manages the DB)
+# ============================================================================
+_pg_host = settings.PG_HOST or ""
+IS_SUPABASE: bool = "supabase.co" in _pg_host
+
+# Build DSN from parts if PG_DSN not explicitly set
+if not settings.PG_DSN:
+    if settings.PG_HOST:
+        host = settings.PG_HOST
+        port = settings.PG_PORT or 5432
+        user = settings.PG_USER or "postgres"
+        pwd_raw = settings.PG_PASSWORD or ""
         pwd = quote_plus(pwd_raw)
-        dbname = settings.MYSQL_DB or "resumes"
-        settings.MYSQL_DSN = f"mysql+pymysql://{user}:{pwd}@{host}:{port}/{dbname}"
+        dbname = settings.PG_DB or "resumes"
+
+        if IS_SUPABASE:
+            # Supabase requires SSL and disables prepared-statement caching
+            # (pgbouncer-compatible even in session-pooler mode)
+            settings.PG_DSN = (
+                f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
+                f"?sslmode=require&options=-c%20statement_timeout%3D30000"
+            )
+        else:
+            settings.PG_DSN = (
+                f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
+            )
     else:
-        # Cloud Run: in-memory SQLite for zero-cost demos
-        settings.MYSQL_DSN = "sqlite:///:memory:"
+        # Demo/test: in-memory SQLite for zero-cost demos
+        settings.PG_DSN = "sqlite:///:memory:"
+        IS_SUPABASE = False
 else:
-    pass  # Use explicitly set MYSQL_DSN
+    # If an explicit PG_DSN was provided, still detect Supabase from it
+    IS_SUPABASE = "supabase.co" in settings.PG_DSN
+

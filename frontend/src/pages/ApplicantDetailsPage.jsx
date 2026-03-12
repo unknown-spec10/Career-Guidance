@@ -12,6 +12,7 @@ export default function ApplicantDetailsPage() {
   const [data, setData] = useState(null)
   const [recommendations, setRecommendations] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [recalcLoading, setRecalcLoading] = useState(false)
 
   const fetchData = async () => {
     try {
@@ -52,6 +53,19 @@ export default function ApplicantDetailsPage() {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applicantId])
+
+  const handleRecomputeRecommendations = async () => {
+    if (!data?.applicant?.id) return
+    try {
+      setRecalcLoading(true)
+      await api.post(`/api/applicant/${data.applicant.id}/generate-recommendations`)
+      await fetchData()
+    } catch (error) {
+      console.error('Error recomputing recommendations:', error)
+    } finally {
+      setRecalcLoading(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -204,6 +218,16 @@ export default function ApplicantDetailsPage() {
 
           {/* Right Column - Recommendations */}
           <div className="lg:col-span-2 space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-800">Recommendations</h2>
+              <button
+                onClick={handleRecomputeRecommendations}
+                disabled={recalcLoading}
+                className={`px-4 py-2 rounded-md text-white transition-colors duration-200 ${recalcLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary-500 hover:bg-primary-600'}`}
+              >
+                {recalcLoading ? 'Recomputing...' : 'Re-run Recommendations'}
+              </button>
+            </div>
             {/* College Recommendations */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -233,7 +257,7 @@ export default function ApplicantDetailsPage() {
                         <div className="flex items-center space-x-1">
                           <TrendingUp className="w-4 h-4 text-primary-400" />
                           <span className="text-xl font-bold text-primary-400">
-                            {rec.recommend_score.toFixed(1)}%
+                            {(rec.match_score ?? rec.recommend_score ?? 0).toFixed(1)}%
                           </span>
                         </div>
                         <p className="text-xs text-gray-500">Match Score</p>
@@ -284,7 +308,7 @@ export default function ApplicantDetailsPage() {
                         <div className="flex items-center space-x-1">
                           <TrendingUp className="w-4 h-4 text-green-400" />
                           <span className="text-xl font-bold text-green-400">
-                            {rec.score.toFixed(1)}%
+                            {(rec.match_score ?? rec.score ?? 0).toFixed(1)}%
                           </span>
                         </div>
                         <p className="text-xs text-gray-500">Match Score</p>

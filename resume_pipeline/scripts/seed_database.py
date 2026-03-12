@@ -20,7 +20,6 @@ from resume_pipeline.db import (
     User, CanonicalSkill, AuditLog, HumanReview
 )
 from resume_pipeline.auth import get_password_hash
-import pymysql
 
 # Sample data pools
 FIRST_NAMES = [

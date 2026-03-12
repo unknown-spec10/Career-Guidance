@@ -14,7 +14,7 @@ def column_exists(conn) -> bool:
             """
             SELECT COUNT(*)
             FROM information_schema.columns
-            WHERE table_schema = DATABASE()
+            WHERE table_schema = current_schema()
               AND table_name = 'learning_paths'
               AND column_name = 'job_id'
             """
@@ -28,10 +28,10 @@ def index_exists(conn, index_name: str) -> bool:
         text(
             """
             SELECT COUNT(*)
-            FROM information_schema.statistics
-            WHERE table_schema = DATABASE()
-              AND table_name = 'learning_paths'
-              AND index_name = :index_name
+            FROM pg_indexes
+            WHERE schemaname = current_schema()
+              AND tablename = 'learning_paths'
+              AND indexname = :index_name
             """
         ),
         {"index_name": index_name},
@@ -45,7 +45,7 @@ def fk_exists(conn, constraint_name: str) -> bool:
             """
             SELECT COUNT(*)
             FROM information_schema.table_constraints
-            WHERE table_schema = DATABASE()
+            WHERE table_schema = current_schema()
               AND table_name = 'learning_paths'
               AND constraint_type = 'FOREIGN KEY'
               AND constraint_name = :constraint_name
@@ -57,10 +57,10 @@ def fk_exists(conn, constraint_name: str) -> bool:
 
 
 def main():
-    if not settings.MYSQL_DSN:
-        raise RuntimeError("MYSQL_DSN is not set")
-    engine = create_engine(settings.MYSQL_DSN)
-    print(f"Connecting to DB: {settings.MYSQL_DSN}")
+    if not settings.PG_DSN:
+        raise RuntimeError("PG_DSN is not set")
+    engine = create_engine(settings.PG_DSN)
+    print(f"Connecting to DB: {settings.PG_DSN}")
 
     with engine.begin() as conn:
         if column_exists(conn):
@@ -68,7 +68,7 @@ def main():
             return
 
         print("Adding job_id column to learning_paths ...")
-        conn.execute(text("ALTER TABLE learning_paths ADD COLUMN job_id INT NULL AFTER applicant_id"))
+        conn.execute(text("ALTER TABLE learning_paths ADD COLUMN job_id INT NULL"))
 
         if not index_exists(conn, "idx_learning_paths_job_id"):
             print("Creating index idx_learning_paths_job_id ...")

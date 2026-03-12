@@ -1,6 +1,6 @@
 # 🚀 Career Guidance AI - Deployment Guide
 
-Complete deployment guide for local development, Docker containers, and Google Cloud Platform.
+Complete deployment guide for local development and Docker containers.
 
 ---
 
@@ -9,11 +9,10 @@ Complete deployment guide for local development, Docker containers, and Google C
 1. [Quick Start](#quick-start)
 2. [Local Development](#local-development)
 3. [Docker Deployment](#docker-deployment)
-4. [Cloud Deployment (GCP)](#cloud-deployment-gcp)
-5. [Environment Variables](#environment-variables)
-6. [Verification & Testing](#verification--testing)
-7. [Troubleshooting](#troubleshooting)
-8. [Production Checklist](#production-checklist)
+4. [Environment Variables](#environment-variables)
+5. [Verification & Testing](#verification--testing)
+6. [Troubleshooting](#troubleshooting)
+7. [Production Checklist](#production-checklist)
 
 ---
 
@@ -57,7 +56,7 @@ npm run dev
 
 - **Python**: 3.11+ ([Download](https://www.python.org/downloads/))
 - **Node.js**: 18+ ([Download](https://nodejs.org/))
-- **MySQL**: 8.0+ ([Download](https://dev.mysql.com/downloads/installer/))
+- **PostgreSQL**: 16+ ([Download](https://www.postgresql.org/download/)) or use Docker
 - **Git**: Latest ([Download](https://git-scm.com/downloads))
 
 ### Backend Setup
@@ -78,33 +77,36 @@ pip install -r requirements.txt
 
 **Key Packages**:
 - `fastapi[standard]`: Web framework
-- `sqlalchemy`: ORM for MySQL
-- `firebase-admin`: Firestore client
+- `sqlalchemy`: ORM
+- `psycopg2-binary`: PostgreSQL driver
 - `google-generativeai`: Gemini AI
 - `pydantic`: Data validation
 - `python-jose[cryptography]`: JWT auth
 - `bcrypt`: Password hashing
 
-#### 3. Configure MySQL Database
+#### 3. Configure PostgreSQL Database
 
-**Option A: Manual Setup**
-```sql
-CREATE DATABASE career_guidance;
-CREATE USER 'career_user'@'localhost' IDENTIFIED BY 'your_password';
-GRANT ALL PRIVILEGES ON career_guidance.* TO 'career_user'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-**Option B: Docker (Recommended)**
+**Option A: Docker (Recommended)**
 ```powershell
 docker run -d `
-  --name career-mysql `
-  -e MYSQL_ROOT_PASSWORD=rootpassword `
-  -e MYSQL_DATABASE=career_guidance `
-  -e MYSQL_USER=career_user `
-  -e MYSQL_PASSWORD=yourpassword `
-  -p 3306:3306 `
-  mysql:8.0
+  --name career-postgres `
+  -e POSTGRES_PASSWORD=yourpassword `
+  -e POSTGRES_DB=career_guidance `
+  -e POSTGRES_USER=postgres `
+  -p 5432:5432 `
+  postgres:16
+```
+
+**Option B: Manual PostgreSQL Setup**
+```sql
+CREATE DATABASE career_guidance;
+CREATE USER career_user WITH ENCRYPTED PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE career_guidance TO career_user;
+```
+
+**Option C: Docker Compose (full stack)**
+```powershell
+docker-compose up -d
 ```
 
 #### 4. Create .env File
@@ -116,15 +118,12 @@ cp .env.example .env
 
 **Required Variables** (`.env`):
 ```env
-# Database Selection
-APP_ENV=local
-
-# MySQL (Local)
-MYSQL_HOST=localhost
-MYSQL_USER=career_user
-MYSQL_PASSWORD=yourpassword
-MYSQL_DB=career_guidance
-MYSQL_PORT=3306
+# PostgreSQL
+PG_HOST=localhost
+PG_PORT=5432
+PG_USER=postgres
+PG_PASSWORD=yourpassword
+PG_DB=career_guidance
 
 # Security
 SECRET_KEY=your-super-secret-jwt-key-min-32-chars
@@ -604,25 +603,27 @@ Write-Host "✅ Deployment complete!" -ForegroundColor Green
 
 ### Complete Reference
 
-| Variable | Local | Cloud | Description |
-|----------|-------|-------|-------------|
-| **APP_ENV** | `local` | `cloud` | Database selection |
-| **MYSQL_HOST** | `localhost` | ❌ | MySQL host |
-| **MYSQL_USER** | `career_user` | ❌ | MySQL username |
-| **MYSQL_PASSWORD** | `yourpassword` | ❌ | MySQL password |
-| **MYSQL_DB** | `career_guidance` | ❌ | Database name |
-| **SECRET_KEY** | ✅ | ✅ | JWT signing key (32+ chars) |
-| **JWT_ALGORITHM** | `HS256` | `HS256` | JWT algorithm |
-| **JWT_EXPIRATION_MINUTES** | `1440` | `1440` | Token expiry (24h) |
-| **GEMINI_API_KEY** | ✅ | ✅ | Google Gemini API key |
-| **GROQ_API_KEY** | ✅ | ✅ | Groq API key |
-| **GOOGLE_API_KEY** | ✅ | ✅ | Google API key |
-| **GOOGLE_SEARCH_ENGINE_ID** | ✅ | ✅ | Custom search engine ID |
-| **GMAIL_USER** | ✅ | ✅ | Gmail for verification emails |
-| **GMAIL_APP_PASSWORD** | ✅ | ✅ | Gmail app password (16 chars) |
-| **FRONTEND_URL** | `http://localhost:5173` | `https://resume-app-10864.web.app` | Frontend URL |
-| **CORS_ORIGINS** | `http://localhost:5173` | `https://resume-app-10864.web.app` | Allowed origins |
-| **FILE_STORAGE_PATH** | `./data/raw_files` | `/tmp/data` | File storage location |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| **PG_HOST** | Yes | PostgreSQL host (e.g. `localhost`) |
+| **PG_PORT** | No | PostgreSQL port (default `5432`) |
+| **PG_USER** | Yes | PostgreSQL username |
+| **PG_PASSWORD** | Yes | PostgreSQL password |
+| **PG_DB** | Yes | Database name |
+| **PG_DSN** | No | Full DSN (overrides discrete PG_* vars) |
+| **SECRET_KEY** | Yes | JWT signing key (32+ chars) |
+| **JWT_ALGORITHM** | No | JWT algorithm (default `HS256`) |
+| **JWT_EXPIRATION_MINUTES** | No | Token expiry in minutes (default `1440`) |
+| **GEMINI_API_KEY** | Yes | Google Gemini API key |
+| **GROQ_API_KEY** | Yes | Groq API key for RAG |
+| **GOOGLE_API_KEY** | No | Google Custom Search API key |
+| **GOOGLE_SEARCH_ENGINE_ID** | No | Custom search engine ID |
+| **GMAIL_USER** | No | Gmail for verification emails |
+| **GMAIL_APP_PASSWORD** | No | Gmail app password (16 chars) |
+| **FRONTEND_URL** | No | Frontend URL for email links |
+| **CORS_ORIGINS** | No | Comma-separated allowed origins |
+| **FILE_STORAGE_PATH** | No | File storage path (default `./data/raw_files`) |
+| **GEMINI_MOCK_MODE** | No | Set `true` to stub LLM calls in tests |
 
 ### Security Best Practices
 

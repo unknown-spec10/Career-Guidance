@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Users, GraduationCap, Briefcase, TrendingUp, AlertCircle } from 'lucide-react'
+import { Users, GraduationCap, Briefcase, TrendingUp, AlertCircle, Database } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
@@ -95,18 +95,27 @@ export default function DashboardPage() {
             <h1 className="text-3xl md:text-4xl font-bold mb-2">Admin Dashboard</h1>
             <p className="text-gray-400">Overview of the career guidance system</p>
           </div>
-          <Link 
-            to="/admin/reviews"
-            className="flex items-center space-x-2 px-4 py-2 bg-yellow-900/20 border border-yellow-500/30 rounded-lg hover:bg-yellow-900/30 transition-colors text-yellow-400"
-          >
-            <AlertCircle className="w-5 h-5" />
-            <span className="hidden sm:inline">Pending Reviews</span>
-            {stats?.applicants_needing_review > 0 && (
-              <span className="px-2 py-0.5 bg-yellow-500 text-dark-900 text-xs font-bold rounded-full">
-                {stats.applicants_needing_review}
-              </span>
-            )}
-          </Link>
+          <div className="flex items-center space-x-3">
+            <Link 
+              to="/admin/college-collection"
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-900/20 border border-blue-500/30 rounded-lg hover:bg-blue-900/30 transition-colors text-blue-400"
+            >
+              <Database className="w-5 h-5" />
+              <span className="hidden sm:inline">College Data</span>
+            </Link>
+            <Link 
+              to="/admin/reviews"
+              className="flex items-center space-x-2 px-4 py-2 bg-yellow-900/20 border border-yellow-500/30 rounded-lg hover:bg-yellow-900/30 transition-colors text-yellow-400"
+            >
+              <AlertCircle className="w-5 h-5" />
+              <span className="hidden sm:inline">Pending Reviews</span>
+              {stats?.applicants_needing_review > 0 && (
+                <span className="px-2 py-0.5 bg-yellow-500 text-dark-900 text-xs font-bold rounded-full">
+                  {stats.applicants_needing_review}
+                </span>
+              )}
+            </Link>
+          </div>
         </motion.div>
 
         {/* Stats Grid */}

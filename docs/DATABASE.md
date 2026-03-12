@@ -1,29 +1,26 @@
 # 🗄️ Database Documentation
 
-Complete database reference for the Career Guidance AI system with dual-database architecture (MySQL local + Firestore cloud).
+Complete database reference for the Career Guidance AI system — PostgreSQL via SQLAlchemy.
 
 ---
 
 ## 📑 Table of Contents
 
 1. [Database Overview](#database-overview)
-2. [Dual-Database Architecture](#dual-database-architecture)
+2. [Repository Pattern](#repository-pattern)
 3. [Data Models](#data-models)
-4. [Repository Pattern](#repository-pattern)
-5. [Operations (CRUD)](#operations-crud)
-6. [Queries & Examples](#queries--examples)
-7. [Firestore Setup](#firestore-setup)
-8. [MySQL Setup](#mysql-setup)
-9. [Data Migration](#data-migration)
-10. [Best Practices](#best-practices)
+4. [Operations (CRUD)](#operations-crud)
+5. [Queries & Examples](#queries--examples)
+6. [PostgreSQL Setup](#postgresql-setup)
+7. [Best Practices](#best-practices)
 
 ---
 
 ## Database Overview
 
-### Architecture Selection
+### Architecture
 
-The system uses environment-based database switching to optimize for both development and production:
+All environments (local dev, Docker, cloud) use **PostgreSQL 16** via SQLAlchemy. The repository pattern keeps business logic decoupled from the database driver.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -33,51 +30,40 @@ The system uses environment-based database switching to optimize for both develo
                    │
                    ▼
         ┌──────────────────────┐
-        │ Repository Factory    │
-        │ (APP_ENV selector)    │
+        │  Repository Factory   │
+        │  (always PostgreSQL)  │
         └──────────┬───────────┘
                    │
-        ┌──────────┴──────────┐
-        │                     │
-   APP_ENV=local      APP_ENV=cloud
-        │                     │
-        ▼                     ▼
-    ┌─────────┐          ┌──────────┐
-    │  MySQL  │          │ Firestore│
-    │  via    │          │  via     │
-    │SQLAlchemy          │firebase- │
-    │                    │admin     │
-    └─────────┘          └──────────┘
+                   ▼
+            ┌────────────┐
+            │ PostgreSQL │
+            │  via       │
+            │ SQLAlchemy │
+            └────────────┘
 ```
 
-### Cost Comparison
+### Connection
 
-| Environment | Database | Monthly Idle | Monthly @ 1K Users | Scaling |
-|-------------|----------|-------------|-------------------|---------|
-| **Local** | MySQL (docker) | $0 | N/A | Manual |
-| **Cloud** | Firestore | ~$0.01 | ~$5 | Automatic |
-| **Cloud SQL (avoided)** | MySQL managed | $50+ | $100+ | Manual |
+Set the connection via environment variables in `.env`:
+
+```env
+PG_HOST=localhost
+PG_PORT=5432
+PG_USER=postgres
+PG_PASSWORD=yourpassword
+PG_DB=career_guidance
+```
+
+Or provide a full DSN:
+```env
+PG_DSN=postgresql+psycopg2://postgres:yourpassword@localhost:5432/career_guidance
+```
+
+When `PG_HOST` is not set, the system falls back to `sqlite:///:memory:` for demos/tests.
 
 ---
 
-## Dual-Database Architecture
-
-### Why Dual-Database?
-
-**Problem**: 
-- Cloud SQL costs $50+/month even when idle
-- Developers need local MySQL for comfortable development
-
-**Solution**:
-- Use MySQL locally (development environment)
-- Use Firestore in production (serverless, scale-to-zero)
-- Single codebase via repository pattern
-
-**Benefits**:
-- ✅ 99% cost reduction in production ($50 → $0.01)
-- ✅ Familiar MySQL for developers
-- ✅ No code branching
-- ✅ Easy to test both backends
+## Repository Pattern
 - ✅ Production scales automatically
 
 ### Environment Configuration

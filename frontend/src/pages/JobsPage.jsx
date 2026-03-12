@@ -12,6 +12,7 @@ export default function JobsPage() {
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [selectedJob, setSelectedJob] = useState(null)
   const pageSize = 9 // 3x3 grid = 9 jobs per page
   const observerTarget = useRef(null)
   const hasMoreRef = useRef(hasMore)
@@ -137,13 +138,26 @@ export default function JobsPage() {
       return 'bg-yellow-500'
     }
 
+    const handleCardClick = async () => {
+      try {
+        // Fetch full job details
+        const response = await api.get(`/api/job/${job.id}`)
+        setSelectedJob(response.data.job)
+      } catch (error) {
+        console.error('Error fetching job details:', error)
+        // Fallback to card data if API fails
+        setSelectedJob(job)
+      }
+    }
+
     return (
       <motion.div
         layout
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="bg-white border border-primary-200 rounded-xl p-6 hover:shadow-lg transition-shadow"
+        onClick={handleCardClick}
+        className="bg-white border border-primary-200 rounded-xl p-6 hover:shadow-lg hover:scale-105 transition-all cursor-pointer"
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-4 mb-4">
@@ -194,21 +208,52 @@ export default function JobsPage() {
           </p>
         )}
 
+        {/* Salary Range */}
+        {(job.min_salary || job.max_salary) && (
+          <div className="mb-4 pb-4 border-b border-gray-200">
+            <p className="text-xs font-semibold text-gray-600 mb-1">Salary Range</p>
+            <p className="text-sm font-bold text-primary-600">
+              {job.min_salary ? `₹${(job.min_salary / 100000).toFixed(1)}L` : 'Competitive'}
+              {job.max_salary ? ` - ₹${(job.max_salary / 100000).toFixed(1)}L` : ''}
+            </p>
+          </div>
+        )}
+
         {/* Skills */}
         {job.required_skills && job.required_skills.length > 0 && (
-          <div className="mb-4">
+          <div className="mb-4 pb-4 border-b border-gray-200">
             <p className="text-xs font-semibold text-gray-600 mb-2">Required Skills</p>
             <div className="flex flex-wrap gap-2">
-              {job.required_skills.slice(0, 5).map((skill, idx) => {
+              {job.required_skills.slice(0, 4).map((skill, idx) => {
                 const skillName = skill.name || skill
                 return (
-                  <span key={idx} className="bg-primary-50 border border-primary-200 text-primary-700 px-2.5 py-1 rounded-full text-xs font-medium">
+                  <span key={idx} className="bg-primary-50 border border-primary-200 text-primary-700 px-2 py-1 rounded text-xs font-medium">
                     {skillName}
                   </span>
                 )
               })}
-              {job.required_skills.length > 5 && (
-                <span className="text-xs text-gray-600">+{job.required_skills.length - 5} more</span>
+              {job.required_skills.length > 4 && (
+                <span className="text-xs text-gray-600">+{job.required_skills.length - 4} more</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Optional Skills */}
+        {job.optional_skills && job.optional_skills.length > 0 && (
+          <div className="mb-4 pb-4 border-b border-gray-200">
+            <p className="text-xs font-semibold text-gray-600 mb-2">Nice to Have</p>
+            <div className="flex flex-wrap gap-2">
+              {job.optional_skills.slice(0, 3).map((skill, idx) => {
+                const skillName = skill.name || skill
+                return (
+                  <span key={idx} className="bg-gray-100 border border-gray-300 text-gray-700 px-2 py-1 rounded text-xs font-medium">
+                    {skillName}
+                  </span>
+                )
+              })}
+              {job.optional_skills.length > 3 && (
+                <span className="text-xs text-gray-600">+{job.optional_skills.length - 3} more</span>
               )}
             </div>
           </div>
@@ -363,6 +408,201 @@ export default function JobsPage() {
           </div>
         )}
       </div>
+
+      {/* Job Details Modal */}
+      <AnimatePresence>
+        {selectedJob && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedJob(null)}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 400 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            >
+              {/* Modal Header */}
+              <div className="sticky top-0 bg-gradient-to-r from-primary-500 to-primary-600 text-white p-6 flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold mb-2">{selectedJob.title}</h2>
+                  <p className="text-primary-100 flex items-center gap-2">
+                    <Building2 className="w-4 h-4" />
+                    {selectedJob.company}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedJob(null)}
+                  className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 space-y-6">
+                {/* Job Details */}
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">Job Details</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {selectedJob.location_city && selectedJob.location_state && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MapPin className="w-5 h-5 text-blue-500" />
+                          <span className="text-sm text-gray-600">Location</span>
+                        </div>
+                        <p className="text-sm font-bold text-gray-900">{selectedJob.location_city}, {selectedJob.location_state}</p>
+                      </div>
+                    )}
+                    {selectedJob.work_type && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="w-5 h-5 text-green-500" />
+                          <span className="text-sm text-gray-600">Work Type</span>
+                        </div>
+                        <p className="text-sm font-bold text-gray-900 capitalize">{selectedJob.work_type}</p>
+                      </div>
+                    )}
+                    {selectedJob.min_experience_years !== null && selectedJob.min_experience_years !== undefined && selectedJob.min_experience_years > 0 && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Sparkles className="w-5 h-5 text-purple-500" />
+                          <span className="text-sm text-gray-600">Experience</span>
+                        </div>
+                        <p className="text-sm font-bold text-gray-900">{selectedJob.min_experience_years}+ years</p>
+                      </div>
+                    )}
+                    {selectedJob.min_cgpa && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Award className="w-5 h-5 text-amber-500" />
+                          <span className="text-sm text-gray-600">Min CGPA</span>
+                        </div>
+                        <p className="text-sm font-bold text-gray-900">{selectedJob.min_cgpa}</p>
+                      </div>
+                    )}
+                    {selectedJob.expires_at && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="w-5 h-5 text-red-500" />
+                          <span className="text-sm text-gray-600">Expires</span>
+                        </div>
+                        <p className="text-sm font-bold text-gray-900">{new Date(selectedJob.expires_at).toLocaleDateString()}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Description */}
+                {selectedJob.description && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">About This Role</h3>
+                    <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{selectedJob.description}</p>
+                  </div>
+                )}
+
+                {/* Required Skills */}
+                {selectedJob.required_skills && selectedJob.required_skills.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Required Skills</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedJob.required_skills.map((skill, idx) => {
+                        const skillName = skill.name || skill
+                        return (
+                          <span key={idx} className="bg-primary-50 border border-primary-200 text-primary-700 px-3 py-1.5 rounded-full text-sm font-medium">
+                            {skillName}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Optional Skills */}
+                {selectedJob.optional_skills && selectedJob.optional_skills.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Optional Skills</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedJob.optional_skills.map((skill, idx) => {
+                        const skillName = skill.name || skill
+                        return (
+                          <span key={idx} className="bg-gray-100 border border-gray-300 text-gray-700 px-3 py-1.5 rounded-full text-sm font-medium">
+                            {skillName}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Employer Info */}
+                {selectedJob.employer && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Company</h3>
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                      <p className="font-bold text-gray-900 mb-2">{selectedJob.employer.company_name}</p>
+                      {selectedJob.employer.location_city && (
+                        <p className="text-sm text-gray-700 flex items-center gap-2">
+                          <MapPin className="w-4 h-4" />
+                          {selectedJob.employer.location_city}
+                        </p>
+                      )}
+                      {selectedJob.employer.website && (
+                        <a
+                          href={selectedJob.employer.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary-600 hover:underline flex items-center gap-2 mt-2"
+                        >
+                          <Globe className="w-4 h-4" />
+                          Visit Company Website
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex gap-3">
+                <button
+                  onClick={() => {
+                    handleGenerateLearningPath(selectedJob)
+                    setTimeout(() => setSelectedJob(null), 500)
+                  }}
+                  disabled={learningPathState.loadingId === selectedJob.id}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-primary-500 text-white font-semibold hover:bg-primary-600 disabled:opacity-60 transition-colors"
+                >
+                  {learningPathState.loadingId === selectedJob.id ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Generate Learning Path
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setSelectedJob(null)}
+                  className="flex-1 px-4 py-3 rounded-lg border border-gray-300 text-gray-900 font-semibold hover:bg-gray-100 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

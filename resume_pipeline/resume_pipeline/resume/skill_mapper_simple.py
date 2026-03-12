@@ -8,6 +8,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+try:
+    from ..core.semantic_matching import SemanticMatcher
+    SEMANTIC_MATCHING_AVAILABLE = True
+except ImportError:
+    SEMANTIC_MATCHING_AVAILABLE = False
+    logger.debug("Semantic matching not available")
+
 # Default canonical skills (can be overridden via config or DB)
 DEFAULT_CANONICAL = {
     'python': 'skill_001',
@@ -20,6 +27,15 @@ DEFAULT_CANONICAL = {
 class SimpleSkillMapper(SkillMapper):
     def __init__(self):
         self.canonical = self._load_canonical_skills()
+        # Initialize semantic matcher if available
+        self.semantic_matcher = None
+        if SEMANTIC_MATCHING_AVAILABLE and settings.SEMANTIC_MATCHING_ENABLED:
+            try:
+                self.semantic_matcher = SemanticMatcher()
+                if self.semantic_matcher.enabled:
+                    logger.info("Semantic skill mapping enabled")
+            except Exception as e:
+                logger.warning(f"Semantic matcher initialization failed: {e}")
     
     def _load_canonical_skills(self) -> Dict[str, str]:
         """Load canonical skills from env variable, JSON file, or defaults."""
@@ -57,40 +73,77 @@ class SimpleSkillMapper(SkillMapper):
         return self.canonical
     
     def map(self, skills: List[str]) -> List[Dict]:
+        """
+        Map skills to canonical names using semantic matching + fallback.
+        
+        Priority:
+        1. Semantic matching (embeddings + taxonomy)
+        2. Fuzzy string matching (fallback)
+        """
         mapped = []
-        for s in skills:
-            ss = s.lower().strip()
-            best_match = None
-            best_score = 0
-            match_type = None
+        
+        # Use batch semantic matching if available
+        if self.semantic_matcher and self.semantic_matcher.enabled:
+            semantic_results = self.semantic_matcher.match_skills_batch(
+                skills,
+                threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
+            )
             
-            for k, vid in self.canonical.items():
-                # Exact match (highest priority)
-                if k == ss:
-                    best_match = vid
-                    best_score = 1.0
-                    match_type = 'exact'
-                    break
-                
-                # Substring match (high priority)
-                if k in ss or ss in k:
-                    if best_score < 0.95:
-                        best_match = vid
-                        best_score = 0.95
-                        match_type = 'substring'
-                    continue
-                
-                # Fuzzy match (threshold: 0.85)
-                score = SequenceMatcher(None, k, ss).ratio()
-                if score > best_score and score >= 0.85:
-                    best_score = score
-                    best_match = vid
-                    match_type = 'fuzzy'
-            
-            mapped.append({
-                "name": s,
-                "canonical_id": best_match,
-                "match_confidence": round(best_score, 2) if best_score > 0 else None,
-                "match_type": match_type
-            })
+            for result in semantic_results:
+                if result["found"] and result["canonical"]:
+                    mapped.append({
+                        "name": result["original"],
+                        "canonical_id": result["skill_id"],
+                        "canonical_name": result["canonical"],
+                        "match_confidence": result["confidence"],
+                        "match_type": "semantic",
+                        "category": result["category"]
+                    })
+                else:
+                    # Fallback to fuzzy matching for unmatched skills
+                    fuzzy_result = self._fuzzy_match(result["original"])
+                    mapped.append(fuzzy_result)
+        else:
+            # No semantic matcher, use fuzzy matching only
+            for skill in skills:
+                mapped.append(self._fuzzy_match(skill))
+        
         return mapped
+    
+    def _fuzzy_match(self, skill: str) -> Dict:
+        """Fuzzy match a skill using SequenceMatcher (fallback method)"""
+        ss = skill.lower().strip()
+        best_match = None
+        best_score = 0
+        match_type = None
+        
+        for k, vid in self.canonical.items():
+            # Exact match (highest priority)
+            if k == ss:
+                best_match = vid
+                best_score = 1.0
+                match_type = 'exact'
+                break
+            
+            # Substring match (high priority)
+            if k in ss or ss in k:
+                if best_score < 0.95:
+                    best_match = vid
+                    best_score = 0.95
+                    match_type = 'substring'
+                continue
+            
+            # Fuzzy match (threshold: 0.85)
+            score = SequenceMatcher(None, k, ss).ratio()
+            if score > best_score and score >= 0.85:
+                best_score = score
+                best_match = vid
+                match_type = 'fuzzy'
+        
+        return {
+            "name": skill,
+            "canonical_id": best_match,
+            "match_confidence": round(best_score, 2) if best_score > 0 else None,
+            "match_type": match_type
+        }
+

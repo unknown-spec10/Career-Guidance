@@ -9,7 +9,7 @@ from collections import defaultdict
 from time import time
 import os
 from .utils import save_upload, sha256_file, sanitize_text, sanitize_dict, validate_email, sanitize_filename
-from .config import settings
+from .config import settings, IS_SUPABASE
 from .constants import (
     ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB,
     API_MESSAGES, RECOMMENDATION_WEIGHTS, DEFAULT_PAGE_SIZE,
@@ -32,11 +32,11 @@ from .auth import (
     get_password_hash, verify_password, create_access_token,
     get_current_user, get_current_user_optional, require_role
 )
+from .routes.admin_college_collection import router as admin_college_router
 from pathlib import Path
 import json
 from .resume.parse_service import ResumeParserService
 from .interview.interview_service import InterviewService
-import pymysql
 import logging
 from datetime import timedelta
 import secrets
@@ -75,20 +75,20 @@ def validate_env():
     env = os.environ
 
     # Critical: Database configuration
-    mysql_dsn = settings.MYSQL_DSN
-    mysql_host = settings.MYSQL_HOST
-    mysql_user = settings.MYSQL_USER
-    mysql_db = settings.MYSQL_DB
+    pg_dsn = settings.PG_DSN
+    pg_host = settings.PG_HOST
+    pg_user = settings.PG_USER
+    pg_db = settings.PG_DB
 
-    # Treat SQLite DSN (default for demos) as valid, so MySQL vars are optional
-    is_sqlite_dsn = bool(mysql_dsn and str(mysql_dsn).startswith("sqlite"))
+    # Treat SQLite DSN (default for demos) as valid, so PG vars are optional
+    is_sqlite_dsn = bool(pg_dsn and str(pg_dsn).startswith("sqlite"))
 
-    if not mysql_host and not mysql_dsn:
-        errors.append("MYSQL_HOST is missing (or provide MYSQL_DSN)")
-    if not mysql_user and not mysql_dsn:
-        errors.append("MYSQL_USER is missing (or provide MYSQL_DSN)")
-    if not mysql_db and not mysql_dsn:
-        errors.append("MYSQL_DB is missing (or provide MYSQL_DSN)")
+    if not pg_host and not pg_dsn:
+        errors.append("PG_HOST is missing (or provide PG_DSN)")
+    if not pg_user and not pg_dsn:
+        errors.append("PG_USER is missing (or provide PG_DSN)")
+    if not pg_db and not pg_dsn:
+        errors.append("PG_DB is missing (or provide PG_DSN)")
 
     # Critical: JWT Secret Key
     secret = settings.SECRET_KEY or ""
@@ -106,16 +106,23 @@ def validate_env():
         warnings.append("GMAIL_USER or GMAIL_APP_PASSWORD not set - email verification disabled")
 
     # Always print a masked summary for quick diagnosis
+    if IS_SUPABASE:
+        env_mode = "Supabase (cloud)"
+    elif settings.PG_HOST:
+        env_mode = "Local PostgreSQL"
+    else:
+        env_mode = "SQLite in-memory (demo)"
+
     summary_lines = [
-        f"MYSQL_DSN:       {'<set>' if mysql_dsn else '<unset>'}",
-        f"MYSQL_HOST:      {_mask(env.get('MYSQL_HOST'))}",
-        f"MYSQL_PORT:      {_mask(env.get('MYSQL_PORT'))}",
-        f"MYSQL_USER:      {_mask(env.get('MYSQL_USER'))}",
-        f"MYSQL_DB:        {_mask(env.get('MYSQL_DB'))}",
+        f"Environment:     {env_mode}",
+        f"PG_DSN:          {'<set>' if pg_dsn else '<unset>'}",
+        f"PG_HOST:         {_mask(env.get('PG_HOST'))}",
+        f"PG_PORT:         {_mask(env.get('PG_PORT'))}",
+        f"PG_USER:         {_mask(env.get('PG_USER'))}",
+        f"PG_DB:           {_mask(env.get('PG_DB'))}",
         f"SECRET_KEY:      length={len(secret) if secret else 0} {_mask(secret)}",
         f"GEMINI_API_KEY:  {'<set>' if env.get('GEMINI_API_KEY') else '<unset>'}",
         f"GMAIL_USER:      {_mask(env.get('GMAIL_USER'))}",
-        f"APP_ENV:         {env.get('APP_ENV', 'production')}",
     ]
     logger.info("Environment summary (masked):\n" + "\n".join(["  • " + s for s in summary_lines]))
 
@@ -166,41 +173,19 @@ def get_db():
         db.close()
 
 # Repository dependencies
-def get_firestore_client():
-    """Get Firestore client (cloud only)"""
-    import firebase_admin
-    from firebase_admin import firestore as fb_firestore
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app()
-    return fb_firestore.client()
-
 def get_college_repo():
-    """Get college repository based on APP_ENV"""
-    backend = DatabaseFactory.get_backend()
-    CollegeRepoClass = DatabaseFactory.get_college_repository()
-    if backend == 'cloud':
-        from .repos.firestore_impl import FirestoreCollegeRepository
-        db_client = get_firestore_client()
-        return FirestoreCollegeRepository(db_client)
-    else:
-        from .repos.mysql_impl import MySQLCollegeRepository
-        from .db import SessionLocal
-        session = SessionLocal()
-        return MySQLCollegeRepository(session)
+    """Get college repository"""
+    from .repos.pg_impl import PGCollegeRepository
+    from .db import SessionLocal
+    session = SessionLocal()
+    return PGCollegeRepository(session)
 
 def get_job_repo():
-    """Get job repository based on APP_ENV"""
-    backend = DatabaseFactory.get_backend()
-    JobRepoClass = DatabaseFactory.get_job_repository()
-    if backend == 'cloud':
-        from .repos.firestore_impl import FirestoreJobRepository
-        db_client = get_firestore_client()
-        return FirestoreJobRepository(db_client)
-    else:
-        from .repos.mysql_impl import MySQLJobRepository
-        from .db import SessionLocal
-        session = SessionLocal()
-        return MySQLJobRepository(session)
+    """Get job repository"""
+    from .repos.pg_impl import PGJobRepository
+    from .db import SessionLocal
+    session = SessionLocal()
+    return PGJobRepository(session)
 
 # File size validation
 async def validate_file_size(file: UploadFile, max_size_mb: int = MAX_FILE_SIZE_MB):
@@ -223,6 +208,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Include admin college collection routes
+app.include_router(admin_college_router)
+
 # Add CORS middleware for frontend
 # Parse allowed origins from config (comma-separated string)
 allow_origins_str = settings.CORS_ORIGINS
@@ -239,68 +227,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Debug endpoint to verify Firestore seeding (cloud only)
-@app.get("/api/debug/firestore-counts")
-async def firestore_counts():
-    try:
-        import os
-        app_env = os.environ.get("APP_ENV", "local").lower()
-        # Allow in any env, but indicate which backend is active
-        import firebase_admin
-        from firebase_admin import firestore as fb_firestore
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app()
-        db_client = fb_firestore.client()
-
-        def _count(col_name: str) -> int:
-            return sum(1 for _ in db_client.collection(col_name).stream())
-
-        counts = {
-            "backend": "firestore",
-            "app_env": app_env,
-            "users": _count("users"),
-            "colleges": _count("colleges"),
-            "jobs": _count("jobs"),
-            "applicants": _count("applicants"),
-            "college_recommendations": _count("college_recommendations"),
-            "job_recommendations": _count("job_recommendations"),
-            "credit_accounts": _count("credit_accounts"),
-        }
-        return counts
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Firestore check failed: {e}")
-
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and RAG system on startup"""
     try:
         # Validate environment variables first
         validate_env()
-        logger.info(f"DB DSN resolved to: {settings.MYSQL_DSN}")
-        
-        # Prefer SQLite when MYSQL_HOST is not provided (Cloud Run demo default)
-        if not settings.MYSQL_HOST:
+        logger.info(f"DB DSN resolved to: {settings.PG_DSN}")
+
+        # Prefer SQLite when PG_HOST is not provided (demo/test default)
+        if not settings.PG_HOST:
             from .db import init_db
             init_db()
-            logger.info("✓ SQLite database initialized (demo mode, no MYSQL_HOST provided)")
+            logger.info("✓ SQLite database initialized (demo mode, no PG_HOST provided)")
+        elif IS_SUPABASE:
+            # Supabase: database is cloud-managed — skip CREATE DATABASE entirely
+            logger.info("Supabase detected — skipping CREATE DATABASE (cloud-managed)")
+            from .db import init_db
+            init_db()
+            logger.info("✓ Supabase tables initialized (CREATE TABLE IF NOT EXISTS)")
         else:
-            # Create database if not exists (MySQL path)
-            conn = pymysql.connect(
-                host=settings.MYSQL_HOST,
-                port=settings.MYSQL_PORT or 3306,
-                user=settings.MYSQL_USER or 'root',
-                password=settings.MYSQL_PASSWORD or ''
+            # Local PostgreSQL: ensure the target database exists, then create tables
+            import psycopg2
+            from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+            pg_db = settings.PG_DB or 'resumes'
+            conn = psycopg2.connect(
+                host=settings.PG_HOST,
+                port=settings.PG_PORT or 5432,
+                user=settings.PG_USER or 'postgres',
+                password=settings.PG_PASSWORD or '',
+                dbname='postgres',  # connect to default db first
             )
-            cursor = conn.cursor()
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DB or 'resumes'}")
-            conn.commit()
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (pg_db,))
+            if not cur.fetchone():
+                cur.execute(f'CREATE DATABASE "{pg_db}"')
+                logger.info(f"✓ Database '{pg_db}' created")
+            else:
+                logger.info(f"✓ Database '{pg_db}' already exists")
+            cur.close()
             conn.close()
-            logger.info(f"✓ Database '{settings.MYSQL_DB}' ready")
-            
+
             # Create tables
             from .db import init_db
             init_db()
-            logger.info("✓ Database tables initialized")
+            logger.info("✓ Local PostgreSQL tables initialized")
         
         # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible)
         try:
@@ -1098,231 +1070,18 @@ async def parse_applicant(applicant_id: str, db: Session = Depends(get_db)):
         # Add database ID to result
         result['db_applicant_id'] = applicant.id
         
-        # Auto-generate recommendations after successful parse
+        # Auto-generate recommendations after successful parse using new service
         try:
-            logger.info(f"Auto-generating recommendations for applicant {applicant.id}")
-            from .db import CollegeEligibility, CollegeApplicabilityLog, JobRecommendation, Job, Employer, SkillAssessment, InterviewSession, CollegeProgram
-            import re
-            import datetime as dt
+            logger.info(f"Auto-generating recommendations for applicant {applicant.id} using RecommendationService")
+            from .recommendation.recommendation_service import RecommendationService
             
-            # Get parsed data
-            normalized = result.get('normalized', {})
-            education = normalized.get('education', [])
-            skills = normalized.get('skills', [])
-            jee_rank = normalized.get('jee_rank')
+            rec_service = RecommendationService(db)
+            # applicant.id is int at runtime despite Column type
+            applicant_db_id: int = applicant.id  # type: ignore
+            college_recs, job_recs = rec_service.get_recommendations(applicant_db_id)
             
-            # Calculate applicant CGPA (use first education entry)
-            applicant_cgpa = None
-            if education and len(education) > 0:
-                first_edu = education[0]
-                if isinstance(first_edu, dict) and 'grade' in first_edu:
-                    applicant_cgpa = first_edu.get('grade')
-            
-            # Use user-provided JEE rank if available
-            metadata_path = applicant_dir / "metadata.json"
-            if metadata_path.exists():
-                with open(metadata_path, 'r') as f:
-                    meta = json.load(f)
-                    if meta.get('jee_rank_user_provided') and meta.get('jee_rank'):
-                        jee_rank = meta['jee_rank']
-                        logger.info(f"Using user-provided JEE rank: {jee_rank}")
-            
-            # Clear existing recommendations
-            db.query(CollegeApplicabilityLog).filter(CollegeApplicabilityLog.applicant_id == applicant.id).delete()
-            db.query(JobRecommendation).filter(JobRecommendation.applicant_id == applicant.id).delete()
-            
-            # Get interview bonus if available
-            interview_bonus = 0.0
-            latest_interview = db.query(InterviewSession).filter(
-                InterviewSession.applicant_id == applicant.id,
-                InterviewSession.status == 'completed',
-                InterviewSession.overall_score.isnot(None)
-            ).order_by(desc(InterviewSession.completed_at)).first()
-            
-            if latest_interview:
-                completed_at = getattr(latest_interview, 'completed_at', None)
-                if completed_at:
-                    months_old = (dt.datetime.utcnow() - completed_at).days / 30
-                    if months_old < INTERVIEW_CONFIG['SCORE_FRESHNESS_MONTHS']:
-                        overall_score = getattr(latest_interview, 'overall_score', 0.0) or 0.0
-                        if overall_score >= 80:
-                            interview_bonus = RECOMMENDATION_WEIGHTS['INTERVIEW_SCORE'] * 1.5
-                        elif overall_score >= 60:
-                            interview_bonus = RECOMMENDATION_WEIGHTS['INTERVIEW_SCORE']
-                        elif overall_score >= 40:
-                            interview_bonus = RECOMMENDATION_WEIGHTS['INTERVIEW_SCORE'] * 0.5
-            
-            # Get assessment bonus if available
-            assessment_bonus = 0.0
-            skill_assessments = db.query(SkillAssessment).filter(
-                SkillAssessment.applicant_id == applicant.id,
-                SkillAssessment.score_percentage >= 70
-            ).all()
-            if skill_assessments:
-                verified_skills_count = len(skill_assessments)
-                assessment_bonus = min(RECOMMENDATION_WEIGHTS['ASSESSMENT_SCORE'], verified_skills_count * 2)
-            
-            # Generate college recommendations
-            colleges = db.query(College, CollegeEligibility).outerjoin(
-                CollegeEligibility, College.id == CollegeEligibility.college_id
-            ).filter(
-                (CollegeEligibility.min_cgpa.is_(None)) | (CollegeEligibility.min_cgpa <= applicant_cgpa if applicant_cgpa else True),
-                (CollegeEligibility.min_jee_rank.is_(None)) | (CollegeEligibility.min_jee_rank >= jee_rank if jee_rank else True)
-            ).all()
-            
-            college_count = 0
-            for college, eligibility in colleges:
-                if not eligibility:
-                    continue
-                
-                score = 0.0
-                explain_parts = []
-                
-                # JEE rank scoring
-                if eligibility.min_jee_rank and jee_rank:
-                    if jee_rank <= eligibility.min_jee_rank:
-                        score += RECOMMENDATION_WEIGHTS['JEE_RANK_SCORE']
-                        explain_parts.append(f"JEE rank {jee_rank} meets cutoff {eligibility.min_jee_rank}")
-                    else:
-                        continue
-                
-                # CGPA scoring
-                if eligibility.min_cgpa and applicant_cgpa:
-                    if applicant_cgpa >= eligibility.min_cgpa:
-                        score += RECOMMENDATION_WEIGHTS['CGPA_SCORE']
-                        explain_parts.append(f"CGPA {applicant_cgpa} meets minimum {eligibility.min_cgpa}")
-                    else:
-                        continue
-                
-                # Skills matching
-                programs = db.query(CollegeProgram).filter(
-                    CollegeProgram.college_id == college.id,
-                    CollegeProgram.status == 'approved'
-                ).all()
-                
-                if programs and skills:
-                    skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
-                    matched_skills = set()
-                    
-                    for program in programs:
-                        prog_skills = getattr(program, 'required_skills', None)
-                        if prog_skills is not None:
-                            for req_skill in prog_skills:
-                                req_name = req_skill if isinstance(req_skill, str) else req_skill.get('name', '') if isinstance(req_skill, dict) else ''
-                                if len(req_name) == 0:
-                                    continue
-                                
-                                if len(req_name) >= 3:
-                                    pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
-                                    for sn in skill_names:
-                                        if re.search(pattern, sn.lower()):
-                                            matched_skills.add(req_name)
-                                            break
-                                else:
-                                    if any(req_name.lower() == sn.lower() for sn in skill_names):
-                                        matched_skills.add(req_name)
-                    
-                    if matched_skills:
-                        skill_score = min(RECOMMENDATION_WEIGHTS['SKILLS_SCORE'], len(matched_skills) * 5)
-                        score += skill_score
-                        explain_parts.append(f"{len(matched_skills)} skill(s) matched")
-                
-                # Add bonuses
-                if interview_bonus > 0:
-                    college_interview_bonus = interview_bonus * 0.5
-                    score += college_interview_bonus
-                    explain_parts.append(f"Interview bonus: +{college_interview_bonus:.1f}")
-                
-                if assessment_bonus > 0:
-                    score += assessment_bonus
-                    explain_parts.append(f"Verified skills bonus: +{assessment_bonus:.1f}")
-                
-                if score > 0:
-                    rec = CollegeApplicabilityLog(
-                        applicant_id=applicant.id,
-                        college_id=college.id,
-                        recommend_score=score,
-                        explain={"reasons": explain_parts, "auto_generated": True},
-                        status='recommended'
-                    )
-                    db.add(rec)
-                    college_count += 1
-            
-            # Generate job recommendations
-            jobs = db.query(Job).filter(Job.status == 'approved').all()
-            job_count = 0
-            
-            for job in jobs:
-                score = 0.0
-                explain_parts = []
-                
-                # CGPA requirement
-                job_min_cgpa = getattr(job, 'min_cgpa', None)
-                if job_min_cgpa is not None and applicant_cgpa is not None:
-                    if applicant_cgpa >= job_min_cgpa:
-                        score += RECOMMENDATION_WEIGHTS['ACADEMIC_SCORE']
-                        explain_parts.append(f"CGPA {applicant_cgpa} meets requirement {job_min_cgpa}")
-                    else:
-                        continue
-                else:
-                    score += RECOMMENDATION_WEIGHTS['ACADEMIC_SCORE'] * 0.5
-                
-                # Skills matching
-                job_req_skills = getattr(job, 'required_skills', None)
-                if job_req_skills is not None and skills:
-                    skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
-                    required = job_req_skills if isinstance(job_req_skills, list) else []
-                    matched_skills = set()
-                    
-                    for req_skill in required:
-                        req_name = req_skill.get('name', '') if isinstance(req_skill, dict) else str(req_skill)
-                        if len(str(req_name)) == 0:
-                            continue
-                        
-                        if len(req_name) >= 3:
-                            pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
-                            for sn in skill_names:
-                                if re.search(pattern, sn.lower()):
-                                    matched_skills.add(req_name)
-                                    break
-                        else:
-                            if any(req_name.lower() == sn.lower() for sn in skill_names):
-                                matched_skills.add(req_name)
-                    
-                    if matched_skills:
-                        skill_score = (len(matched_skills) / max(len(required), 1)) * 50
-                        score += skill_score
-                        explain_parts.append(f"{len(matched_skills)} skill(s) matched: {', '.join(list(matched_skills)[:2])}")
-                
-                # Experience requirement (basic check)
-                min_exp = getattr(job, 'min_experience_years', None)
-                if min_exp is not None and min_exp > 0:
-                    score += 5  # Small bonus if no specific requirement
-                
-                # Add bonuses
-                if interview_bonus > 0:
-                    score += interview_bonus
-                    explain_parts.append(f"Interview bonus: +{interview_bonus:.1f}")
-                
-                if assessment_bonus > 0:
-                    score += assessment_bonus
-                    explain_parts.append(f"Verified skills bonus: +{assessment_bonus:.1f}")
-                
-                if score > 0:
-                    rec = JobRecommendation(
-                        applicant_id=applicant.id,
-                        job_id=job.id,
-                        score=score,
-                        scoring_breakdown={"interview_bonus": interview_bonus, "assessment_bonus": assessment_bonus},
-                        explain={"reasons": explain_parts, "auto_generated": True},
-                        status='recommended'
-                    )
-                    db.add(rec)
-                    job_count += 1
-            
-            db.commit()
-            result['auto_recommendations_generated'] = f"{college_count} colleges, {job_count} jobs"
-            logger.info(f"✓ Auto-generated {college_count} college and {job_count} job recommendations")
+            result['auto_recommendations_generated'] = f"{len(college_recs)} colleges, {len(job_recs)} jobs"
+            logger.info(f"✓ Auto-generated {len(college_recs)} college and {len(job_recs)} job recommendations")
         except Exception as e:
             db.rollback()
             logger.warning(f"Failed to auto-generate recommendations: {e}")
@@ -2364,6 +2123,7 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
                     "location_state": college.location_state,
                     "website": college.website
                 },
+                "match_score": float(log.recommend_score) if log.recommend_score else 0,
                 "recommend_score": float(log.recommend_score) if log.recommend_score else 0,
                 "explain": log.explain,
                 "status": log.status
@@ -2383,8 +2143,8 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
                     "required_skills": job.required_skills,
                     "min_experience_years": job.min_experience_years
                 },
+                "match_score": float(rec.score) if rec.score else 0,
                 "score": float(rec.score) if rec.score else 0,
-                "match_percentage": round(float(rec.score) * 100, 2) if rec.score else 0,
                 "scoring_breakdown": rec.scoring_breakdown,
                 "explain": rec.explain,
                 "status": rec.status
@@ -2529,287 +2289,44 @@ async def generate_recommendations_for_applicant(
 ):
     """Generate or refresh college and job recommendations for an applicant.
     
-    This endpoint analyzes the applicant's parsed resume data and generates recommendations
-    based on their skills, CGPA, JEE rank, and other qualifications.
-    
-    - Removes old recommendations and generates fresh ones
-    - Uses RECOMMENDATION_WEIGHTS from constants for scoring
-    - Applies word-boundary skill matching
-    - Filters by eligibility criteria
+    Uses the new RecommendationService with normalized 0–1 scores and semantic
+    skill matching. Removes old recommendations before regenerating.
     """
-    from .db import CollegeEligibility, CollegeProgram
-    import re
-    
-    # Check if applicant exists
+    # Validate applicant and parsed data
     applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
     if not applicant:
         raise HTTPException(status_code=404, detail=API_MESSAGES['APPLICANT_NOT_FOUND'])
-    
-    # Get parsed data
+
     llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
     if not llm_record:
         raise HTTPException(status_code=400, detail=API_MESSAGES['NO_PARSED_DATA'])
-    
-    parsed_data = llm_record.normalized
-    education = parsed_data.get('education', [])
-    skills = parsed_data.get('skills', [])
-    jee_rank = parsed_data.get('jee_rank')
-    
-    # Calculate applicant CGPA (use first education entry)
-    applicant_cgpa = None
-    if education and len(education) > 0:
-        first_edu = education[0]
-        if isinstance(first_edu, dict) and 'grade' in first_edu:
-            applicant_cgpa = first_edu.get('grade')
-    
-    logger.info(f"Generating recommendations for applicant {applicant_id} (CGPA: {applicant_cgpa}, JEE: {jee_rank}, Skills: {len(skills)})")
-    
-    # Get latest interview score for bonus/penalty
-    from .db import InterviewSession, SkillAssessment
-    
-    interview_bonus = 0.0
-    interview_multiplier_key = None
-    latest_interview = db.query(InterviewSession).filter(
-        InterviewSession.applicant_id == applicant_id,
-        InterviewSession.status == 'completed',
-        InterviewSession.overall_score.isnot(None)
-    ).order_by(desc(InterviewSession.completed_at)).first()
-    
-    if latest_interview:
-        completed_at = getattr(latest_interview, 'completed_at', None)
-        if completed_at:
-            months_old = (dt.datetime.utcnow() - completed_at).days / 30
-            
-            # Only use score if < 6 months old
-            if months_old < INTERVIEW_CONFIG['SCORE_FRESHNESS_MONTHS']:
-                overall_score = getattr(latest_interview, 'overall_score', 0.0) or 0.0
-                
-                if overall_score >= 80:
-                    interview_multiplier_key = 'excellent'
-                    interview_bonus = RECOMMENDATION_WEIGHTS['INTERVIEW_SCORE'] * INTERVIEW_SCORE_MULTIPLIERS['excellent']
-                elif overall_score >= 60:
-                    interview_multiplier_key = 'good'
-                    interview_bonus = RECOMMENDATION_WEIGHTS['INTERVIEW_SCORE'] * INTERVIEW_SCORE_MULTIPLIERS['good']
-                elif overall_score >= 40:
-                    interview_multiplier_key = 'average'
-                    interview_bonus = RECOMMENDATION_WEIGHTS['INTERVIEW_SCORE'] * INTERVIEW_SCORE_MULTIPLIERS['average']
-                else:
-                    interview_multiplier_key = 'poor'
-                    interview_bonus = RECOMMENDATION_WEIGHTS['INTERVIEW_SCORE'] * INTERVIEW_SCORE_MULTIPLIERS['poor']
-                
-                logger.info(f"Interview bonus for applicant {applicant_id}: {interview_bonus} ({interview_multiplier_key}, score: {overall_score})")
-    
-    # Get skill assessment bonus
-    assessment_bonus = 0.0
-    skill_assessments = db.query(SkillAssessment).filter(
-        SkillAssessment.applicant_id == applicant_id,
-        SkillAssessment.score_percentage >= 70  # Only count assessments with >= 70%
-    ).all()
-    
-    if skill_assessments:
-        # Award bonus based on number of verified skills
-        verified_skills_count = len(skill_assessments)
-        assessment_bonus = min(RECOMMENDATION_WEIGHTS['ASSESSMENT_SCORE'], verified_skills_count * 2)  # 2 points per verified skill, max 10
-        logger.info(f"Assessment bonus for applicant {applicant_id}: {assessment_bonus} ({verified_skills_count} verified skills)")
-    
-    # Remove old recommendations
+
+    # Clear existing recommendations
     db.query(CollegeApplicabilityLog).filter(CollegeApplicabilityLog.applicant_id == applicant_id).delete()
     db.query(JobRecommendation).filter(JobRecommendation.applicant_id == applicant_id).delete()
     db.commit()
-    
-    # Pre-filter colleges by eligibility
-    colleges = db.query(College, CollegeEligibility).outerjoin(
-        CollegeEligibility, College.id == CollegeEligibility.college_id
-    ).filter(
-        (CollegeEligibility.min_cgpa.is_(None)) | (CollegeEligibility.min_cgpa <= applicant_cgpa if applicant_cgpa else True),
-        (CollegeEligibility.min_jee_rank.is_(None)) | (CollegeEligibility.min_jee_rank >= jee_rank if jee_rank else True)
-    ).all()
-    
-    college_recommendations = []
-    for college, eligibility in colleges:
-        if not eligibility:
-            continue
+
+    # Generate via new service (persists records internally)
+    try:
+        from .recommendation.recommendation_service import RecommendationService
+        service = RecommendationService(db)
+        result = service.get_recommendations(applicant_id)
         
-        score = 0.0
-        explain_parts = []
+        college_count = len(result.get('college_recommendations', []))
+        job_count = len(result.get('job_recommendations', []))
         
-        # JEE rank scoring
-        if eligibility.min_jee_rank and jee_rank:
-            if jee_rank <= eligibility.min_jee_rank:
-                score += RECOMMENDATION_WEIGHTS['JEE_RANK_SCORE']
-                explain_parts.append(f"JEE rank {jee_rank} meets cutoff {eligibility.min_jee_rank}")
-            else:
-                continue  # Skip if doesn't meet requirement
+        logger.info(f"✓ Generated {college_count} college + {job_count} job recommendations for applicant {applicant_id}")
         
-        # CGPA scoring
-        if eligibility.min_cgpa and applicant_cgpa:
-            if applicant_cgpa >= eligibility.min_cgpa:
-                score += RECOMMENDATION_WEIGHTS['CGPA_SCORE']
-                explain_parts.append(f"CGPA {applicant_cgpa} meets minimum {eligibility.min_cgpa}")
-            else:
-                continue  # Skip if doesn't meet requirement
-        
-        # Skills matching with word-boundary regex
-        programs = db.query(CollegeProgram).filter(
-            CollegeProgram.college_id == college.id,
-            CollegeProgram.status == 'approved'
-        ).all()
-        
-        if programs and skills:
-            skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
-            matched_skills = set()
-            
-            for program in programs:
-                prog_skills = getattr(program, 'required_skills', None)
-                if prog_skills is not None:
-                    for req_skill in prog_skills:
-                        req_name = req_skill if isinstance(req_skill, str) else req_skill.get('name', '') if isinstance(req_skill, dict) else ''
-                        if len(req_name) == 0:
-                            continue
-                        
-                        # Word-boundary matching for skills >= 3 chars
-                        if len(req_name) >= 3:
-                            pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
-                            for sn in skill_names:
-                                if re.search(pattern, sn.lower()):
-                                    matched_skills.add(req_name)
-                                    break
-                        else:
-                            # Exact match for short names
-                            if any(req_name.lower() == sn.lower() for sn in skill_names):
-                                matched_skills.add(req_name)
-            
-            if matched_skills:
-                skill_score = min(RECOMMENDATION_WEIGHTS['SKILLS_SCORE'], len(matched_skills) * 5)
-                score += skill_score
-                explain_parts.append(f"{len(matched_skills)} skill(s) matched: {', '.join(list(matched_skills)[:3])}")
-        
-        # Add interview bonus (less weight for colleges)
-        if interview_bonus > 0:
-            college_interview_bonus = interview_bonus * 0.5  # 50% weight for colleges
-            score += college_interview_bonus
-            explain_parts.append(f"Interview performance bonus: +{college_interview_bonus:.1f} ({interview_multiplier_key})")
-        
-        # Add assessment bonus
-        if assessment_bonus > 0:
-            score += assessment_bonus
-            explain_parts.append(f"Verified skills bonus: +{assessment_bonus:.1f}")
-        
-        if score > 0:
-            rec = CollegeApplicabilityLog(
-                applicant_id=applicant_id,
-                college_id=college.id,
-                recommend_score=score,
-                explain={"reasons": explain_parts, "match_details": "Generated via recommendation API"},
-                status='recommended'
-            )
-            db.add(rec)
-            college_recommendations.append({
-                "college_name": college.name,
-                "score": round(score, 2),
-                "reasons": explain_parts
-            })
-    
-    # Job recommendations
-    jobs = db.query(Job).filter(Job.status == 'approved').all()
-    job_recommendations = []
-    
-    for job in jobs:
-        score = 0.0
-        breakdown = {"skill_score": 0.0, "academic_score": 0.0, "experience_score": 0.0}
-        explain_parts = []
-        
-        # CGPA requirement
-        job_min_cgpa = getattr(job, 'min_cgpa', None)
-        if job_min_cgpa is not None and applicant_cgpa is not None:
-            if applicant_cgpa >= job_min_cgpa:
-                academic_score = RECOMMENDATION_WEIGHTS['ACADEMIC_SCORE']
-                breakdown["academic_score"] = academic_score
-                score += academic_score
-                explain_parts.append(f"CGPA {applicant_cgpa} meets requirement {job_min_cgpa}")
-            else:
-                continue
-        else:
-            # No CGPA requirement - give partial credit
-            breakdown["academic_score"] = RECOMMENDATION_WEIGHTS['ACADEMIC_SCORE'] * 0.5
-            score += breakdown["academic_score"]
-        
-        # Skills matching
-        job_req_skills = getattr(job, 'required_skills', None)
-        if job_req_skills is not None and skills:
-            skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
-            required = job_req_skills if isinstance(job_req_skills, list) else []
-            matched_skills = set()
-            
-            for req_skill in required:
-                req_name = req_skill.get('name', '') if isinstance(req_skill, dict) else str(req_skill)
-                if len(str(req_name)) == 0:
-                    continue
-                
-                # Word-boundary matching
-                if len(req_name) >= 3:
-                    pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
-                    for sn in skill_names:
-                        if re.search(pattern, sn.lower()):
-                            matched_skills.add(req_name)
-                            break
-                else:
-                    if any(req_name.lower() == sn.lower() for sn in skill_names):
-                        matched_skills.add(req_name)
-            
-            if matched_skills:
-                skill_score = (len(matched_skills) / max(len(required), 1)) * 50
-                breakdown["skill_score"] = round(skill_score, 2)
-                score += skill_score
-                explain_parts.append(f"{len(matched_skills)}/{len(required)} required skills matched")
-        
-        # Experience (students typically have 0)
-        min_exp = getattr(job, 'min_experience_years', None)
-        if min_exp is None or min_exp == 0:
-            breakdown["experience_score"] = RECOMMENDATION_WEIGHTS['EXPERIENCE_SCORE']
-            score += breakdown["experience_score"]
-        
-        # Add interview bonus (full weight for jobs)
-        if interview_bonus > 0:
-            breakdown["interview_score"] = interview_bonus
-            score += interview_bonus
-            explain_parts.append(f"Interview performance: +{interview_bonus:.1f} ({interview_multiplier_key})")
-        
-        # Add assessment bonus
-        if assessment_bonus > 0:
-            breakdown["assessment_score"] = assessment_bonus
-            score += assessment_bonus
-            explain_parts.append(f"Verified skills: +{assessment_bonus:.1f}")
-        
-        if score >= RECOMMENDATION_WEIGHTS['MIN_JOB_RECOMMENDATION_SCORE']:
-            rec = JobRecommendation(
-                applicant_id=applicant_id,
-                job_id=job.id,
-                score=round(score, 2),
-                scoring_breakdown=breakdown,
-                explain={"reasons": explain_parts, "breakdown": breakdown},
-                status='recommended'
-            )
-            db.add(rec)
-            employer = db.query(Employer).filter(Employer.id == job.employer_id).first()
-            job_recommendations.append({
-                "job_title": job.title,
-                "company": employer.company_name if employer else "Unknown",
-                "score": round(score, 2),
-                "breakdown": breakdown
-            })
-    
-    db.commit()
-    logger.info(f"Generated {len(college_recommendations)} college and {len(job_recommendations)} job recommendations")
-    
-    return {
-        "status": "success",
-        "message": "Recommendations generated successfully",
-        "college_recommendations_count": len(college_recommendations),
-        "job_recommendations_count": len(job_recommendations),
-        "top_college_recommendations": sorted(college_recommendations, key=lambda x: x['score'], reverse=True)[:10],
-        "top_job_recommendations": sorted(job_recommendations, key=lambda x: x['score'], reverse=True)[:10]
-    }
+        # Return counts based on generated lists
+        return {
+            "status": "success",
+            "message": "Recommendations generated successfully",
+            "college_recommendations_count": college_count,
+            "job_recommendations_count": job_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate recommendations via service: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate recommendations")
 
 
 @app.patch("/api/employer/applications/{application_id}/status")

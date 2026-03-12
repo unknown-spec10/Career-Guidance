@@ -15,6 +15,19 @@ DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 
 # ============================================================================
+# SEMANTIC SKILL MATCHING CONFIGURATION
+# Uses embeddings + taxonomy for intelligent skill normalization
+# ============================================================================
+SEMANTIC_MATCHING_CONFIG = {
+    "EXACT_MATCH_WEIGHT": 1.0,              # Skill exactly matches requirement (skill == skill)
+    "SEMANTIC_MATCH_WEIGHT": 0.85,          # Embedding-based semantic match (cosine sim 0.70-1.0)
+    "RELATED_SKILL_WEIGHT": 0.60,           # Skill in taxonomy.related_skills
+    "CATEGORY_MATCH_WEIGHT": 0.40,          # Same category but not directly related
+    "MINIMUM_CONFIDENCE": 0.70,             # Minimum embedding confidence to use match
+    "PARTIAL_CREDIT_FOR_RELATED": 0.5,      # Credit multiplier when related skill matches requirement
+}
+
+# ============================================================================
 # COLLEGE RECOMMENDATION WEIGHTS
 # Focus: Academic performance, entrance exam ranks, research potential
 # Industry Standard: For higher education, academic metrics are primary indicators

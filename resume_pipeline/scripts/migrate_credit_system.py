@@ -42,7 +42,7 @@ def migrate_credit_system():
             result = conn.execute(text("""
                 SELECT table_name 
                 FROM information_schema.tables 
-                WHERE table_schema = DATABASE()
+                WHERE table_schema = current_schema()
                 AND table_name IN ('credit_accounts', 'credit_transactions', 'credit_usage_stats', 'system_configurations')
             """))
             tables = [row[0] for row in result]
@@ -79,14 +79,14 @@ def migrate_credit_system():
                     )
                     SELECT 
                         a.id,
-                        60,  -- current_credits
-                        60,  -- total_earned
-                        0,   -- total_spent
-                        60,  -- weekly_credit_limit
+                        60,
+                        60,
+                        0,
+                        60,
                         NOW(),
-                        DATE_ADD(NOW(), INTERVAL 7 DAY),
-                        FALSE,  -- is_premium
-                        0    -- admin_bonus_credits
+                        NOW() + INTERVAL '7 days',
+                        FALSE,
+                        0
                     FROM applicants a
                     LEFT JOIN credit_accounts ca ON a.id = ca.applicant_id
                     WHERE ca.id IS NULL
@@ -104,7 +104,7 @@ def migrate_credit_system():
             config_count = result.scalar() or 0
             if config_count == 0:
                 conn.execute(text("""
-                    INSERT INTO system_configurations (`key`, value, description, category)
+                    INSERT INTO system_configurations (key, value, description, category)
                     VALUES 
                         ('default_weekly_credits', '60', 'Default weekly credit allocation for new users', 'credits'),
                         ('premium_weekly_credits', '120', 'Weekly credit allocation for premium users', 'credits'),
