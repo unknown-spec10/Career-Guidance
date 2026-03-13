@@ -132,6 +132,17 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Debug: log which DB credentials were loaded (masked password)
+import logging as _logging
+_log = _logging.getLogger(__name__)
+_log.info(
+    "[config] PG_HOST=%s PG_USER=%s PG_DSN_set=%s RENDER=%s",
+    settings.PG_HOST,
+    settings.PG_USER,
+    bool(settings.PG_DSN),
+    os.environ.get("RENDER", "not-set"),
+)
+
 # ============================================================================
 # Environment auto-detection
 # Supabase hosts always contain "supabase.co" in PG_HOST.
