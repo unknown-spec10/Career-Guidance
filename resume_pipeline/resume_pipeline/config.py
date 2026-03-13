@@ -153,11 +153,11 @@ if not settings.PG_DSN:
         dbname = settings.PG_DB or "resumes"
 
         if IS_SUPABASE:
-            # Supabase requires SSL and disables prepared-statement caching
-            # (pgbouncer-compatible even in session-pooler mode)
+            # Supabase session pooler requires SSL + gssencmode=disable
+            # gssencmode=disable prevents Kerberos negotiation which Supabase pooler rejects
             settings.PG_DSN = (
                 f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
-                f"?sslmode=require&options=-c%20statement_timeout%3D30000"
+                f"?sslmode=require&gssencmode=disable"
             )
         else:
             settings.PG_DSN = (
