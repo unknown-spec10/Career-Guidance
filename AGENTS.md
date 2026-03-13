@@ -251,8 +251,89 @@ import StatusBadge from '../components/StatusBadge'
 - **Skill matching**: Word-boundary regex (`\bPython\b`) for skill names ≥ 3 chars; exact match for shorter.
 - **Credits**: Always call `CreditService.check_eligibility()` before executing premium features; call `spend_credits()` only after success.
 - **File storage**: All file writes go under `data/raw_files/app_<uuid>/`; update `metadata.json` when user-provided fields affect parsing.
-- **CORS origins**: `http://localhost:3000` and `http://localhost:5173` — keep Vite proxy config aligned.
+- **CORS origins**: `http://localhost:3000`, `http://localhost:5173`, `https://career-guidance-frontend-pcjn.onrender.com` — keep Vite proxy config and Render `CORS_ORIGINS` env var aligned when adding new domains.
 - **Recommendation weights**: Defined in `constants.py` as `RECOMMENDATION_WEIGHTS` — do not hardcode inline.
+
+---
+
+## Production Deployment
+
+### Live URLs
+
+| Service | URL |
+|---|---|
+| Frontend (React) | `https://career-guidance-frontend-pcjn.onrender.com` |
+| Backend (FastAPI) | `https://career-guidance-1sep.onrender.com` |
+| Backend API docs | `https://career-guidance-1sep.onrender.com/docs` |
+
+### Infrastructure
+
+| Component | Provider | Details |
+|---|---|---|
+| Backend hosting | Render | Web service `srv-d6pgciqa214c7397rv8g`, name `Career-Guidance` |
+| Frontend hosting | Render | Static site `srv-d6pv47hj16oc73bnn4ng`, name `career-guidance-frontend` |
+| Database | Supabase | Project `taalckzdvzxaigpdseme`, region `ap-south-1` |
+
+### Render — Backend Web Service
+
+- **Service ID**: `srv-d6pgciqa214c7397rv8g`
+- **Owner ID**: `tea-d6pff6qa214c7397d3fg`
+- **Runtime**: Docker (`resume_pipeline/Dockerfile`), build context: repo root
+- **Auto-deploy**: enabled on push to `main`
+- **`PG_DSN` is NOT set** — DSN is built from parts in `config.py` using `quote_plus`
+
+### Render — Frontend Static Site
+
+- **Service ID**: `srv-d6pv47hj16oc73bnn4ng`
+- **Root dir**: `frontend/`
+- **Build command**: `npm install && npm run build`
+- **Publish path**: `dist`
+- **Auto-deploy**: enabled on push to `main`
+- **`VITE_API_URL`** is set as a Render build environment variable (not from `.env.production`, which is gitignored by root `.gitignore` via `*.env.*`)
+- `frontend/public/_redirects` contains `/* /index.html 200` for React Router SPA routing
+
+### Supabase Database
+
+- **Project ref**: `taalckzdvzxaigpdseme`
+- **Region**: `ap-south-1` (Asia Pacific South) — **critical**, wrong region = connection failure
+- **Session pooler host**: `aws-1-ap-south-1.pooler.supabase.com` (port `5432`)
+- **Username**: `postgres.taalckzdvzxaigpdseme` (pooler format, not plain `postgres`)
+- **Database**: `postgres`
+- All 29 tables + 21 ENUMs are applied via migrations
+
+### Backend Environment Variables (Render)
+
+```
+PG_HOST=aws-1-ap-south-1.pooler.supabase.com
+PG_PORT=5432
+PG_USER=postgres.taalckzdvzxaigpdseme
+PG_PASSWORD=<supabase password>
+PG_DB=postgres
+# PG_DSN must NOT be set — config.py builds it from the above parts
+GEMINI_API_KEY=...
+GEMINI_MOCK_MODE=false
+GROQ_API_KEY=...
+SECRET_KEY=...
+CORS_ORIGINS=https://career-guidance-1sep.onrender.com,https://career-guidance-frontend-pcjn.onrender.com,http://localhost:3000,http://localhost:5173
+FRONTEND_URL=https://career-guidance-frontend-pcjn.onrender.com
+```
+
+### Key Deployment Conventions
+
+- **`config.py`** uses `model_config = SettingsConfigDict(env_file=None)` — pydantic-settings never reads `.env` files; only OS env vars (injected by Render) are used.
+- **`load_dotenv`** is skipped when `RENDER` env var is present (set automatically by Render on all services).
+- **`db.py`** uses `SQLAlchemy URL.create()` for Supabase connections to avoid string-parsing issues with special characters in passwords.
+- **`IS_SUPABASE`** flag in `config.py` is auto-detected from `PG_HOST` containing `supabase.co` or `supabase.com`; controls SSL mode and startup behaviour.
+- **Docker build context** is the repo root (`Dockerfile` at `resume_pipeline/Dockerfile`); all `COPY` paths must use the `resume_pipeline/` prefix.
+- **Do not bake `.env` into the Docker image** — `.dockerignore` at repo root excludes it.
+
+### Common Deployment Pitfalls
+
+- Using the wrong Supabase pooler region (e.g. `aws-0-us-east-1` instead of `aws-1-ap-south-1`) → `FATAL: Tenant or user not found`.
+- Setting `PG_DSN` as a Render env var with special chars in the password → Render percent-encodes them, causing a malformed DSN. Always use the individual `PG_*` fields instead.
+- A `requirements.txt` in `frontend/` causes Render to treat it as a Python project and fail the build — keep `frontend/` free of `requirements.txt`.
+- Forgetting `frontend/public/_redirects` → direct navigation to any React Router route returns 404 from the CDN.
+- Adding a new frontend domain without updating `CORS_ORIGINS` on the backend → API calls blocked by CORS.
 
 ---
 
