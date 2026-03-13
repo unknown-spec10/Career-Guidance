@@ -823,11 +823,6 @@ class ResumeParsed(Base):
 if settings.PG_DSN is None:
     raise RuntimeError("PG_DSN is not set in settings; cannot create engine")
 
-# Debug: print DSN (with masked password) to confirm correct credentials at runtime
-_dsn_parts = settings.PG_DSN.split("@")
-_dsn_debug = _dsn_parts[0].rsplit(":", 1)[0] + ":***@" + "@".join(_dsn_parts[1:]) if len(_dsn_parts) > 1 else settings.PG_DSN
-print(f"[db DEBUG] Creating engine with DSN={_dsn_debug!r}", flush=True)
-
 # SQLite in-memory needs shared connections across threads; StaticPool + check_same_thread=False
 if settings.PG_DSN.startswith("sqlite"):
     engine = create_engine(
@@ -845,11 +840,6 @@ elif IS_SUPABASE:
     _pg_host = os.environ.get("PG_HOST") or settings.PG_HOST or "localhost"
     _pg_port = int(os.environ.get("PG_PORT") or settings.PG_PORT or 5432)
     _pg_db   = os.environ.get("PG_DB")   or settings.PG_DB   or "postgres"
-    print(
-        f"[db DEBUG] Supabase URL.create: user={_pg_user!r} host={_pg_host!r} "
-        f"port={_pg_port} db={_pg_db!r}",
-        flush=True,
-    )
     _url = SA_URL.create(
         drivername="postgresql+psycopg2",
         username=_pg_user,

@@ -132,24 +132,6 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Debug: print which DB credentials were loaded (printed early, before logging is configured)
-print(
-    f"[config DEBUG] PG_HOST={settings.PG_HOST!r} PG_USER={settings.PG_USER!r} "
-    f"PG_DSN_set={bool(settings.PG_DSN)} RENDER={os.environ.get('RENDER', 'not-set')!r}",
-    flush=True,
-)
-
-# Debug: log which DB credentials were loaded (masked password)
-import logging as _logging
-_log = _logging.getLogger(__name__)
-_log.info(
-    "[config] PG_HOST=%s PG_USER=%s PG_DSN_set=%s RENDER=%s",
-    settings.PG_HOST,
-    settings.PG_USER,
-    bool(settings.PG_DSN),
-    os.environ.get("RENDER", "not-set"),
-)
-
 # ============================================================================
 # Environment auto-detection
 # Supabase hosts always contain "supabase.co" in PG_HOST.
@@ -188,12 +170,4 @@ if not settings.PG_DSN:
 else:
     # If an explicit PG_DSN was provided, still detect Supabase from it
     IS_SUPABASE = "supabase.co" in settings.PG_DSN or "supabase.com" in settings.PG_DSN
-
-# Debug: print the final DSN with password masked
-_dsn_masked = (settings.PG_DSN or "None").split("@")
-if len(_dsn_masked) > 1:
-    _dsn_masked_str = _dsn_masked[0].rsplit(":", 1)[0] + ":***@" + "@".join(_dsn_masked[1:])
-else:
-    _dsn_masked_str = settings.PG_DSN or "None"
-print(f"[config DEBUG] Final PG_DSN={_dsn_masked_str!r} IS_SUPABASE={IS_SUPABASE}", flush=True)
 

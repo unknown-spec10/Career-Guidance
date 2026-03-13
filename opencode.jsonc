@@ -8,6 +8,16 @@
       "headers": {
         "Authorization": "Bearer rnd_Vv0yPWjpplMcGlNJt9E3NB0dkHxT"
       }
+    },
+    "supabase": {
+      "type": "remote",
+      "url": "https://mcp.supabase.com/mcp?project_ref=taalckzdvzxaigpdseme",
+      "enabled": true
+    },
+    "github": {
+      "type": "remote",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "enabled": true
     }
   }
 }
