@@ -2,10 +2,12 @@ from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, JSON, Boolean, Enum,
     ForeignKey, Index, UniqueConstraint, create_engine
 )
+from sqlalchemy.engine import URL as SA_URL
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.pool import StaticPool
-from .config import settings
+from .config import settings, IS_SUPABASE
 import datetime
+import os
 
 Base = declarative_base()
 
@@ -835,6 +837,29 @@ if settings.PG_DSN.startswith("sqlite"):
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+elif IS_SUPABASE:
+    # Use URL.create() to avoid any string-parsing issues with special chars in username/password.
+    # Read directly from OS env vars as the ultimate source of truth.
+    _pg_user = os.environ.get("PG_USER") or settings.PG_USER or "postgres"
+    _pg_pass = os.environ.get("PG_PASSWORD") or settings.PG_PASSWORD or ""
+    _pg_host = os.environ.get("PG_HOST") or settings.PG_HOST or "localhost"
+    _pg_port = int(os.environ.get("PG_PORT") or settings.PG_PORT or 5432)
+    _pg_db   = os.environ.get("PG_DB")   or settings.PG_DB   or "postgres"
+    print(
+        f"[db DEBUG] Supabase URL.create: user={_pg_user!r} host={_pg_host!r} "
+        f"port={_pg_port} db={_pg_db!r}",
+        flush=True,
+    )
+    _url = SA_URL.create(
+        drivername="postgresql+psycopg2",
+        username=_pg_user,
+        password=_pg_pass,
+        host=_pg_host,
+        port=_pg_port,
+        database=_pg_db,
+        query={"sslmode": "require", "gssencmode": "disable"},
+    )
+    engine = create_engine(_url, echo=False, future=True)
 else:
     engine = create_engine(settings.PG_DSN, echo=False, future=True)
 
