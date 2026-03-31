@@ -11,6 +11,8 @@ cryptography>=41.0.7
 # HTTP & API
 requests>=2.31.0
 httpx>=0.26.0
+celery>=5.4.0
+redis>=5.2.0
 
 # Configuration
 python-dotenv>=1.0.0
@@ -33,7 +35,8 @@ google-generativeai>=0.3.0
 # Document Processing
 pytesseract>=0.3.10
 # torch will be installed separately with CPU-only flag in Dockerfile
-easyocr>=1.7.0
+# Optional OCR stack. Keep out of default deploy to avoid python-bidi build issues on newer runtimes.
+# Install manually only when needed: pip install easyocr
 pdfminer.six>=20221105
 pdf2image>=1.16.3
 pdfplumber>=0.10.3
@@ -44,6 +47,7 @@ Pillow>=10.1.0
 # qdrant-client>=1.7.0
 faiss-cpu>=1.7.4
 sentence-transformers>=2.2.2
+pgvector>=0.3.6
 
 # File Monitoring & Watching
 watchdog>=4.0.0
