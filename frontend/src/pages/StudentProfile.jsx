@@ -1,61 +1,74 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { User, Mail, Lock, Calendar, Save, AlertTriangle, CheckCircle, Shield, ArrowLeft, Briefcase, GraduationCap, Code, Award, Plus, X, Edit2, Upload } from 'lucide-react'
+import {
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Lock,
+  Plus,
+  X,
+  Edit2,
+  Upload,
+  CheckCircle,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  BookOpen,
+  Briefcase,
+  Code,
+  Heart,
+  Coins,
+  ChevronRight,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
-import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
-import { ToastContainer } from '../components/Toast'
-import { sanitizeText } from '../utils/sanitize'
 
 export default function StudentProfile() {
   const navigate = useNavigate()
-  const toast = useToast()
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState('profile')
   const [error, setError] = useState(null)
-  const [user, setUser] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [editingResume, setEditingResume] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const fileInputRef = React.useRef(null)
-  const [formData, setFormData] = useState({
-    name: '',
-    email: ''
-  })
-  const [resumeData, setResumeData] = useState({
+  const [profile, setProfile] = useState({
+    full_name: '',
+    email: '',
+    jee_rank: null,
+    cgpa: null,
+    location: '',
     skills: [],
-    education: [],
-    experience: [],
-    projects: [],
-    certifications: []
   })
-  const [passwordData, setPasswordData] = useState({
-    current_password: '',
-    new_password: '',
-    confirm_password: ''
-  })
+  const [resumeData, setResumeData] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' })
+  const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false })
+  const [uploadingResume, setUploadingResume] = useState(false)
+  const [newSkill, setNewSkill] = useState('')
+  const [creditInfo, setCreditInfo] = useState(null)
 
   useEffect(() => {
     fetchProfile()
     fetchResumeData()
+    fetchCreditInfo()
   }, [])
 
   const fetchProfile = async () => {
     try {
-      setLoading(true)
       const response = await api.get('/api/auth/me')
-      setUser(response.data)
-      setFormData({
-        name: response.data.name || '',
-        email: response.data.email || ''
-      })
+      if (response.data) {
+        setProfile({
+          full_name: response.data.name || '',
+          email: response.data.email || '',
+          jee_rank: response.data.jee_rank || null,
+          cgpa: response.data.cgpa || null,
+          location: response.data.location || '',
+          skills: response.data.skills || [],
+        })
+      }
+      setLoading(false)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load profile')
-      toast.error('Failed to load profile')
-    } finally {
+      console.error('Error fetching profile:', err)
+      setError('Failed to load profile')
       setLoading(false)
     }
   }
@@ -63,692 +76,630 @@ export default function StudentProfile() {
   const fetchResumeData = async () => {
     try {
       const response = await api.get('/api/student/profile')
-      console.log('📋 Profile API Response:', response.data)
-      setProfile(response.data)
-
-      console.log('Skills from API:', response.data.skills)
-      console.log('Education from API:', response.data.education)
-      console.log('Experience from API:', response.data.experience)
-
-      setResumeData({
-        skills: response.data.skills || [],
-        education: response.data.education || [],
-        experience: response.data.experience || [],
-        projects: response.data.projects || [],
-        certifications: response.data.certifications || []
-      })
-    } catch (err) {
-      console.error('Failed to load resume data:', err)
-    }
-  }
-
-  const handleSaveResumeData = async () => {
-    try {
-      setSaving(true)
-      await api.put('/api/student/profile', resumeData)
-      toast.success('Resume details updated successfully')
-      setEditingResume(false)
-      fetchResumeData()
-    } catch (err) {
-      toast.error('Failed to update resume details')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleResumeUpload = async (event) => {
-    const file = event.target.files[0]
-    if (!file) return
-
-    // Validate file type
-    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
-    if (!allowedTypes.includes(file.type)) {
-      toast.error('Please upload a PDF or Word document')
-      return
-    }
-
-    // Validate file size (10MB max)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('File size must be less than 10MB')
-      return
-    }
-
-    try {
-      setUploading(true)
-      setUploadProgress(0)
-
-      const formData = new FormData()
-      formData.append('file', file)
-
-      // Upload with progress tracking
-      const response = await api.post('/api/upload/resume', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
-        timeout: 90000, // 90 seconds for upload + parsing
-        onUploadProgress: (progressEvent) => {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-          setUploadProgress(progress)
-        }
-      })
-
-      toast.success('Resume uploaded successfully! Parsing in progress...')
-
-      // Wait a bit for parsing to complete
-      setTimeout(() => {
-        fetchResumeData()
-        toast.success('Resume parsed successfully!')
-      }, 2000)
-
-    } catch (error) {
-      console.error('Upload error:', error)
-      const errorMsg = error.response?.data?.detail || error.message || 'Failed to upload resume'
-      toast.error(errorMsg)
-    } finally {
-      setUploading(false)
-      setUploadProgress(0)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
+      if (response.data) {
+        setResumeData(response.data)
       }
+    } catch (err) {
+      console.error('Error fetching resume data:', err)
     }
   }
 
-  const addSkill = () => {
-    setResumeData({
-      ...resumeData,
-      skills: [...resumeData.skills, { name: '', proficiency: 'intermediate' }]
-    })
-  }
-
-  const removeSkill = (index) => {
-    setResumeData({
-      ...resumeData,
-      skills: resumeData.skills.filter((_, i) => i !== index)
-    })
-  }
-
-  const updateSkill = (index, field, value) => {
-    const newSkills = [...resumeData.skills]
-    newSkills[index] = { ...newSkills[index], [field]: value }
-    setResumeData({ ...resumeData, skills: newSkills })
+  const fetchCreditInfo = async () => {
+    try {
+      const response = await api.get('/api/credit/account')
+      if (response.data) {
+        setCreditInfo(response.data)
+      }
+    } catch (err) {
+      console.error('Error fetching credit info:', err)
+    }
   }
 
   const handleUpdateProfile = async (e) => {
     e.preventDefault()
-
-    if (!formData.name.trim()) {
-      setError('Full name is required')
-      return
-    }
-
     try {
-      setSaving(true)
-      setError(null)
-
-      const sanitizedName = sanitizeText(formData.name)
-      await api.patch('/api/auth/profile', { name: sanitizedName })
-
-      toast.success('Profile updated successfully')
-      setUser({ ...user, name: sanitizedName })
-
-      const storedUser = secureStorage.getItem('user')
-      if (storedUser) {
-        storedUser.name = sanitizedName
-        secureStorage.setItem('user', storedUser)
-      }
+      await api.patch('/api/auth/profile', {
+        name: profile.full_name
+      })
+      showToast('Profile updated successfully', 'success')
+      setEditing(false)
+      fetchProfile()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to update profile')
-      toast.error('Failed to update profile')
-    } finally {
-      setSaving(false)
+      console.error('Error updating profile:', err)
+      showToast('Failed to update profile', 'error')
     }
   }
 
   const handleChangePassword = async (e) => {
     e.preventDefault()
-
-    if (!passwordData.current_password || !passwordData.new_password || !passwordData.confirm_password) {
-      setError('All password fields are required')
+    if (passwords.new !== passwords.confirm) {
+      showToast('New passwords do not match', 'error')
       return
     }
-
-    if (passwordData.new_password.length < 8) {
-      setError('New password must be at least 8 characters long')
+    if (passwords.new.length < 8) {
+      showToast('Password must be at least 8 characters', 'error')
       return
     }
-
-    if (passwordData.new_password !== passwordData.confirm_password) {
-      setError('New passwords do not match')
-      return
-    }
-
     try {
-      setSaving(true)
-      setError(null)
-
       await api.patch('/api/auth/change-password', {
-        current_password: passwordData.current_password,
-        new_password: passwordData.new_password
+        current_password: passwords.current,
+        new_password: passwords.new,
       })
-
-      toast.success('Password changed successfully')
-      setPasswordData({
-        current_password: '',
-        new_password: '',
-        confirm_password: ''
-      })
+      showToast('Password changed successfully', 'success')
+      setPasswords({ current: '', new: '', confirm: '' })
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to change password')
-      toast.error('Failed to change password')
-    } finally {
-      setSaving(false)
+      console.error('Error changing password:', err)
+      showToast(err.response?.data?.detail || 'Failed to change password', 'error')
     }
   }
 
-  const tabs = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'resume', label: 'Resume Details', icon: Briefcase },
-    { id: 'security', label: 'Security', icon: Shield }
-  ]
+  const handleResumeUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    setUploadingResume(true)
+    try {
+      const formData = new FormData()
+      formData.append('resume', file)
+
+      const response = await api.post('/api/upload/resume', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      if (response.data?.db_id) {
+        showToast('Resume uploaded and parsed successfully', 'success')
+        fetchResumeData()
+      }
+    } catch (err) {
+      console.error('Error uploading resume:', err)
+      showToast('Failed to upload resume', 'error')
+    } finally {
+      setUploadingResume(false)
+    }
+  }
+
+  const addSkill = () => {
+    if (newSkill.trim() && !profile.skills.includes(newSkill.trim())) {
+      setProfile({ ...profile, skills: [...profile.skills, newSkill.trim()] })
+      setNewSkill('')
+    }
+  }
+
+  const removeSkill = (skillToRemove) => {
+    setProfile({
+      ...profile,
+      skills: profile.skills.filter((s) => s !== skillToRemove),
+    })
+  }
+
+  const updateSkill = (index, newValue) => {
+    const updatedSkills = [...profile.skills]
+    updatedSkills[index] = newValue
+    setProfile({ ...profile, skills: updatedSkills })
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading profile...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 2, repeat: Infinity }}
+          className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full"
+        />
       </div>
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 pt-20 pb-12">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-5xl">
-        {/* Header */}
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-red-50 border border-red-200 p-6 rounded-lg text-red-800"
         >
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors mb-4"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span>Back to Dashboard</span>
-          </button>
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">Account Settings</h1>
-          <p className="text-gray-400">Manage your profile information and security settings</p>
+          <AlertCircle className="w-6 h-6 mb-2" />
+          {error}
         </motion.div>
+      </div>
+    )
+  }
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Sidebar */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="lg:col-span-1"
-          >
-            <div className="card p-4 space-y-2">
-              {tabs.map((tab) => {
-                const Icon = tab.icon
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id)
-                      setError(null)
-                    }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${activeTab === tab.id
-                      ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                      }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span className="font-medium">{tab.label}</span>
-                  </button>
-                )
-              })}
+  const fieldClass = 'w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
+  const buttonClass = 'px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium'
+
+  return (
+    <div className="min-h-screen bg-white">
+      {/* Navigation */}
+      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-blue-600">Career AI</h1>
+          <div className="flex items-center gap-4">
+            <div className="flex gap-3">
+              <button onClick={() => navigate('/dashboard')} className="text-gray-600 hover:text-gray-900">Dashboard</button>
+              <button onClick={() => navigate('/jobs')} className="text-gray-600 hover:text-gray-900">Jobs</button>
+              <button className="text-gray-900 font-semibold">My Profile</button>
+              <button onClick={() => navigate('/mentors')} className="text-gray-600 hover:text-gray-900">Mentors</button>
             </div>
+            <button className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full" />
+          </div>
+        </div>
+      </nav>
 
-            {/* Profile Summary Card */}
-            <div className="card p-6 mt-6">
-              <div className="text-center">
-                <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <User className="w-10 h-10 text-white" />
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-6 py-12">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-4xl font-bold text-gray-900">My Profile</h2>
+              <p className="text-gray-600 mt-2">Manage your academic and professional identity</p>
+            </div>
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center">
+              <User className="w-8 h-8 text-white" />
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 mt-6">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setEditing(!editing)}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
+                editing ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              <Edit2 className="w-4 h-4" />
+              {editing ? 'Cancel' : 'Edit Profile'}
+            </motion.button>
+            <label className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900 hover:bg-gray-50 transition cursor-pointer">
+              <Upload className="w-4 h-4" />
+              {uploadingResume ? 'Uploading...' : 'Upload Resume'}
+              <input type="file" accept=".pdf" onChange={handleResumeUpload} hidden />
+            </label>
+            {editing && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                onClick={handleUpdateProfile}
+                className={buttonClass}
+              >
+                Save Changes
+              </motion.button>
+            )}
+          </div>
+
+          {/* Profile Completeness */}
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-gray-700">Profile Completeness</span>
+              <span className="text-lg font-bold text-blue-600">85%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+              <div className="h-full bg-blue-600 rounded-full" style={{ width: '85%' }} />
+            </div>
+            <p className="text-sm text-gray-600 mt-2">
+              Almost there! Complete the remaining sections to unlock personalized AI career roadmaps.
+            </p>
+          </div>
+        </div>
+
+        {/* Main Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+          {/* Sidebar */}
+          <aside className="lg:col-span-1">
+            <div className="bg-gradient-to-b from-blue-600 to-blue-800 text-white rounded-lg p-6 sticky top-24">
+              <h3 className="font-bold text-lg mb-4 pb-4 border-b border-blue-400">Sections</h3>
+              <nav className="space-y-2">
+                <a href="#personal" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <User className="w-4 h-4 inline mr-2" />
+                  Personal Information
+                </a>
+                <a href="#education" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <BookOpen className="w-4 h-4 inline mr-2" />
+                  Education
+                </a>
+                <a href="#experience" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <Briefcase className="w-4 h-4 inline mr-2" />
+                  Experience
+                </a>
+                <a href="#resume" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <Upload className="w-4 h-4 inline mr-2" />
+                  Resume
+                </a>
+                <a href="#skills" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <Code className="w-4 h-4 inline mr-2" />
+                  Skills
+                </a>
+                <a href="#health" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <Heart className="w-4 h-4 inline mr-2" />
+                  Health
+                </a>
+                <a href="#credits" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <Coins className="w-4 h-4 inline mr-2" />
+                  Credits
+                </a>
+                <a href="#security" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+                  <Lock className="w-4 h-4 inline mr-2" />
+                  Security
+                </a>
+              </nav>
+            </div>
+          </aside>
+
+          {/* Main Content */}
+          <main className="lg:col-span-3 space-y-8">
+            {/* Personal Information */}
+            <section id="personal" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                  <User className="w-5 h-5 text-blue-600" />
                 </div>
-                <h3 className="text-lg font-bold mb-1">{user?.name || 'Student'}</h3>
-                <p className="text-sm text-gray-400 mb-3">{user?.email}</p>
-                <div className="flex items-center justify-center space-x-2 text-sm">
-                  {user?.is_verified ? (
-                    <>
-                      <CheckCircle className="w-4 h-4 text-green-400" />
-                      <span className="text-green-400">Verified</span>
-                    </>
+                <h3 className="text-2xl font-bold text-gray-900">Personal Information</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Full Name</label>
+                  <input
+                    type="text"
+                    value={profile.full_name}
+                    onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
+                    disabled={!editing}
+                    className={fieldClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
+                  <input
+                    type="email"
+                    value={profile.email}
+                    disabled
+                    className={`${fieldClass} bg-gray-50`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
+                  <input
+                    type="tel"
+                    placeholder="+1 (555) 0000-0000"
+                    disabled={!editing}
+                    className={fieldClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Location</label>
+                  <input
+                    type="text"
+                    value={profile.location}
+                    onChange={(e) => setProfile({ ...profile, location: e.target.value })}
+                    disabled={!editing}
+                    className={fieldClass}
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Education */}
+            <section id="education" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <BookOpen className="w-5 h-5 text-green-600" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900">Education</h3>
+                </div>
+                {editing && (
+                  <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                    <Plus className="w-4 h-4" />
+                    Add Education
+                  </button>
+                )}
+              </div>
+
+              {resumeData?.education && resumeData.education.length > 0 ? (
+                <div className="space-y-4">
+                  {resumeData.education.map((edu, idx) => (
+                    <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <h4 className="font-bold text-gray-900">{edu.institution}</h4>
+                      <p className="text-sm text-gray-600">{edu.duration}</p>
+                      <p className="text-sm text-gray-700">{edu.field_of_study}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-600 text-center py-8">No education records yet</p>
+              )}
+            </section>
+
+            {/* Experience */}
+            <section id="experience" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Briefcase className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900">Experience</h3>
+                </div>
+                {editing && (
+                  <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <Plus className="w-4 h-4" />
+                    Add Experience
+                  </button>
+                )}
+              </div>
+
+              {resumeData?.experience && resumeData.experience.length > 0 ? (
+                <div className="space-y-4">
+                  {resumeData.experience.map((exp, idx) => (
+                    <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <h4 className="font-bold text-gray-900">{exp.job_title}</h4>
+                      <p className="text-sm text-gray-700">{exp.company}</p>
+                      <p className="text-sm text-gray-600">{exp.duration}</p>
+                      <p className="text-sm text-gray-600 mt-2">{exp.description}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-600 text-center py-8">No experience records yet</p>
+              )}
+            </section>
+
+            {/* Resume */}
+            <section id="resume" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                  <Upload className="w-5 h-5 text-orange-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Resume</h3>
+              </div>
+
+              {resumeData ? (
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="font-bold text-gray-900 mb-3">Summary</h4>
+                    <p className="text-gray-700">{resumeData.summary}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Upload className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+                  <p className="text-gray-600 text-lg mb-4">No resume uploaded yet</p>
+                  <p className="text-gray-500 mb-6">Upload your PDF resume to let AI scan for missing skills.</p>
+                  <label className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer font-semibold">
+                    <Upload className="w-4 h-4" />
+                    Upload PDF
+                    <input type="file" accept=".pdf" onChange={handleResumeUpload} hidden />
+                  </label>
+                </div>
+              )}
+            </section>
+
+            {/* Skills */}
+            <section id="skills" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                  <Code className="w-5 h-5 text-purple-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Skills & Tech Stack</h3>
+              </div>
+
+              <div className="mb-6">
+                <div className="flex flex-wrap gap-3">
+                  {profile.skills.length > 0 ? (
+                    profile.skills.map((skill, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-900 rounded-full font-medium border border-blue-300"
+                      >
+                        {editing ? (
+                          <input
+                            type="text"
+                            value={skill}
+                            onChange={(e) => updateSkill(idx, e.target.value)}
+                            className="bg-transparent outline-none w-24"
+                          />
+                        ) : (
+                          skill
+                        )}
+                        {editing && (
+                          <button onClick={() => removeSkill(skill)} className="text-blue-900 hover:text-red-600">
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))
                   ) : (
-                    <>
-                      <AlertTriangle className="w-4 h-4 text-yellow-400" />
-                      <span className="text-yellow-400">Unverified</span>
-                    </>
+                    <p className="text-gray-500">No skills added yet</p>
                   )}
                 </div>
               </div>
-            </div>
-          </motion.div>
 
-          {/* Main Content */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="lg:col-span-3"
-          >
-            <div className="card p-6 md:p-8">
-              {error && (
-                <div className="mb-6 p-4 bg-red-900/20 border border-red-500/30 rounded-lg flex items-start space-x-3">
-                  <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                  <span className="text-red-400">{error}</span>
+              {editing && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Add a new skill..."
+                    value={newSkill}
+                    onChange={(e) => setNewSkill(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addSkill()}
+                    className={fieldClass}
+                  />
+                  <button onClick={addSkill} className={`${buttonClass} px-4`}>
+                    <Plus className="w-4 h-4" />
+                  </button>
                 </div>
               )}
+            </section>
 
-              {/* Profile Tab */}
-              {activeTab === 'profile' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                >
-                  <div className="mb-6">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Profile Information</h2>
-                    <p className="text-gray-600">Update your account details and personal information</p>
+            {/* Profile Health */}
+            <section id="health" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                  <Heart className="w-5 h-5 text-red-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Profile Health</h3>
+              </div>
+
+              <div className="text-center mb-8">
+                <div className="text-6xl font-bold text-blue-600 mb-2">850</div>
+                <p className="text-gray-600 font-medium">Health Score</p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <span className="text-gray-700">Education details added</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <span className="text-gray-700">Skills categorized</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 border-2 border-gray-400 rounded-full flex-shrink-0" />
+                  <span className="text-gray-600">Link LinkedIn profile</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 border-2 border-gray-400 rounded-full flex-shrink-0" />
+                  <span className="text-gray-600">Add a profile photo</span>
+                </div>
+              </div>
+
+              <button className="mt-6 w-full text-left px-4 py-3 text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2">
+                Improve Recommendations <ChevronRight className="w-4 h-4" />
+              </button>
+            </section>
+
+            {/* AI Credits */}
+            <section id="credits" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <Coins className="w-5 h-5 text-yellow-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">AI Credits</h3>
+              </div>
+
+              {creditInfo ? (
+                <div>
+                  <div className="text-center py-8 bg-yellow-50 rounded-lg border border-yellow-200 mb-6">
+                    <div className="text-5xl font-bold text-yellow-600 mb-2">{creditInfo.balance}</div>
+                    <p className="text-gray-600 font-medium">Tokens remaining</p>
+                    <p className="text-sm text-gray-500 mt-1">Estimated 12 deep career analyses</p>
                   </div>
-
-                  <form onSubmit={handleUpdateProfile} className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
-                          <User className="w-4 h-4 text-indigo-600" />
-                          <span>Full Name</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.name}
-                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                          className="input w-full"
-                          placeholder="Enter your full name"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
-                          <Mail className="w-4 h-4 text-indigo-600" />
-                          <span>Email Address</span>
-                        </label>
-                        <input
-                          type="email"
-                          value={formData.email}
-                          disabled
-                          className="input w-full opacity-60 cursor-not-allowed"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-                        <div className="px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-900">
-                          Student
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
-                          <Calendar className="w-4 h-4 text-indigo-600" />
-                          <span>Member Since</span>
-                        </label>
-                        <div className="px-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-gray-900">
-                          {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                          }) : 'N/A'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end pt-4 border-t border-gray-200">
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        className="btn-primary flex items-center space-x-2 px-6"
-                      >
-                        <Save className="w-4 h-4" />
-                        <span>{saving ? 'Saving...' : 'Save Changes'}</span>
-                      </button>
-                    </div>
-                  </form>
-                </motion.div>
+                  <button className="w-full px-6 py-3 text-blue-600 hover:text-blue-700 font-semibold flex items-center justify-center gap-2">
+                    View Transaction History <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <p className="text-gray-600 text-center py-8">Loading credit information...</p>
               )}
+            </section>
 
-              {/* Resume Details Tab */}
-              {activeTab === 'resume' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                >
-                  <div className="mb-6 flex items-center justify-between">
+            {/* Security & Account */}
+            <section id="security" className="bg-white border border-gray-200 rounded-lg p-8">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                  <Lock className="w-5 h-5 text-red-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Security & Account</h3>
+              </div>
+
+              <div className="space-y-6">
+                {/* Account Status */}
+                <div className="p-6 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-2xl font-bold mb-2">Resume Details</h2>
-                      <p className="text-gray-400">View and edit your parsed resume information</p>
+                      <p className="text-sm font-semibold text-gray-700">Account Status</p>
+                      <p className="text-lg font-bold text-green-600 mt-1">Active</p>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      {/* Re-upload Resume Button */}
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".pdf,.doc,.docx"
-                        onChange={handleResumeUpload}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center space-x-2 disabled:opacity-50"
-                      >
-                        <Upload className="w-4 h-4" />
-                        <span>{uploading ? `Uploading ${uploadProgress}%` : 'Re-upload Resume'}</span>
-                      </button>
+                    <CheckCircle className="w-8 h-8 text-green-600" />
+                  </div>
+                </div>
 
-                      {/* Edit/Save Buttons */}
-                      {!editingResume ? (
+                {/* Change Password */}
+                <form onSubmit={handleChangePassword} className="p-6 bg-gray-50 rounded-lg border border-gray-200">
+                  <h4 className="font-bold text-gray-900 mb-6">Change Password</h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Current Password</label>
+                      <div className="relative">
+                        <input
+                          type={showPasswords.current ? 'text' : 'password'}
+                          value={passwords.current}
+                          onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
+                          className={fieldClass}
+                        />
                         <button
-                          onClick={() => setEditingResume(true)}
-                          className="btn-primary flex items-center space-x-2"
+                          type="button"
+                          onClick={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600"
                         >
-                          <Edit2 className="w-4 h-4" />
-                          <span>Edit</span>
+                          {showPasswords.current ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
-                      ) : (
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => {
-                              setEditingResume(false)
-                              fetchResumeData()
-                            }}
-                            className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={handleSaveResumeData}
-                            disabled={saving}
-                            className="btn-primary flex items-center space-x-2"
-                          >
-                            <Save className="w-4 h-4" />
-                            <span>{saving ? 'Saving...' : 'Save Changes'}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-8">
-                    {/* Skills Section */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                        <Code className="w-5 h-5 text-primary-400" />
-                        <span>Skills ({resumeData.skills.length})</span>
-                      </h3>
-                      {editingResume ? (
-                        <div className="space-y-3">
-                          {resumeData.skills.map((skill, index) => (
-                            <div key={index} className="flex items-center space-x-3">
-                              <input
-                                type="text"
-                                value={typeof skill === 'string' ? skill : (skill.name || '')}
-                                onChange={(e) => updateSkill(index, 'name', e.target.value)}
-                                className="input flex-1"
-                                placeholder="Skill name"
-                              />
-                              <select
-                                value={skill.proficiency || 'intermediate'}
-                                onChange={(e) => updateSkill(index, 'proficiency', e.target.value)}
-                                className="input w-40"
-                              >
-                                <option value="beginner">Beginner</option>
-                                <option value="intermediate">Intermediate</option>
-                                <option value="advanced">Advanced</option>
-                                <option value="expert">Expert</option>
-                              </select>
-                              <button
-                                onClick={() => removeSkill(index)}
-                                className="p-2 text-red-400 hover:text-red-300"
-                              >
-                                <X className="w-5 h-5" />
-                              </button>
-                            </div>
-                          ))}
-                          <button
-                            onClick={addSkill}
-                            className="flex items-center space-x-2 text-primary-400 hover:text-primary-300"
-                          >
-                            <Plus className="w-4 h-4" />
-                            <span>Add Skill</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {resumeData.skills.map((skill, index) => {
-                            const skillName = typeof skill === 'string' ? skill : skill.name
-                            return (
-                              <span
-                                key={index}
-                                className="px-3 py-1.5 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium"
-                              >
-                                {skillName}
-                              </span>
-                            )
-                          })}
-                          {resumeData.skills.length === 0 && (
-                            <p className="text-gray-500 italic">No skills added yet</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Education Section */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                        <GraduationCap className="w-5 h-5 text-primary-400" />
-                        <span>Education</span>
-                      </h3>
-                      <div className="space-y-4">
-                        {resumeData.education.map((edu, index) => (
-                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
-                            <div className="font-medium text-gray-900">{edu.degree} {edu.branch && `in ${edu.branch}`}</div>
-                            <div className="text-sm text-gray-600 mt-1">{edu.institution}</div>
-                            {edu.cgpa && <div className="text-sm text-gray-600">CGPA: {edu.cgpa}</div>}
-                            {(edu.start_year || edu.end_year) && (
-                              <div className="text-sm text-gray-600">
-                                {edu.start_year} - {edu.end_year || 'Present'}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {resumeData.education.length === 0 && (
-                          <p className="text-gray-500 italic">No education details added yet</p>
-                        )}
                       </div>
                     </div>
 
-                    {/* Experience Section */}
                     <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                        <Briefcase className="w-5 h-5 text-primary-400" />
-                        <span>Work Experience</span>
-                      </h3>
-                      <div className="space-y-4">
-                        {resumeData.experience.map((exp, index) => (
-                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
-                            <div className="font-medium text-gray-900">{exp.title}</div>
-                            <div className="text-sm text-gray-600 mt-1">{exp.company}</div>
-                            {(exp.start_date || exp.end_date) && (
-                              <div className="text-sm text-gray-600">
-                                {exp.start_date} - {exp.end_date || 'Present'}
-                              </div>
-                            )}
-                            {exp.description && (
-                              <p className="text-sm text-gray-700 mt-2">{exp.description}</p>
-                            )}
-                          </div>
-                        ))}
-                        {resumeData.experience.length === 0 && (
-                          <p className="text-gray-500 italic">No work experience added yet</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Projects Section */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                        <Code className="w-5 h-5 text-primary-400" />
-                        <span>Projects</span>
-                      </h3>
-                      <div className="space-y-4">
-                        {resumeData.projects.map((project, index) => (
-                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
-                            <div className="font-medium">{project.name}</div>
-                            {project.description && (
-                              <p className="text-sm text-gray-700 mt-2">{project.description}</p>
-                            )}
-                            {project.technologies && project.technologies.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                {project.technologies.map((tech, i) => (
-                                  <span key={i} className="px-2 py-1 bg-primary-500/20 text-primary-400 text-xs rounded">
-                                    {tech}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {resumeData.projects.length === 0 && (
-                          <p className="text-gray-500 italic">No projects added yet</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Certifications Section */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                        <Award className="w-5 h-5 text-primary-400" />
-                        <span>Certifications</span>
-                      </h3>
-                      <div className="space-y-4">
-                        {resumeData.certifications.map((cert, index) => (
-                          <div key={index} className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
-                            <div className="font-medium">{cert.name}</div>
-                            {cert.issuer && (
-                              <div className="text-sm text-gray-600 mt-1">Issued by: {cert.issuer}</div>
-                            )}
-                            {cert.issue_date && (
-                              <div className="text-sm text-gray-600">Date: {cert.issue_date}</div>
-                            )}
-                          </div>
-                        ))}
-                        {resumeData.certifications.length === 0 && (
-                          <p className="text-gray-500 italic">No certifications added yet</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Security Tab */}
-              {activeTab === 'security' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                >
-                  <div className="mb-6">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Security Settings</h2>
-                    <p className="text-gray-600">Update your password and manage account security</p>
-                  </div>
-
-                  <form onSubmit={handleChangePassword} className="space-y-6">
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
-                          <Lock className="w-4 h-4 text-indigo-600" />
-                          <span>Current Password</span>
-                        </label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">New Password</label>
+                      <div className="relative">
                         <input
-                          type="password"
-                          value={passwordData.current_password}
-                          onChange={(e) => setPasswordData({ ...passwordData, current_password: e.target.value })}
-                          className="input w-full"
-                          placeholder="Enter your current password"
+                          type={showPasswords.new ? 'text' : 'password'}
+                          value={passwords.new}
+                          onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+                          className={fieldClass}
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600"
+                        >
+                          {showPasswords.new ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
+                    </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
-                          <Lock className="w-4 h-4 text-indigo-600" />
-                          <span>New Password</span>
-                        </label>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Confirm New Password</label>
+                      <div className="relative">
                         <input
-                          type="password"
-                          value={passwordData.new_password}
-                          onChange={(e) => setPasswordData({ ...passwordData, new_password: e.target.value })}
-                          className="input w-full"
-                          placeholder="Enter new password (min 8 characters)"
+                          type={showPasswords.confirm ? 'text' : 'password'}
+                          value={passwords.confirm}
+                          onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                          className={fieldClass}
                         />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center space-x-2">
-                          <Lock className="w-4 h-4 text-indigo-600" />
-                          <span>Confirm New Password</span>
-                        </label>
-                        <input
-                          type="password"
-                          value={passwordData.confirm_password}
-                          onChange={(e) => setPasswordData({ ...passwordData, confirm_password: e.target.value })}
-                          className="input w-full"
-                          placeholder="Confirm your new password"
-                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600"
+                        >
+                          {showPasswords.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
                     </div>
 
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <h3 className="font-semibold text-blue-800 mb-2">Password Requirements:</h3>
-                      <ul className="text-sm text-blue-700 space-y-1">
-                        <li>• At least 8 characters long</li>
-                        <li>• Mix of uppercase and lowercase letters recommended</li>
-                        <li>• Include numbers and special characters for better security</li>
-                      </ul>
-                    </div>
+                    <button type="submit" className={`${buttonClass} w-full`}>
+                      Update Password
+                    </button>
+                  </div>
+                </form>
 
-                    <div className="flex justify-end pt-4 border-t border-gray-200">
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        className="btn-primary flex items-center space-x-2 px-6"
-                      >
-                        <Save className="w-4 h-4" />
-                        <span>{saving ? 'Updating...' : 'Update Password'}</span>
-                      </button>
-                    </div>
-                  </form>
-                </motion.div>
-              )}
-            </div>
-          </motion.div>
+                {/* Danger Zone */}
+                <div className="p-6 bg-red-50 rounded-lg border border-red-200">
+                  <h4 className="font-bold text-red-900 mb-4">Danger Zone</h4>
+                  <button className="w-full px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold">
+                    Deactivate Account
+                  </button>
+                </div>
+              </div>
+            </section>
+          </main>
         </div>
+
+        {/* Footer */}
+        <footer className="mt-16 pt-8 border-t border-gray-200 text-center text-gray-600 text-sm">
+          <p>© 2024 Career AI. Empowering students with intelligent guidance.</p>
+        </footer>
       </div>
-      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
 }

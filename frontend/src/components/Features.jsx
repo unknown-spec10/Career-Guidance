@@ -16,7 +16,7 @@ const features = [
   {
     icon: Target,
     title: 'Smart Matching',
-    description: 'Get matched with colleges and jobs that align perfectly with your skills and career goals.'
+    description: 'Get matched with jobs that align perfectly with your skills and career goals.'
   },
   {
     icon: TrendingUp,

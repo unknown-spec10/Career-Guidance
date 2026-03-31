@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Mail, Lock, User, Phone, Briefcase, GraduationCap, UserCircle, AlertTriangle, CheckCircle, KeyRound } from 'lucide-react'
+import { Mail, Lock, User, Phone, Briefcase, UserCircle, AlertTriangle, CheckCircle, KeyRound, Eye, EyeOff } from 'lucide-react'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
@@ -22,6 +22,7 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState(false)
   const [verificationCode, setVerificationCode] = useState('')
   const [verifyLoading, setVerifyLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -183,13 +184,20 @@ export default function RegisterPage() {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   required
                   minLength="8"
-                  className="input pl-10"
+                  className="input pl-10 pr-10"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
               </div>
             </div>
 
@@ -211,8 +219,7 @@ export default function RegisterPage() {
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { value: 'student', icon: UserCircle, label: 'Student' },
-                  { value: 'employer', icon: Briefcase, label: 'Employer' },
-                  { value: 'college', icon: GraduationCap, label: 'College' }
+                  { value: 'employer', icon: Briefcase, label: 'Recruiter' }
                 ].map(({ value, icon: Icon, label }) => (
                   <button
                     key={value}

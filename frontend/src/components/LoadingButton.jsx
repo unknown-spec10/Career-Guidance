@@ -45,34 +45,26 @@ export default function LoadingButton({
         ${fullWidth ? 'w-full' : ''}
         ${disabled || loading ? 'opacity-75 cursor-wait' : ''}
         flex items-center justify-center gap-2 rounded-lg font-medium 
-        transition-all duration-200 relative overflow-hidden
+        transition-all duration-200
         ${className}
       `}
       {...props}
     >
-      {loading && (
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="absolute left-4"
-        >
-          <Loader2 className="w-5 h-5" />
-        </motion.div>
-      )}
-
-      {!loading && Icon && <Icon className="w-4 h-4" />}
-
-      <span className={loading ? 'opacity-0' : 'opacity-100'}>{children}</span>
-      {loading && <span className="absolute inset-0 flex items-center justify-center">Processing...</span>}
-
-      {/* Ripple effect on hover */}
-      {!disabled && !loading && (
-        <motion.div
-          className="absolute inset-0 bg-white/10"
-          initial={{ scale: 0, opacity: 0 }}
-          whileHover={{ scale: 2, opacity: 1 }}
-          transition={{ duration: 0.5 }}
-        />
+      {loading ? (
+        <>
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+          >
+            <Loader2 className="h-4 w-4" />
+          </motion.div>
+          <span>Processing...</span>
+        </>
+      ) : (
+        <>
+          {Icon && <Icon className="h-4 w-4" />}
+          <span>{children}</span>
+        </>
       )}
     </motion.button>
   )

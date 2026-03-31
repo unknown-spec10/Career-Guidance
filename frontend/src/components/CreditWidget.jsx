@@ -44,7 +44,8 @@ const CreditWidget = () => {
 
   const { current_credits, weekly_limit, next_refill_days, next_refill_hours, usage_today, usage_this_week, limits, costs, is_premium } = credits
 
-  const creditPercentage = (current_credits / weekly_limit) * 100
+  const rawCreditPercentage = weekly_limit > 0 ? (current_credits / weekly_limit) * 100 : 0
+  const creditPercentage = Math.min(Math.max(rawCreditPercentage, 0), 100)
   const getColorClass = () => {
     if (creditPercentage >= 50) return 'text-green-600 border-green-300'
     if (creditPercentage >= 25) return 'text-orange-600 border-orange-300'
@@ -53,8 +54,8 @@ const CreditWidget = () => {
 
   const getBgClass = () => {
     if (creditPercentage >= 50) return 'bg-green-50 hover:bg-green-100'
-    if (creditPercentage >= 25) return 'bg-yellow-900/10 hover:bg-yellow-900/20'
-    return 'bg-red-900/10 hover:bg-red-900/20'
+    if (creditPercentage >= 25) return 'bg-yellow-50 hover:bg-yellow-100'
+    return 'bg-red-50 hover:bg-red-100'
   }
 
   return (
@@ -64,31 +65,35 @@ const CreditWidget = () => {
         onClick={() => setShowModal(true)}
         whileHover={{ scale: 1.01 }}
         whileTap={{ scale: 0.99 }}
-        className={`cursor-pointer border rounded-xl p-4 flex items-center justify-between transition-all ${getColorClass()} ${getBgClass()}`}
+        className={`cursor-pointer border rounded-xl p-4 transition-all shadow-sm ${getColorClass()} ${getBgClass()}`}
       >
-        <div className="flex items-center space-x-3">
-          <div className={`p-2 rounded-lg bg-blue-100`}>
-            <Coins className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-sm font-medium text-gray-900">Interview Credits</div>
-            <div className="text-2xl font-bold flex items-baseline space-x-1">
-              <span>{current_credits}</span>
-              <span className="text-sm text-gray-500 font-normal">/ {weekly_limit}</span>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex items-center gap-3">
+            <div className="rounded-lg bg-blue-100 p-2 text-primary-600">
+              <Coins className="h-5 w-5" />
             </div>
+            <div className="text-sm font-medium text-gray-900">Interview Credits</div>
+          </div>
+          <div className="text-right text-xs text-gray-500 whitespace-nowrap">
+            {next_refill_days > 0 ? `${next_refill_days}d ${next_refill_hours}h` : `${next_refill_hours}h`} to refill
           </div>
         </div>
 
-        <div className="hidden sm:flex flex-col items-end">
-          <div className="text-xs text-gray-400 mb-1">
-            {next_refill_days > 0 ? `${next_refill_days}d ${next_refill_hours}h` : `${next_refill_hours}h`} to refill
+        <div className="mt-3 flex items-end justify-between gap-3">
+          <div className="flex items-baseline gap-1 whitespace-nowrap text-2xl font-bold leading-none tabular-nums">
+            <span>{current_credits}</span>
+            <span className="text-sm font-normal text-gray-500">/ {weekly_limit}</span>
           </div>
-          <div className="w-24 bg-gray-200 rounded-full h-1.5">
-            <div
-              className="h-1.5 rounded-full bg-current"
-              style={{ width: `${creditPercentage}%` }}
-            />
+          <div className="text-xs text-gray-500">
+            {Math.round(creditPercentage)}% remaining
           </div>
+        </div>
+
+        <div className="mt-2 h-1.5 w-full rounded-full bg-gray-200">
+          <div
+            className="h-1.5 rounded-full bg-current"
+            style={{ width: `${creditPercentage}%` }}
+          />
         </div>
       </motion.div>
 
@@ -101,7 +106,7 @@ const CreditWidget = () => {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+              className="flex w-full max-w-xl max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
             >
               {/* Modal Header */}
               <div className="p-6 border-b border-gray-200 flex justify-between items-start">
@@ -117,7 +122,7 @@ const CreditWidget = () => {
                 </button>
               </div>
 
-              <div className="p-6 space-y-6">
+              <div className="space-y-6 overflow-y-auto p-6">
 
                 {/* Visual Balance */}
                 <div className="text-center">
@@ -153,7 +158,7 @@ const CreditWidget = () => {
                       <div className="text-xs text-gray-600">Weekly quota reset</div>
                     </div>
                   </div>
-                  <div className="text-lg font-mono font-bold text-blue-300">
+                  <div className="text-lg font-mono font-bold text-blue-700">
                     {next_refill_days > 0 ? `${next_refill_days}d ${next_refill_hours}h` : `${next_refill_hours}h`}
                   </div>
                 </div>
@@ -204,7 +209,7 @@ const CreditWidget = () => {
                           </div>
                           <div className="flex justify-between py-1">
                             <span>Interviews Taken</span>
-                            <span className="text-white">{usage_this_week.full_interviews}</span>
+                            <span className="text-gray-900">{usage_this_week.full_interviews}</span>
                           </div>
                         </div>
                       </motion.div>
@@ -212,14 +217,14 @@ const CreditWidget = () => {
                   </AnimatePresence>
                 </div>
 
-                <div className="mt-4 p-3 bg-indigo-900/20 border border-indigo-500/30 rounded-xl flex items-start space-x-3">
-                  <div className="p-2 bg-indigo-900/40 rounded-lg">
-                    <TrendingUp className="w-5 h-5 text-indigo-400" />
+                <div className="mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-start space-x-3">
+                  <div className="p-2 bg-indigo-100 rounded-lg">
+                    <TrendingUp className="w-5 h-5 text-indigo-700" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-semibold text-indigo-300">Boost Your Recommendations</h4>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Taking more interviews helps our AI understand your skills better, leading to more accurate job and college matches.
+                    <h4 className="text-sm font-semibold text-indigo-900">Boost Your Recommendations</h4>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Taking more interviews helps our AI understand your skills better, leading to more accurate job matches.
                     </p>
                   </div>
                 </div>

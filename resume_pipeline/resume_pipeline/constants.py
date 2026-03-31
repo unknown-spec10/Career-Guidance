@@ -28,48 +28,6 @@ SEMANTIC_MATCHING_CONFIG = {
 }
 
 # ============================================================================
-# COLLEGE RECOMMENDATION WEIGHTS
-# Focus: Academic performance, entrance exam ranks, research potential
-# Industry Standard: For higher education, academic metrics are primary indicators
-# ============================================================================
-COLLEGE_RECOMMENDATION_WEIGHTS = {
-    # Academic Factors (Total: 60%)
-    'CGPA_WEIGHT': 0.25,              # GPA/CGPA from current/previous education
-    'JEE_RANK_WEIGHT': 0.20,          # JEE/entrance exam rank (important for IITs/NITs)
-    'ACADEMIC_ACHIEVEMENTS_WEIGHT': 0.15,  # Publications, research, academic awards
-    
-    # Skill & Project Factors (Total: 25%)
-    'SKILLS_WEIGHT': 0.15,            # Technical skills relevant to programs
-    'PROJECTS_WEIGHT': 0.10,          # Academic/research projects
-    
-    # Performance Factors (Total: 15%)
-    'INTERVIEW_WEIGHT': 0.10,         # Mock interview performance
-    'CERTIFICATIONS_WEIGHT': 0.05,    # Relevant certifications
-    
-    # Thresholds
-    'MIN_MATCH_SCORE': 0.25,          # Minimum 25% match to recommend
-    'HIGH_MATCH_THRESHOLD': 0.70,     # 70%+ considered excellent match
-    
-    # JEE Rank Scoring Brackets (for IIT/NIT eligibility)
-    'JEE_RANK_BRACKETS': {
-        'excellent': (1, 1000),        # Top 1000 - perfect score
-        'very_good': (1001, 5000),     # 1001-5000 - 0.9 score
-        'good': (5001, 15000),         # 5001-15000 - 0.75 score
-        'average': (15001, 50000),     # 15001-50000 - 0.5 score
-        'below_average': (50001, 100000),  # 50001-100000 - 0.3 score
-    },
-    
-    # CGPA Scoring (normalized to 10-point scale)
-    'CGPA_BRACKETS': {
-        'excellent': (9.0, 10.0),      # 9+ CGPA - full score
-        'very_good': (8.0, 8.99),      # 8-8.99 - 0.85 score
-        'good': (7.0, 7.99),           # 7-7.99 - 0.7 score
-        'average': (6.0, 6.99),        # 6-6.99 - 0.5 score
-        'below_average': (5.0, 5.99),  # 5-5.99 - 0.3 score
-    }
-}
-
-# ============================================================================
 # JOB RECOMMENDATION WEIGHTS
 # Focus: Skills match, experience, location preferences, industry fit
 # Industry Standard: Skills-first matching with experience as key differentiator
@@ -214,7 +172,6 @@ API_MESSAGES = {
     'APPLICANT_NOT_FOUND': 'Applicant not found',
     'NO_PARSED_DATA': 'No parsed resume data found. Please parse resume first.',
     'INVALID_FILE_TYPE': 'Invalid file type. Supported: PDF, DOCX, DOC, TXT',
-    'COLLEGE_NOT_FOUND': 'College not found',
     'JOB_NOT_FOUND': 'Job not found',
     'UPLOAD_SUCCESS': 'File uploaded successfully',
     'PARSE_SUCCESS': 'Resume parsed successfully',

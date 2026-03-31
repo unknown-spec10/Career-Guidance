@@ -9,7 +9,6 @@ from enum import Enum
 class UserRole(str, Enum):
     STUDENT = "student"
     EMPLOYER = "employer"
-    COLLEGE = "college"
     ADMIN = "admin"
 
 
@@ -111,47 +110,6 @@ class JobApplicationResponse(BaseModel):
         from_attributes = True
 
 
-# College program schemas
-class CollegeProgramCreate(BaseModel):
-    program_name: str
-    duration_months: int
-    required_skills: Optional[List[dict]] = None
-    program_description: Optional[str] = None
-
-
-class CollegeProgramResponse(BaseModel):
-    id: int
-    program_name: str
-    duration_months: int
-    status: str
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-# College application schemas
-class CollegeApplicationCreate(BaseModel):
-    college_id: int
-    program_id: Optional[int] = None
-    statement_of_purpose: Optional[str] = None
-    twelfth_percentage: Optional[float] = None
-    twelfth_board: Optional[str] = None
-    twelfth_subjects: Optional[List[str]] = None
-
-
-class CollegeApplicationResponse(BaseModel):
-    id: int
-    applicant_id: int
-    college_id: int
-    program_id: Optional[int]
-    status: str
-    applied_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-
 # Application status update schemas
 class ApplicationStatusUpdate(BaseModel):
     status: str
@@ -184,7 +142,7 @@ class HumanReviewResponse(BaseModel):
 # Search and filter schemas
 class AdvancedSearchRequest(BaseModel):
     query: Optional[str] = None
-    entity_type: str  # 'job', 'college', 'applicant'
+    entity_type: str  # 'job' or 'applicant'
     filters: Optional[dict] = None
     use_semantic: bool = False
     limit: int = 20

@@ -7,7 +7,6 @@ __all__ = [
     'DatabaseFactory',
     'UserRepository',
     'ApplicantRepository',
-    'CollegeRepository',
     'JobRepository',
     'RecommendationRepository',
 ]

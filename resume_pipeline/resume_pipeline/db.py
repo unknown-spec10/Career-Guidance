@@ -4,7 +4,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import URL as SA_URL
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from sqlalchemy.pool import StaticPool
 from .config import settings, IS_SUPABASE
 import datetime
 import os
@@ -16,13 +15,13 @@ Base = declarative_base()
 # ============================================================
 
 class User(Base):
-    """Portal accounts (students/employers/colleges/admins)"""
+    """Portal accounts (students, employers, and admins)"""
     __tablename__ = 'users'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum('student', 'employer', 'college', 'admin', name='user_role'), default='student')
+    role = Column(Enum('student', 'employer', 'admin', name='user_role'), default='student')
     name = Column(String(200), nullable=True)
     phone = Column(String(20), nullable=True)
     is_active = Column(Boolean, default=True)
@@ -37,7 +36,6 @@ class User(Base):
     # Relationships
     applicant = relationship('Applicant', back_populates='user', uselist=False, cascade='all, delete-orphan')
     employer = relationship('Employer', back_populates='user', uselist=False, cascade='all, delete-orphan')
-    college = relationship('College', back_populates='user', uselist=False, cascade='all, delete-orphan', foreign_keys='College.user_id')
     audit_logs = relationship('AuditLog', back_populates='user', cascade='all, delete-orphan')
     human_reviews = relationship('HumanReview', back_populates='reviewer', foreign_keys='HumanReview.reviewer_id')
 
@@ -62,8 +60,6 @@ class Applicant(Base):
     uploads = relationship('Upload', back_populates='applicant', cascade='all, delete-orphan')
     parsed_record = relationship('LLMParsedRecord', back_populates='applicant', uselist=False, cascade='all, delete-orphan')
     embeddings = relationship('EmbeddingsIndex', back_populates='applicant', cascade='all, delete-orphan')
-    college_recommendations = relationship('CollegeApplicabilityLog', back_populates='applicant', cascade='all, delete-orphan')
-    college_applications = relationship('CollegeApplication', back_populates='applicant', cascade='all, delete-orphan')
     job_recommendations = relationship('JobRecommendation', back_populates='applicant', cascade='all, delete-orphan')
     job_applications = relationship('JobApplication', back_populates='applicant', cascade='all, delete-orphan')
     human_reviews = relationship('HumanReview', back_populates='applicant', cascade='all, delete-orphan')
@@ -121,192 +117,36 @@ class EmbeddingsIndex(Base):
     applicant = relationship('Applicant', back_populates='embeddings')
 
 
-# ============================================================
-# COLLEGE-SIDE TABLES
-# ============================================================
+class ApplicantEmbedding(Base):
+    """Persisted applicant embedding generated asynchronously by worker."""
+    __tablename__ = 'applicant_embeddings'
 
-class College(Base):
-    """Colleges/Universities (linked to user accounts)"""
-    __tablename__ = 'colleges'
-    
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
-    name = Column(String(255), nullable=False)
-    slug = Column(String(255), unique=True, index=True)
-    location_city = Column(String(100), index=True)
-    location_state = Column(String(100))
-    country = Column(String(100), default='India')
-    description = Column(Text, nullable=True)
-    website = Column(String(512), nullable=True)
-    logo_url = Column(String(512), nullable=True)
-    is_verified = Column(Boolean, default=False)
-    
-    # Data Collection & Verification Tracking
-    collection_status = Column(Enum('draft', 'submitted', 'approved', 'rejected', name='collection_status'), default='draft', index=True)
-    submitted_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    submitted_date = Column(DateTime, nullable=True)
-    approved_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    approved_date = Column(DateTime, nullable=True)
-    rejection_reason = Column(Text, nullable=True)
-    
-    # Source Attribution (for audit trail)
-    data_sources = Column(JSON, nullable=True)
-    data_freshness_flag = Column(String(50), nullable=True)
-    last_verification_date = Column(DateTime, nullable=True)
-    
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
+    embedding_vector = Column(JSON, nullable=False)
+    embedding_provider = Column(String(32), nullable=True)
+    embedding_model = Column(String(128), nullable=True)
+    source_hash = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    
-    # Relationships
-    user = relationship('User', back_populates='college', foreign_keys=[user_id])
-    eligibility = relationship('CollegeEligibility', back_populates='college', cascade='all, delete-orphan')
-    programs = relationship('CollegeProgram', back_populates='college', cascade='all, delete-orphan')
-    meta = relationship('CollegeMetadata', back_populates='college', uselist=False, cascade='all, delete-orphan')
-    recommendations = relationship('CollegeApplicabilityLog', back_populates='college', cascade='all, delete-orphan')
-    applications = relationship('CollegeApplication', back_populates='college', cascade='all, delete-orphan')
-    submitted_user = relationship('User', foreign_keys=[submitted_by], overlaps='college,user')
-    approved_user = relationship('User', foreign_keys=[approved_by], overlaps='college,user')
+
+    applicant = relationship('Applicant')
 
 
-class CollegeEligibility(Base):
-    """Formal cutoffs & constraints"""
-    __tablename__ = 'college_eligibility'
-    
+class JobEmbedding(Base):
+    """Persisted job embedding generated asynchronously by worker."""
+    __tablename__ = 'job_embeddings'
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-    college_id = Column(Integer, ForeignKey('colleges.id', ondelete='CASCADE'), nullable=False, index=True)
-    min_jee_rank = Column(Integer, nullable=True)
-    min_cgpa = Column(Float, nullable=True)
-    eligible_degrees = Column(JSON, nullable=True)  # ["BCA", "BSc"]
-    reserved_category_cutoffs = Column(JSON, nullable=True)
-    seats = Column(Integer, default=0)
-    
-    # Source Attribution for Each Field
-    min_jee_rank_source = Column(String(512), nullable=True)
-    min_cgpa_source = Column(String(512), nullable=True)
-    seats_source = Column(String(512), nullable=True)
-    eligible_degrees_source = Column(String(512), nullable=True)
-    
-    # Verification Status (per field)
-    min_jee_rank_verified = Column(Boolean, default=False)
-    min_cgpa_verified = Column(Boolean, default=False)
-    seats_verified = Column(Boolean, default=False)
-    eligible_degrees_verified = Column(Boolean, default=False)
-    
+    job_id = Column(Integer, ForeignKey('jobs.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
+    embedding_vector = Column(JSON, nullable=False)
+    embedding_provider = Column(String(32), nullable=True)
+    embedding_model = Column(String(128), nullable=True)
+    source_hash = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    
-    # Relationships
-    college = relationship('College', back_populates='eligibility')
 
-
-class CollegeProgram(Base):
-    """Courses/branches inside a college (requires admin approval)"""
-    __tablename__ = 'college_programs'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    college_id = Column(Integer, ForeignKey('colleges.id', ondelete='CASCADE'), nullable=False, index=True)
-    program_name = Column(String(255))  # e.g., "B.Tech CSE"
-    duration_months = Column(Integer)
-    required_skills = Column(JSON, nullable=True)
-    program_description = Column(Text, nullable=True)
-    status = Column(Enum('pending', 'approved', 'rejected', name='program_status'), default='pending', index=True)
-    rejection_reason = Column(Text, nullable=True)
-    reviewed_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    reviewed_at = Column(DateTime, nullable=True)
-    
-    # Source Attribution
-    program_description_source = Column(String(512), nullable=True)
-    duration_months_source = Column(String(512), nullable=True)
-    required_skills_source = Column(String(512), nullable=True)
-    
-    # Verification Status
-    program_description_verified = Column(Boolean, default=False)
-    duration_months_verified = Column(Boolean, default=False)
-    required_skills_verified = Column(Boolean, default=False)
-    
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    
-    # Relationships
-    college = relationship('College', back_populates='programs')
-    reviewer = relationship('User', foreign_keys=[reviewed_by])
-    applications = relationship('CollegeApplication', back_populates='program')
-
-
-class CollegeMetadata(Base):
-    """Enrichment + embeddings pointer"""
-    __tablename__ = 'college_metadata'
-    
-    college_id = Column(Integer, ForeignKey('colleges.id', ondelete='CASCADE'), primary_key=True)
-    canonical_skills = Column(JSON, nullable=True)  # Skills college favors
-    vector_store_id = Column(String(128), nullable=True)
-    popularity_score = Column(Float, nullable=True)
-    
-    # Metadata Source Attribution
-    canonical_skills_source = Column(String(512), nullable=True)
-    popularity_score_source = Column(String(512), nullable=True)
-    
-    # Metadata Verification
-    canonical_skills_verified = Column(Boolean, default=False)
-    popularity_score_verified = Column(Boolean, default=False)
-    
-    # Relationships
-    college = relationship('College', back_populates='meta')
-
-
-class CollegeApplicabilityLog(Base):
-    """System-generated college recommendations"""
-    __tablename__ = 'college_applicability_logs'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
-    college_id = Column(Integer, ForeignKey('colleges.id', ondelete='CASCADE'), nullable=False, index=True)
-    recommend_score = Column(Float)
-    explain = Column(JSON, nullable=True)  # Why recommended
-    status = Column(Enum('recommended', 'viewed', 'dismissed', name='college_rec_status'), default='recommended')
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    
-    # Relationships
-    applicant = relationship('Applicant', back_populates='college_recommendations')
-    college = relationship('College', back_populates='recommendations')
-    
-    __table_args__ = (
-        Index('idx_applicant_college', 'applicant_id', 'college_id'),
-    )
-
-
-class CollegeApplication(Base):
-    """Student applications to colleges"""
-    __tablename__ = 'college_applications'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
-    college_id = Column(Integer, ForeignKey('colleges.id', ondelete='CASCADE'), nullable=False, index=True)
-    program_id = Column(Integer, ForeignKey('college_programs.id', ondelete='SET NULL'), nullable=True, index=True)
-    statement_of_purpose = Column(Text, nullable=True)
-    twelfth_percentage = Column(Float, nullable=True)
-    twelfth_board = Column(String(100), nullable=True)
-    twelfth_subjects = Column(JSON, nullable=True)
-    status = Column(
-        Enum('applied', 'under_review', 'shortlisted', 'accepted', 'rejected', 'waitlisted', 'withdrawn',
-             name='college_app_status'),
-        default='applied',
-        index=True
-    )
-    college_notes = Column(Text, nullable=True)
-    applied_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    
-    # Relationships
-    applicant = relationship('Applicant', back_populates='college_applications')
-    college = relationship('College', back_populates='applications')
-    program = relationship('CollegeProgram', back_populates='applications')
-    
-    __table_args__ = (
-        UniqueConstraint('applicant_id', 'college_id', 'program_id', name='uq_applicant_college_program'),
-        Index('idx_college_status', 'college_id', 'status'),
-    )
-
+    job = relationship('Job')
 
 # ============================================================
 # JOB-SIDE TABLES
@@ -449,12 +289,12 @@ class AuditLog(Base):
     __tablename__ = 'audit_logs'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    entity_type = Column(String(50))  # 'applicant', 'job', 'college' (legacy)
+    entity_type = Column(String(50))  # 'applicant' or 'job' (legacy)
     entity_id = Column(Integer, index=True)  # Legacy field
     action = Column(String(100), index=True)
     payload = Column(JSON, nullable=True)  # Legacy field
     # New fields for user action auditing
-    target_type = Column(String(50), nullable=True)  # 'JobRecommendation', 'CollegeRecommendation', 'Job', 'CollegeProgram'
+    target_type = Column(String(50), nullable=True)  # 'JobRecommendation' or 'Job'
     target_id = Column(Integer, nullable=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     details = Column(JSON, nullable=True)  # New structured details
@@ -823,16 +663,7 @@ class ResumeParsed(Base):
 if settings.PG_DSN is None:
     raise RuntimeError("PG_DSN is not set in settings; cannot create engine")
 
-# SQLite in-memory needs shared connections across threads; StaticPool + check_same_thread=False
-if settings.PG_DSN.startswith("sqlite"):
-    engine = create_engine(
-        settings.PG_DSN,
-        echo=False,
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-elif IS_SUPABASE:
+if IS_SUPABASE:
     # Use URL.create() to avoid any string-parsing issues with special chars in username/password.
     # Read directly from OS env vars as the ultimate source of truth.
     _pg_user = os.environ.get("PG_USER") or settings.PG_USER or "postgres"

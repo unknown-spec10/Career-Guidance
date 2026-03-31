@@ -1,16 +1,12 @@
 import React, { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
-import Features from './components/Features'
-import UploadSection from './components/UploadSection'
 import ResultsPage from './pages/ResultsPage'
 import DashboardPage from './pages/DashboardPage'
 import DashboardRouter from './pages/DashboardRouter'
 import ApplicantsPage from './pages/ApplicantsPage'
 import ApplicantDetailsPage from './pages/ApplicantDetailsPage'
-import CollegesPage from './pages/CollegesPage'
-import CollegeDetailsPage from './pages/CollegeDetailsPage'
 import JobsPage from './pages/JobsPage'
 import JobDetailsPage from './pages/JobDetailsPage'
 import LoginPage from './pages/LoginPage'
@@ -29,14 +25,10 @@ import LearningPathPage from './pages/LearningPathPage'
 import MyLearningPathsPage from './pages/MyLearningPathsPage'
 import TransactionHistoryPage from './pages/TransactionHistoryPage'
 import AdminCreditManagement from './pages/AdminCreditManagement'
-import AdminCollegeCollection from './pages/AdminCollegeCollection'
 import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerProfile from './pages/EmployerProfile'
 import EmployerPostJob from './pages/EmployerPostJob'
 import EmployerJobDetails from './pages/EmployerJobDetails'
-import CollegeDashboard from './pages/CollegeDashboard'
-import CollegeProfile from './pages/CollegeProfile'
-import AddProgramPage from './pages/AddProgramPage'
 import AdminReviewsPage from './pages/AdminDashboard'
 import AskPage from './pages/AskPage'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -49,7 +41,6 @@ function HomePage() {
   return (
     <>
       <Hero />
-      <Features />
     </>
   )
 }
@@ -73,8 +64,6 @@ function AppContent() {
           <Route path="/resend-verification" element={<ResendVerificationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/colleges" element={<CollegesPage />} />
-          <Route path="/college/:collegeId" element={<CollegeDetailsPage />} />
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/job/:jobId" element={<JobDetailsPage />} />
           <Route path="/ask" element={<AskPage />} />
@@ -187,32 +176,6 @@ function AppContent() {
             }
           />
 
-          {/* College Routes */}
-          <Route
-            path="/college/dashboard"
-            element={
-              <ProtectedRoute allowedRoles={['college']}>
-                <CollegeDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/college/profile"
-            element={
-              <ProtectedRoute allowedRoles={['college']}>
-                <CollegeProfile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/college/add-program"
-            element={
-              <ProtectedRoute allowedRoles={['college']}>
-                <AddProgramPage />
-              </ProtectedRoute>
-            }
-          />
-
           {/* Admin Routes */}
           <Route
             path="/admin/dashboard"
@@ -235,14 +198,6 @@ function AppContent() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminCreditManagement />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/college-collection"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <AdminCollegeCollection />
               </ProtectedRoute>
             }
           />

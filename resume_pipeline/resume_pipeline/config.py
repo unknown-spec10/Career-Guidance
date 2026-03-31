@@ -20,16 +20,15 @@ class Settings(BaseSettings):
     PG_USER: str | None = None
     PG_PASSWORD: str | None = None
     PG_DB: str | None = None
-    # Demo/test mode: use in-memory SQLite by default (no persistence)
-    # For production, set PG_DSN or the individual PG_* fields above
+    # PostgreSQL DSN (optional if PG_* fields are provided)
     PG_DSN: str | None = None
     FILE_STORAGE_PATH: str = "./data/raw_files"
     GEMINI_API_KEY: str = ""
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
-    GEMINI_SMALL_MODEL: str = "gemini-2.5-flash"
-    GEMINI_LARGE_MODEL: str = "gemini-2.5-flash"
+    GEMINI_SMALL_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_LARGE_MODEL: str = "gemini-3-pro-preview"
     GEMINI_MOCK_MODE: bool = False
-    EMBEDDING_MODEL: str = "embedding-gecko-001"
+    EMBEDDING_MODEL: str = "gemini-embedding-2-preview"
     MAX_PARSE_TOKENS: int = 12000
     
     # Parsing thresholds
@@ -43,8 +42,8 @@ class Settings(BaseSettings):
     API_HOST: str = "localhost"
     API_PORT: int = 8000
     
-    # JWT Authentication
-    SECRET_KEY: str = "placeholder-replace-with-env-var-in-production"  # Set SECRET_KEY env var in production
+    # JWT Authentication (must come from environment in production)
+    SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     
@@ -58,6 +57,10 @@ class Settings(BaseSettings):
     # ============================================================================
     SEMANTIC_MATCHING_ENABLED: bool = True              # Feature toggle
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"     # Lightweight, fast local model
+    GOOGLE_EMBEDDING_ENABLED: bool = True               # Primary embedding provider toggle
+    EMBEDDING_TIMEOUT_SECONDS: int = 30                 # HTTP timeout for embedding API
+    EMBEDDING_CACHE_MAX_ITEMS: int = 2000               # In-memory embedding cache cap
+    EMBEDDING_FALLBACK_ENABLED: bool = True             # Allow MiniLM fallback on API failure
     SEMANTIC_SIMILARITY_THRESHOLD: float = 0.70         # Min confidence for canonical match
     RELATED_SKILL_WEIGHT: float = 0.60                  # Weight for related skill matches
     EXACT_MATCH_WEIGHT: float = 1.0                     # Weight for exact matches
@@ -88,18 +91,6 @@ class Settings(BaseSettings):
     VERIFICATION_CODE_TTL_MINUTES: int = 30
 
     # ============================================================================
-    # COLLEGE RECOMMENDATION WEIGHTS (Academic-focused)
-    # Sum should equal 1.0 for normalized scoring
-    # ============================================================================
-    COLLEGE_REC_CGPA_WEIGHT: float = 0.25           # 25% - Academic performance
-    COLLEGE_REC_JEE_RANK_WEIGHT: float = 0.20       # 20% - Entrance exam performance
-    COLLEGE_REC_ACADEMIC_WEIGHT: float = 0.15      # 15% - Academic achievements
-    COLLEGE_REC_SKILLS_WEIGHT: float = 0.15         # 15% - Relevant skills
-    COLLEGE_REC_PROJECTS_WEIGHT: float = 0.10       # 10% - Academic projects
-    COLLEGE_REC_INTERVIEW_WEIGHT: float = 0.10      # 10% - Interview performance
-    COLLEGE_REC_CERTIFICATIONS_WEIGHT: float = 0.05 # 5% - Certifications
-    
-    # ============================================================================
     # JOB RECOMMENDATION WEIGHTS (Skills & Experience-focused)
     # Sum should equal 1.0 for normalized scoring
     # ============================================================================
@@ -121,7 +112,6 @@ class Settings(BaseSettings):
     
     # Recommendation thresholds
     MIN_RECOMMENDATION_SCORE: float = 0.25  # 25% minimum match score
-    MIN_COLLEGE_REC_SCORE: float = 0.25     # College-specific minimum
     MIN_JOB_REC_SCORE: float = 0.10         # Job-specific minimum (lowered to 10% for testing)
     MAX_RECOMMENDATIONS: int = 10           # Maximum recommendations to return
     
@@ -129,6 +119,23 @@ class Settings(BaseSettings):
     RAG_PRELOAD_ON_STARTUP: bool = False    # Pre-initialize RAG on startup (vs lazy init on first query)
     RAG_ENABLE_FILE_WATCHER: bool = True    # Enable automatic doc reloading when files change
     RAG_FILE_WATCHER_DEBOUNCE: float = 2.0  # Debounce file changes for N seconds
+
+    # Async embedding pipeline (Celery + Redis)
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+    CELERY_DEFAULT_QUEUE: str = "default"
+    CELERY_EMBEDDINGS_QUEUE: str = "embeddings"
+    CELERY_TASK_ALWAYS_EAGER: bool = False
+    CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: int = 120
+    CELERY_TASK_TIME_LIMIT_SECONDS: int = 180
+    EMBEDDING_TASK_MAX_RETRIES: int = 3
+    EMBEDDING_TASK_RETRY_BACKOFF_SECONDS: int = 10
+    USE_VECTOR_RETRIEVAL: bool = True
+    VECTOR_RETRIEVAL_TOP_K: int = 200
+    VECTOR_RETRIEVAL_MIN_CANDIDATES: int = 20
+
+    # Async parsing pipeline
+    ASYNC_PARSE_ENABLED: bool = True
 
 settings = Settings()
 
@@ -142,31 +149,45 @@ settings = Settings()
 _pg_host = settings.PG_HOST or ""
 IS_SUPABASE: bool = "supabase.co" in _pg_host or "supabase.com" in _pg_host
 
+# SQLite is intentionally unsupported for this deployment profile.
+if settings.PG_DSN and settings.PG_DSN.startswith("sqlite"):
+    raise RuntimeError("SQLite DSN is not supported. Configure PostgreSQL via PG_DSN or PG_* variables.")
+
 # Build DSN from parts if PG_DSN not explicitly set
 if not settings.PG_DSN:
-    if settings.PG_HOST:
-        host = settings.PG_HOST
-        port = settings.PG_PORT or 5432
-        user = settings.PG_USER or "postgres"
-        pwd_raw = settings.PG_PASSWORD or ""
-        pwd = quote_plus(pwd_raw)
-        dbname = settings.PG_DB or "resumes"
+    missing_fields = []
+    if not settings.PG_HOST:
+        missing_fields.append("PG_HOST")
+    if not settings.PG_USER:
+        missing_fields.append("PG_USER")
+    if not settings.PG_DB:
+        missing_fields.append("PG_DB")
 
-        if IS_SUPABASE:
-            # Supabase session pooler requires SSL + gssencmode=disable
-            # gssencmode=disable prevents Kerberos negotiation which Supabase pooler rejects
-            settings.PG_DSN = (
-                f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
-                f"?sslmode=require&gssencmode=disable"
-            )
-        else:
-            settings.PG_DSN = (
-                f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
-            )
+    if missing_fields:
+        missing = ", ".join(missing_fields)
+        raise RuntimeError(
+            f"Missing PostgreSQL configuration: {missing}. "
+            "Set PG_DSN or provide PG_HOST, PG_USER, and PG_DB."
+        )
+
+    host = settings.PG_HOST
+    port = settings.PG_PORT or 5432
+    user = settings.PG_USER
+    pwd_raw = settings.PG_PASSWORD or ""
+    pwd = quote_plus(pwd_raw)
+    dbname = settings.PG_DB
+
+    if IS_SUPABASE:
+        # Supabase session pooler requires SSL + gssencmode=disable
+        # gssencmode=disable prevents Kerberos negotiation which Supabase pooler rejects
+        settings.PG_DSN = (
+            f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
+            f"?sslmode=require&gssencmode=disable"
+        )
     else:
-        # Demo/test: in-memory SQLite for zero-cost demos
-        settings.PG_DSN = "sqlite:///:memory:"
-        IS_SUPABASE = False
+        settings.PG_DSN = (
+            f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
+        )
 else:
     # If an explicit PG_DSN was provided, still detect Supabase from it
     IS_SUPABASE = "supabase.co" in settings.PG_DSN or "supabase.com" in settings.PG_DSN

@@ -10,7 +10,6 @@ import secureStorage from '../utils/secureStorage'
 import { ANIMATION_DELAYS } from '../config/constants'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
-import StatusBadge, { NewBadge } from '../components/StatusBadge'
 import MatchScore from '../components/MatchScore'
 import { SkeletonStats, SkeletonCard } from '../components/SkeletonLoader'
 import useOptimistic from '../hooks/useOptimistic'
@@ -25,7 +24,6 @@ export default function StudentDashboard() {
   // State
   const [applicantData, setApplicantData] = useState(null)
   const [jobApplications, setJobApplications] = useState([])
-  const [collegeApplications, setCollegeApplications] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -59,6 +57,9 @@ export default function StudentDashboard() {
   // Refs
   const uploadFormRef = React.useRef(null)
   const recommendationsRef = React.useRef(null)
+
+  const interviewingCount = jobApplications.filter((app) => app.status?.toLowerCase() === 'interviewing').length
+  const newSuggestionCount = recommendations.filter((rec) => rec.status === 'recommended').length
 
   // --- Handlers (Logout, Upload, etc.) ---
   const handleLogout = () => {
@@ -166,12 +167,10 @@ export default function StudentDashboard() {
       }
 
       // Applications
-      const [jobApps, collegeApps] = await Promise.all([
-        api.get('/api/student/applications/jobs').catch(() => ({ data: { applications: [] } })),
-        api.get('/api/student/applications/colleges').catch(() => ({ data: { applications: [] } }))
+      const [jobApps] = await Promise.all([
+        api.get('/api/student/applications/jobs').catch(() => ({ data: { applications: [] } }))
       ])
       setJobApplications(jobApps.data?.applications || [])
-      setCollegeApplications(collegeApps.data?.applications || [])
 
       // Recommendations
       if (profileId) {
@@ -307,7 +306,7 @@ export default function StudentDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 pt-24 px-4">
+      <div className="min-h-screen bg-slate-50 pt-24 px-4">
         <div className="max-w-7xl mx-auto py-8">
           <SkeletonStats />
         </div>
@@ -316,7 +315,7 @@ export default function StudentDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
+    <div className="min-h-screen bg-slate-50 pt-24 pb-12">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
 
@@ -327,18 +326,21 @@ export default function StudentDashboard() {
           className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4"
         >
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold mb-1">Student Dashboard</h1>
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-1">Student Dashboard</h1>
             <p className="text-gray-600">Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Student'}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              You have {interviewingCount} interview {interviewingCount === 1 ? 'invitation' : 'invitations'} and {newSuggestionCount} new path {newSuggestionCount === 1 ? 'suggestion' : 'suggestions'}.
+            </p>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Profile Health Badge */}
             <ProfileHealth applicantData={applicantData} />
 
             {/* Practice Button (Quick Action Dial) */}
             <button
               onClick={() => setShowPracticeModal(true)}
-              className="flex items-center space-x-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/20 active:scale-95"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 rounded-xl hover:bg-primary-700 transition-colors shadow-sm active:scale-95"
             >
               <Zap className="w-5 h-5 text-white" />
               <span className="font-semibold text-white">Practice</span>
@@ -346,7 +348,7 @@ export default function StudentDashboard() {
 
             <button
               onClick={() => navigate('/dashboard/learning-paths')}
-              className="flex items-center space-x-2 px-5 py-2.5 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all text-gray-700"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-gray-700"
             >
               <BookOpen className="w-5 h-5" />
               <span className="font-semibold">Paths</span>
@@ -354,7 +356,7 @@ export default function StudentDashboard() {
 
             <button
               onClick={handleLogout}
-              className="p-2.5 bg-white border border-gray-300 rounded-xl hover:bg-red-50 hover:border-red-300 transition-colors text-gray-600 hover:text-red-600"
+              className="p-2.5 bg-white border border-gray-200 rounded-xl hover:bg-red-50 hover:border-red-300 transition-colors text-gray-600 hover:text-red-600"
               title="Logout"
             >
               <LogOut className="w-5 h-5" />
@@ -370,7 +372,7 @@ export default function StudentDashboard() {
           className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"
         >
           <CreditWidget />
-          <ApplicationTracker jobApps={jobApplications} collegeApps={collegeApplications} />
+          <ApplicationTracker jobApps={jobApplications} />
         </motion.div>
 
         {/* --- NO PROFILE STATE --- */}
@@ -378,7 +380,7 @@ export default function StudentDashboard() {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="my-8 p-8 border border-dashed border-gray-300 rounded-2xl bg-white text-center"
+            className="my-8 p-8 border border-dashed border-gray-300 rounded-2xl bg-white text-center shadow-sm"
           >
             <Upload className="w-12 h-12 text-primary-400 mx-auto mb-4" />
             <h3 className="text-xl font-bold mb-2">Setup Your Profile</h3>
@@ -389,16 +391,24 @@ export default function StudentDashboard() {
 
         {/* --- RECOMMENDATIONS HEADER + ACTION --- */}
         {!noApplicantProfile && (
-          <div className="flex items-center justify-between mb-4" ref={recommendationsRef}>
-            <h2 className="text-xl font-bold text-gray-900">Recommendations</h2>
-            <button
-              onClick={handleRecomputeRecommendations}
-              disabled={recalcLoading}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-colors ${recalcLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-500'}`}
-            >
-              <RefreshCcw className="w-4 h-4" />
-              <span>{recalcLoading ? 'Updating...' : 'Re-run Recommendations'}</span>
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3" ref={recommendationsRef}>
+            <h2 className="text-xl font-bold text-gray-900">Recommended for You</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate('/jobs')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:border-primary-400 hover:text-primary-700 transition-colors"
+              >
+                View All
+              </button>
+              <button
+                onClick={handleRecomputeRecommendations}
+                disabled={recalcLoading}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${recalcLoading ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-300 text-gray-700 hover:border-primary-400 hover:text-primary-700'}`}
+              >
+                <RefreshCcw className="w-4 h-4" />
+                <span>{recalcLoading ? 'Updating...' : 'Re-run'}</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -411,28 +421,47 @@ export default function StudentDashboard() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.1 }}
-                className="p-5 bg-white rounded-xl border border-gray-200 hover:border-primary-500/30 transition-all hover:shadow-lg flex flex-col h-full"
+                className="p-5 bg-white rounded-2xl border border-gray-200 transition-all hover:shadow-md hover:border-primary-200 flex flex-col h-full"
               >
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex-1 mr-2">
                     <h3 className="font-bold text-lg leading-tight mb-1 text-gray-900">{rec.job?.title || rec.title}</h3>
                     <p className="text-sm text-gray-600">{rec.job?.company || rec.company}</p>
                   </div>
-                  <MatchScore
-                    score={((rec.match_score ?? rec.match_percentage ?? rec.score ?? 0) / 100)}
-                    size="sm"
-                    showLabel={false}
-                  />
+                  <div className="flex flex-col items-end gap-1">
+                    <MatchScore
+                      score={((rec.match_score ?? rec.match_percentage ?? rec.score ?? 0) / 100)}
+                      size="sm"
+                      showLabel={false}
+                    />
+                    <span className="text-xs text-primary-700 font-medium">AI Match</span>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  <span className="text-xs bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-600 flex items-center gap-1">
+                  <span className="text-xs bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full text-gray-600 flex items-center gap-1">
                     <MapPin className="w-3 h-3" />
                     {rec.job?.location_city || 'Remote'}
                   </span>
-                  <span className="text-xs bg-gray-50 border border-gray-200 px-2 py-1 rounded text-gray-600">
+                  <span className="text-xs bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full text-gray-600">
                     {rec.job?.work_type || 'Full-time'}
                   </span>
+                  {rec.status === 'applied' && (
+                    <span className="text-xs bg-green-50 border border-green-200 px-2.5 py-1 rounded-full text-green-700">
+                      Applied
+                    </span>
+                  )}
+                </div>
+
+                {(rec.job?.min_salary || rec.job?.max_salary) && (
+                  <div className="mb-4 text-xs text-gray-600">
+                    Salary: {rec.job?.min_salary ? `INR ${(rec.job.min_salary / 100000).toFixed(1)}L` : 'Competitive'}
+                    {rec.job?.max_salary ? ` - INR ${(rec.job.max_salary / 100000).toFixed(1)}L` : ''}
+                  </div>
+                )}
+
+                <div className="text-xs text-gray-500 mb-4">
+                  {rec.explain?.reasons?.[0] || 'Matched based on your profile strength and skill overlap.'}
                 </div>
 
                 <div className="mt-auto pt-4 border-t border-gray-200 flex gap-2">
@@ -458,15 +487,15 @@ export default function StudentDashboard() {
                     ) : (
                       (learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.success?.alreadyExists)
                         ? 'Already Generated'
-                        : 'Generate Learning Path'
+                        : 'Path 2c'
                     )}
                   </button>
                   <button
                     onClick={() => openEasyApply(rec)}
                     disabled={rec.status === 'applied' || rec.status === 'accepted'}
                     className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${rec.status === 'applied'
-                      ? 'bg-green-900/20 text-green-400 cursor-not-allowed border border-green-500/20'
-                      : 'bg-primary-600/90 hover:bg-primary-500 text-white shadow-lg shadow-primary-900/20'
+                      ? 'bg-green-50 text-green-700 cursor-not-allowed border border-green-200'
+                      : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm'
                       }`}
                   >
                     {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
@@ -489,52 +518,76 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {!noApplicantProfile && recommendations.length === 0 && (
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-900">No recommendations yet</h3>
+            <p className="text-gray-600 mt-2 max-w-xl mx-auto">
+              Re-run recommendations after profile updates or continue practicing interviews to improve matching quality.
+            </p>
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <button
+                onClick={handleRecomputeRecommendations}
+                disabled={recalcLoading}
+                className="px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-60"
+              >
+                {recalcLoading ? 'Updating...' : 'Re-run Recommendations'}
+              </button>
+              <button
+                onClick={() => setShowPracticeModal(true)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50"
+              >
+                Practice Interview
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* --- MODALS --- */}
 
         {/* Practice Mode Selection Modal */}
         <AnimatePresence>
           {showPracticeModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowPracticeModal(false)}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowPracticeModal(false)}>
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+                className="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-xl"
               >
                 <div className="p-6 text-center border-b border-gray-200">
-                  <h3 className="text-2xl font-bold mb-2">Practice for Success</h3>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Practice for Success</h3>
                   <p className="text-gray-600 text-sm">Choose your interview mode</p>
                 </div>
                 <div className="p-6 grid gap-4">
                   <button
                     onClick={() => navigate('/dashboard/interview?mode=micro')}
-                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-300 hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
+                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-all text-left group"
                   >
-                    <div className="p-3 bg-blue-900/20 rounded-lg group-hover:bg-blue-900/30">
-                      <Zap className="w-6 h-6 text-blue-400" />
+                    <div className="p-3 bg-primary-100 rounded-lg group-hover:bg-primary-200">
+                      <Zap className="w-6 h-6 text-primary-700" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-lg text-gray-200 group-hover:text-blue-300">Micro Practice</h4>
-                      <p className="text-xs text-gray-500">Quick 5-minute session. 1 Question.</p>
+                      <h4 className="font-bold text-lg text-gray-900 group-hover:text-primary-700">Micro Practice</h4>
+                      <p className="text-xs text-gray-500">Quick 5-minute session. 1 question.</p>
                     </div>
                   </button>
 
                   <button
                     onClick={() => navigate('/dashboard/interview')}
-                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-300 hover:border-purple-500 hover:bg-purple-50 transition-all text-left group"
+                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-all text-left group"
                   >
-                    <div className="p-3 bg-purple-900/20 rounded-lg group-hover:bg-purple-900/30">
-                      <BookOpen className="w-6 h-6 text-purple-400" />
+                    <div className="p-3 bg-primary-100 rounded-lg group-hover:bg-primary-200">
+                      <BookOpen className="w-6 h-6 text-primary-700" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-lg text-gray-200 group-hover:text-purple-300">Full Mock Interview</h4>
+                      <h4 className="font-bold text-lg text-gray-900 group-hover:text-primary-700">Full Mock Interview</h4>
                       <p className="text-xs text-gray-500">Deep dive ~30mins. Comprehensive feedback.</p>
                     </div>
                   </button>
                 </div>
                 <div className="p-4 bg-white text-center border border-gray-200 rounded-lg">
-                  <button onClick={() => setShowPracticeModal(false)} className="text-sm text-gray-500 hover:text-gray-300">Cancel</button>
+                  <button onClick={() => setShowPracticeModal(false)} className="text-sm text-gray-600 hover:text-gray-900">Cancel</button>
                 </div>
               </motion.div>
             </div>
@@ -544,7 +597,7 @@ export default function StudentDashboard() {
         {/* Easy Apply Modal */}
         {easyApplyOpen && easyApplyRec && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-lg card border border-primary-500/30 bg-white">
+            <div className="w-full max-w-lg card border border-gray-200 bg-white shadow-xl">
               <div className="flex justify-between items-center mb-6 border-b border-gray-200 pb-4">
                 <h3 className="font-bold text-lg">Apply to {easyApplyRec.job?.title}</h3>
                 <button onClick={() => setEasyApplyOpen(false)} className="text-gray-600 hover:text-gray-900"><XCircle className="w-6 h-6" /></button>
@@ -584,7 +637,7 @@ export default function StudentDashboard() {
         {/* Details Modal */}
         {detailsOpen && detailsRec && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-2xl card border border-primary-500/30 bg-white max-h-[90vh] overflow-y-auto">
+            <div className="w-full max-w-2xl card border border-gray-200 bg-white max-h-[90vh] overflow-y-auto shadow-xl">
               <div className="flex justify-between items-start mb-6 border-b border-gray-200 pb-4">
                 <div>
                   <h3 className="font-bold text-xl">{detailsRec.job?.title}</h3>
@@ -636,7 +689,7 @@ export default function StudentDashboard() {
         {/* Upload Modal */}
         {showUploadForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setShowUploadForm(false)}>
-            <div className="card w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="card w-full max-w-lg border border-gray-200 shadow-xl" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-bold text-xl">Upload Resume</h3>
                 <button onClick={() => setShowUploadForm(false)} className="text-gray-400"><XCircle className="w-6 h-6" /></button>

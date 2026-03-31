@@ -45,7 +45,6 @@ export default function Navbar() {
       case 'student':
         return [
           { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { to: '/colleges', label: 'Explore Colleges', icon: Building2 },
           { to: '/jobs', label: 'Browse Jobs', icon: Briefcase },
         ]
       case 'employer':
@@ -53,17 +52,11 @@ export default function Navbar() {
           { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { to: '/employer/post-job', label: 'Post Job', icon: PlusCircle },
         ]
-      case 'college':
-        return [
-          { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { to: '/college/add-program', label: 'Add Program', icon: PlusCircle },
-        ]
       case 'admin':
         return [
           { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { to: '/admin/reviews', label: 'Reviews', icon: Shield },
           { to: '/applicants', label: 'Applicants', icon: Users },
-          { to: '/colleges', label: 'Colleges', icon: Building2 },
           { to: '/jobs', label: 'Jobs', icon: Briefcase },
         ]
       default:
@@ -112,7 +105,7 @@ export default function Navbar() {
             {user ? (
               <div className="flex items-center space-x-2 ml-4">
                 <button
-                  onClick={() => navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : user.role === 'college' ? '/college/profile' : '/dashboard')}
+                  onClick={() => navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : '/dashboard')}
                   className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-primary-500 hover:text-primary-600 transition-colors text-gray-700"
                 >
                   <User className="w-4 h-4" />
@@ -174,7 +167,7 @@ export default function Navbar() {
                   <div className="pt-4 border-t border-gray-200 space-y-2">
                     <button
                       onClick={() => {
-                        navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : user.role === 'college' ? '/college/profile' : '/dashboard')
+                        navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : '/dashboard')
                         setMobileMenuOpen(false)
                       }}
                       className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-primary-500 hover:text-primary-600 transition-colors text-gray-700"

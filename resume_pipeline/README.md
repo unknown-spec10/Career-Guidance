@@ -7,7 +7,7 @@ Goals implemented in scaffold:
 - Preprocessing stubs for pdftotext + OCR (Tesseract / easyocr).
 - Gemini client stub and strict schema example for structured parsing.
 - Deterministic numeric validators and simple skill canonicalizer stub.
-- SQLAlchemy models for MySQL tables outlined by the user's spec.
+- SQLAlchemy models for PostgreSQL tables outlined by the user's spec.
 - Embedding & vector-store stubs.
 
 How to run (local, dev):
@@ -21,6 +21,7 @@ uvicorn resume_pipeline.app:app --reload --port 8000
 ```
 
 Notes:
-- This is a scaffold. Replace Gemini client implementation and add API keys in `config_example.py`.
+- Configure runtime values in environment variables (copy `.env.example` to `.env` at repo root for local development).
+- Keep secrets only in environment variables (for example: `SECRET_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, database passwords).
 - Install system dependencies: `pdftotext` (poppler) and Tesseract OCR for full functionality.
 - See `resume_pipeline/schema.json` for the parsing schema example.

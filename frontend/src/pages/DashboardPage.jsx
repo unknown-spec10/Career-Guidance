@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Users, GraduationCap, Briefcase, TrendingUp, AlertCircle, Database } from 'lucide-react'
+import { Users, Briefcase, TrendingUp, AlertCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../config/api'
-import { ANIMATION_DELAYS } from '../config/constants'
 
 export default function DashboardPage() {
   const [stats, setStats] = useState(null)
@@ -61,13 +60,6 @@ export default function DashboardPage() {
       link: '/applicants'
     },
     {
-      title: 'Colleges',
-      value: stats?.total_colleges || 0,
-      icon: GraduationCap,
-      color: 'blue',
-      link: '/colleges'
-    },
-    {
       title: 'Job Listings',
       value: stats?.total_jobs || 0,
       icon: Briefcase,
@@ -96,13 +88,6 @@ export default function DashboardPage() {
             <p className="text-gray-400">Overview of the career guidance system</p>
           </div>
           <div className="flex items-center space-x-3">
-            <Link 
-              to="/admin/college-collection"
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-900/20 border border-blue-500/30 rounded-lg hover:bg-blue-900/30 transition-colors text-blue-400"
-            >
-              <Database className="w-5 h-5" />
-              <span className="hidden sm:inline">College Data</span>
-            </Link>
             <Link 
               to="/admin/reviews"
               className="flex items-center space-x-2 px-4 py-2 bg-yellow-900/20 border border-yellow-500/30 rounded-lg hover:bg-yellow-900/30 transition-colors text-yellow-400"
@@ -143,43 +128,11 @@ export default function DashboardPage() {
         </div>
 
         {/* Recommendation Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           <motion.div
-            initial={{ opacity: 0, x: -20 }}
+            initial={{ opacity: 0, x: 0 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.4 }}
-            className="card"
-          >
-            <div className="flex items-center space-x-2 mb-4">
-              <TrendingUp className="w-6 h-6 text-primary-400" />
-              <h2 className="text-xl font-semibold">College Recommendations</h2>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm text-gray-400 mb-2">Total Recommendations</p>
-                <p className="text-2xl font-bold">{stats?.total_college_recommendations || 0}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-400 mb-2">Average Match Score</p>
-                <div className="flex items-center space-x-3">
-                  <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden\">
-                    <div 
-                      className="bg-gradient-to-r from-primary-500 to-primary-400 h-full rounded-full"
-                      style={{ width: `${stats?.avg_college_match || 0}%` }}
-                    ></div>
-                  </div>
-                  <span className="text-xl font-bold text-primary-400">
-                    {(stats?.avg_college_match || 0).toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.5 }}
             className="card"
           >
             <div className="flex items-center space-x-2 mb-4">

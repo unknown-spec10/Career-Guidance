@@ -49,9 +49,6 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
           case 'employer':
             setRedirectPath('/employer/dashboard')
             break
-          case 'college':
-            setRedirectPath('/college/dashboard')
-            break
           default:
             setRedirectPath('/student/dashboard')
         }

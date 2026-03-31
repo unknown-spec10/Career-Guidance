@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 from uuid import uuid4
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from collections import defaultdict
 from time import time
 import os
@@ -12,15 +12,13 @@ from .utils import save_upload, sha256_file, sanitize_text, sanitize_dict, valid
 from .config import settings, IS_SUPABASE
 from .constants import (
     ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB,
-    API_MESSAGES, RECOMMENDATION_WEIGHTS, DEFAULT_PAGE_SIZE,
+    API_MESSAGES, DEFAULT_PAGE_SIZE,
     INTERVIEW_CONFIG, INTERVIEW_SCORE_MULTIPLIERS
 )
 from .schemas import (
     UserRegister, UserLogin, Token, UserResponse,
     JobCreate, JobUpdate, JobResponse,
     JobApplicationCreate, JobApplicationResponse,
-    CollegeProgramCreate, CollegeProgramResponse,
-    CollegeApplicationCreate, CollegeApplicationResponse,
     ApprovalAction, MarksheetUpload, VerifyCodeRequest, ResendCodeRequest,
     InterviewSessionCreate, InterviewSessionResponse, QuestionResponse,
     AnswerSubmit, AnswerEvaluation, SessionCompleteRequest, SessionCompleteResponse,
@@ -32,7 +30,6 @@ from .auth import (
     get_password_hash, verify_password, create_access_token,
     get_current_user, get_current_user_optional, require_role
 )
-from .routes.admin_college_collection import router as admin_college_router
 from pathlib import Path
 import json
 from .resume.parse_service import ResumeParserService
@@ -47,13 +44,44 @@ from sqlalchemy import desc
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Runtime circuit breaker for async embedding queueing.
+# If broker/backend is unavailable, disable enqueue attempts for this process.
+_EMBEDDING_QUEUE_DISABLED = False
+
+
+def enqueue_embedding_task(task_fn, *args) -> Optional[str]:
+    """Queue embedding work without blocking API requests."""
+    global _EMBEDDING_QUEUE_DISABLED
+    if _EMBEDDING_QUEUE_DISABLED:
+        return None
+
+    try:
+        async_result = task_fn.delay(*args)
+        return async_result.id
+    except Exception as exc:
+        message = str(exc)
+        logger.warning("Failed to enqueue embedding task: %s", message)
+
+        # Avoid retry-storm logs when Redis/Celery backend is down.
+        lowered = message.lower()
+        if (
+            "redis" in lowered
+            or "retry limit exceeded" in lowered
+            or "connection refused" in lowered
+            or "connection to redis lost" in lowered
+        ):
+            _EMBEDDING_QUEUE_DISABLED = True
+            logger.warning(
+                "Disabling async embedding queue for this process because broker/backend is unavailable. "
+                "Restart the API service after Redis/Celery is healthy to re-enable queueing."
+            )
+        return None
+
 # Import repository factory
 from .repos.factory import DatabaseFactory
 
 # Rate limiting storage (in-memory, consider Redis for production)
 rate_limiting_storage = defaultdict(list)
-
-DEFAULT_SECRET = "change-this-secret-key-in-production-use-openssl-rand-hex-32"
 
 def _mask(val: Optional[str], keep: int = 4) -> str:
     if not val:
@@ -80,9 +108,6 @@ def validate_env():
     pg_user = settings.PG_USER
     pg_db = settings.PG_DB
 
-    # Treat SQLite DSN (default for demos) as valid, so PG vars are optional
-    is_sqlite_dsn = bool(pg_dsn and str(pg_dsn).startswith("sqlite"))
-
     if not pg_host and not pg_dsn:
         errors.append("PG_HOST is missing (or provide PG_DSN)")
     if not pg_user and not pg_dsn:
@@ -92,10 +117,10 @@ def validate_env():
 
     # Critical: JWT Secret Key
     secret = settings.SECRET_KEY or ""
-    if secret == DEFAULT_SECRET:
-        warnings.append("SECRET_KEY equals the sample default; generate a new 64-hex value")
     if len(secret) < 32:
         warnings.append("SECRET_KEY should be at least 32 characters long")
+    if os.environ.get("RENDER") and len(secret) < 32:
+        errors.append("SECRET_KEY is missing or too short for production")
 
     # Important: Gemini API (warn if not set, as it may use mock mode)
     if not settings.GEMINI_API_KEY:
@@ -108,10 +133,10 @@ def validate_env():
     # Always print a masked summary for quick diagnosis
     if IS_SUPABASE:
         env_mode = "Supabase (cloud)"
-    elif settings.PG_HOST:
+    elif pg_host:
         env_mode = "Local PostgreSQL"
     else:
-        env_mode = "SQLite in-memory (demo)"
+        env_mode = "PostgreSQL (custom DSN)"
 
     summary_lines = [
         f"Environment:     {env_mode}",
@@ -172,14 +197,6 @@ def get_db():
     finally:
         db.close()
 
-# Repository dependencies
-def get_college_repo():
-    """Get college repository"""
-    from .repos.pg_impl import PGCollegeRepository
-    from .db import SessionLocal
-    session = SessionLocal()
-    return PGCollegeRepository(session)
-
 def get_job_repo():
     """Get job repository"""
     from .repos.pg_impl import PGJobRepository
@@ -208,9 +225,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Include admin college collection routes
-app.include_router(admin_college_router)
-
 # Add CORS middleware for frontend
 # Parse allowed origins from config (comma-separated string)
 allow_origins_str = settings.CORS_ORIGINS
@@ -235,18 +249,13 @@ async def startup_event():
         validate_env()
         logger.info(f"DB DSN resolved to: {settings.PG_DSN}")
 
-        # Prefer SQLite when PG_HOST is not provided (demo/test default)
-        if not settings.PG_HOST:
-            from .db import init_db
-            init_db()
-            logger.info("✓ SQLite database initialized (demo mode, no PG_HOST provided)")
-        elif IS_SUPABASE:
+        if IS_SUPABASE:
             # Supabase: database is cloud-managed — skip CREATE DATABASE entirely
             logger.info("Supabase detected — skipping CREATE DATABASE (cloud-managed)")
             from .db import init_db
             init_db()
             logger.info("✓ Supabase tables initialized (CREATE TABLE IF NOT EXISTS)")
-        else:
+        elif settings.PG_HOST:
             # Local PostgreSQL: ensure the target database exists, then create tables
             import psycopg2
             from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
@@ -273,6 +282,11 @@ async def startup_event():
             from .db import init_db
             init_db()
             logger.info("✓ Local PostgreSQL tables initialized")
+        else:
+            # PG_DSN-only mode: initialize schema directly on configured PostgreSQL database
+            from .db import init_db
+            init_db()
+            logger.info("✓ PostgreSQL tables initialized (PG_DSN mode)")
         
         # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible)
         try:
@@ -339,7 +353,7 @@ async def register(
 ):
     """Register a new user and send verification email"""
     
-    from .db import User, Employer, College
+    from .db import User, Employer
     from .email_verification import (
         generate_verification_token,
         send_verification_email,
@@ -421,17 +435,7 @@ async def register(
             is_verified=False
         )
         db.add(employer)
-    elif user_data.role.value == 'college':
-        # Generate slug from name
-        slug = user_data.name.lower().replace(' ', '-').replace("'", '')
-        college = College(
-            user_id=new_user.id,
-            name=user_data.name,
-            slug=slug,
-            is_verified=False
-        )
-        db.add(college)
-    
+
     db.commit()
     
     logger.info(f"New user registered: {new_user.email} as {new_user.role}")
@@ -986,12 +990,24 @@ async def upload_resume(
         
         logger.info(f"✓ Saved applicant {applicant_id} to database (ID: {applicant.id})")
         logger.info(f"✓ Created credit account with 60 initial credits")
+
+        parse_task_id = None
+        if settings.ASYNC_PARSE_ENABLED:
+            try:
+                from .embedding_tasks import parse_resume_task
+
+                parse_task_id = enqueue_embedding_task(parse_resume_task, applicant_id, str(applicant_dir))
+                if parse_task_id:
+                    logger.info("Queued parse task %s for applicant %s", parse_task_id, applicant_id)
+            except Exception as exc:
+                logger.warning("Could not auto-queue parse task for %s: %s", applicant_id, exc)
         
         return JSONResponse({
             "status": "ok",
             "applicant_id": applicant_id,
             "db_id": applicant.id,
-            "resume_hash": resume_hash
+            "resume_hash": resume_hash,
+            "parse_task_id": parse_task_id,
         })
     except Exception as e:
         db.rollback()
@@ -1013,12 +1029,34 @@ parser_service = ResumeParserService()
 
 
 @app.post("/parse/{applicant_id}")
-async def parse_applicant(applicant_id: str, db: Session = Depends(get_db)):
+async def parse_applicant(applicant_id: str, sync: bool = False, db: Session = Depends(get_db)):
     from .db import Applicant, LLMParsedRecord
     
     applicant_dir = DATA_ROOT / applicant_id
     if not applicant_dir.exists():
         raise HTTPException(status_code=404, detail="applicant_id not found")
+
+    # Async-first parsing: queue worker task and return immediately.
+    # Use ?sync=true to force in-process parsing for debugging/rollback.
+    if settings.ASYNC_PARSE_ENABLED and not sync:
+        try:
+            from .embedding_tasks import parse_resume_task
+
+            task_id = enqueue_embedding_task(parse_resume_task, applicant_id, str(applicant_dir))
+            if task_id:
+                return JSONResponse({
+                    "status": "queued",
+                    "applicant_id": applicant_id,
+                    "parse_task_id": task_id,
+                    "message": "Parse job queued. Poll /api/embeddings/task/{task_id} (admin) for progress.",
+                })
+            logger.warning(
+                "Async parse queue unavailable for applicant %s; falling back to sync parse",
+                applicant_id,
+            )
+        except Exception as e:
+            logger.warning("Failed to queue parse task for %s: %s", applicant_id, e)
+            logger.warning("Falling back to sync parse for %s", applicant_id)
     
     # Run parsing
     result = parser_service.run_parse(str(applicant_dir), applicant_id)
@@ -1066,28 +1104,35 @@ async def parse_applicant(applicant_id: str, db: Session = Depends(get_db)):
         
         db.commit()
         logger.info(f"✓ Saved parsed data for applicant {applicant_id} (ID: {applicant.id})")
+
+        # Queue async embedding -> recommendation workflow.
+        try:
+            from celery import chain
+            from .embedding_tasks import generate_recommendations_task, generate_resume_embedding_task
+
+            workflow = chain(
+                generate_resume_embedding_task.s(applicant.id),
+                generate_recommendations_task.s(applicant.id),
+            ).apply_async()
+
+            workflow_id = getattr(workflow, "id", None)
+            workflow_parent = getattr(workflow, "parent", None)
+            embedding_task_id = getattr(workflow_parent, "id", None)
+
+            result['resume_embedding_task_id'] = embedding_task_id
+            result['recommendation_task_id'] = workflow_id
+            logger.info(
+                "Queued embedding->recommendation workflow %s for applicant %s",
+                workflow_id,
+                applicant.id,
+            )
+        except Exception as e:
+            logger.warning(f"Could not enqueue embedding/recommendation workflow for applicant {applicant.id}: {e}")
         
         # Add database ID to result
         result['db_applicant_id'] = applicant.id
         
-        # Auto-generate recommendations after successful parse using new service
-        try:
-            logger.info(f"Auto-generating recommendations for applicant {applicant.id} using RecommendationService")
-            from .recommendation.recommendation_service import RecommendationService
-            
-            rec_service = RecommendationService(db)
-            # applicant.id is int at runtime despite Column type
-            applicant_db_id: int = applicant.id  # type: ignore
-            college_recs, job_recs = rec_service.get_recommendations(applicant_db_id)
-            
-            result['auto_recommendations_generated'] = f"{len(college_recs)} colleges, {len(job_recs)} jobs"
-            logger.info(f"✓ Auto-generated {len(college_recs)} college and {len(job_recs)} job recommendations")
-        except Exception as e:
-            db.rollback()
-            logger.warning(f"Failed to auto-generate recommendations: {e}")
-            import traceback
-            logger.warning(traceback.format_exc())
-            result['auto_recommendations_error'] = str(e)
+        result['auto_recommendations_generated'] = "queued"
         
     except Exception as e:
         db.rollback()
@@ -1098,7 +1143,7 @@ async def parse_applicant(applicant_id: str, db: Session = Depends(get_db)):
 
 
 # New endpoints for comprehensive features
-from .db import SessionLocal, Applicant, LLMParsedRecord, College, CollegeApplicabilityLog, Job, JobRecommendation, CollegeProgram, Employer
+from .db import SessionLocal, Applicant, LLMParsedRecord, Job, JobRecommendation, Employer
 
 # ============================================================
 # STUDENT PROFILE ENDPOINT
@@ -1131,15 +1176,6 @@ VALID_JOB_STATUS_TRANSITIONS = {
     'rejected': [],  # terminal
     'withdrawn': []  # terminal
 }
-
-VALID_COLLEGE_STATUS_TRANSITIONS = {
-    'recommended': ['applied', 'withdrawn'],
-    'applied': ['accepted', 'rejected', 'withdrawn'],
-    'accepted': [],  # terminal
-    'rejected': [],  # terminal
-    'withdrawn': []  # terminal
-}
-
 
 @app.get("/api/applicants")
 async def get_all_applicants(
@@ -1270,6 +1306,15 @@ async def create_job_posting(
     db.add(job)
     db.commit()
     db.refresh(job)
+
+    # Queue async job embedding generation.
+    try:
+        from .embedding_tasks import generate_job_embedding_task
+        task_id = enqueue_embedding_task(generate_job_embedding_task, job.id)
+        if task_id:
+            logger.info(f"Queued job embedding task {task_id} for job {job.id}")
+    except Exception as e:
+        logger.warning(f"Could not enqueue job embedding task for job {job.id}: {e}")
     
     logger.info(f"Job created by employer {employer.company_name}: {job.title} (ID: {job.id})")
     return job
@@ -1435,147 +1480,72 @@ async def get_job_applicants(
     return {"applicants": result, "total": len(result)}
 
 
-# ============================================================
-# COLLEGE PROGRAM POSTING ENDPOINTS
-# ============================================================
-
-@app.post("/api/college/programs", response_model=CollegeProgramResponse)
-async def create_college_program(
-    program_data: CollegeProgramCreate,
-    current_user = Depends(require_role("college")),
-    db: Session = Depends(get_db)
+@app.patch("/api/employer/jobs/{job_id}", response_model=JobResponse)
+async def update_job_posting(
+    job_id: int,
+    job_data: JobUpdate,
+    current_user=Depends(require_role("employer")),
+    db: Session = Depends(get_db),
 ):
-    """College creates a program (pending approval)"""
-    from .db import College, CollegeProgram
-    
-    # Get college profile
-    college = db.query(College).filter(College.user_id == current_user.id).first()
-    if not college:
-        raise HTTPException(status_code=404, detail="College profile not found")
-    
-    # Sanitize text inputs
-    program_name = sanitize_text(program_data.program_name, max_length=200)
-    program_description = sanitize_text(program_data.program_description or "", max_length=5000)
-    
-    # Create program
-    program = CollegeProgram(
-        college_id=college.id,
-        program_name=program_name,
-        duration_months=program_data.duration_months,
-        required_skills=program_data.required_skills,
-        program_description=program_description,
-        status='pending'
-    )
-    db.add(program)
+    """Employer updates a job posting and re-queues embedding index on meaningful changes."""
+    from .db import Job, Employer
+
+    employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer profile not found")
+
+    job = db.query(Job).filter(Job.id == job_id, Job.employer_id == employer.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or access denied")
+
+    payload = job_data.model_dump(exclude_none=True)
+    if not payload:
+        return job
+
+    reindex_fields = {
+        "title",
+        "description",
+        "required_skills",
+        "optional_skills",
+        "work_type",
+        "location_city",
+        "location_state",
+        "min_experience_years",
+    }
+    should_reindex = any(field in reindex_fields for field in payload.keys())
+
+    if "title" in payload:
+        payload["title"] = sanitize_text(str(payload["title"]), max_length=200)
+    if "description" in payload:
+        payload["description"] = sanitize_text(str(payload["description"]), max_length=10000)
+    if "location_city" in payload:
+        payload["location_city"] = sanitize_text(str(payload["location_city"]), max_length=100)
+    if "location_state" in payload:
+        payload["location_state"] = sanitize_text(str(payload["location_state"]), max_length=100)
+
+    for key, value in payload.items():
+        setattr(job, key, value)
+
+    # Re-review jobs after updates to keep moderation contract consistent.
+    job.status = 'pending'  # type: ignore
+    job.reviewed_by = None  # type: ignore
+    job.reviewed_at = None  # type: ignore
+    job.rejection_reason = None  # type: ignore
+
     db.commit()
-    db.refresh(program)
-    
-    logger.info(f"Program created by college {college.name}: {program.program_name} (ID: {program.id})")
-    return program
+    db.refresh(job)
 
+    if should_reindex:
+        try:
+            from .embedding_tasks import generate_job_embedding_task
 
-@app.get("/api/college/profile")
-async def get_college_profile(
-    current_user = Depends(require_role("college")),
-    db: Session = Depends(get_db)
-):
-    """Get college profile information"""
-    from .db import College
-    
-    college = db.query(College).filter(College.user_id == current_user.id).first()
-    if not college:
-        raise HTTPException(status_code=404, detail="College profile not found")
-    
-    return college
+            task_id = enqueue_embedding_task(generate_job_embedding_task, job.id)
+            if task_id:
+                logger.info("Queued job embedding task %s for updated job %s", task_id, job.id)
+        except Exception as exc:
+            logger.warning("Could not enqueue job embedding task for updated job %s: %s", job.id, exc)
 
-
-@app.patch("/api/college/profile")
-async def update_college_profile(
-    name: str = Body(...),
-    description: str = Body(None),
-    website: str = Body(None),
-    location_city: str = Body(None),
-    location_state: str = Body(None),
-    contact_phone: str = Body(None),
-    contact_email: str = Body(None),
-    current_user = Depends(require_role("college")),
-    db: Session = Depends(get_db)
-):
-    """Update college profile information"""
-    from .db import College
-    
-    college = db.query(College).filter(College.user_id == current_user.id).first()
-    if not college:
-        raise HTTPException(status_code=404, detail="College profile not found")
-    
-    setattr(college, 'name', name)
-    if description is not None:
-        setattr(college, 'description', description)
-    if website is not None:
-        setattr(college, 'website', website)
-    if location_city is not None:
-        setattr(college, 'location_city', location_city)
-    if location_state is not None:
-        setattr(college, 'location_state', location_state)
-    if contact_phone is not None:
-        setattr(college, 'contact_phone', contact_phone)
-    if contact_email is not None:
-        setattr(college, 'contact_email', contact_email)
-    
-    db.commit()
-    db.refresh(college)
-    
-    return {"status": "success", "message": "Profile updated successfully"}
-
-
-@app.get("/api/college/programs")
-async def get_college_programs(
-    current_user = Depends(require_role("college")),
-    db: Session = Depends(get_db)
-):
-    """Get all programs posted by current college"""
-    from .db import College, CollegeProgram
-    
-    college = db.query(College).filter(College.user_id == current_user.id).first()
-    if not college:
-        raise HTTPException(status_code=404, detail="College profile not found")
-    
-    programs = db.query(CollegeProgram).filter(CollegeProgram.college_id == college.id).all()
-    return {"programs": programs, "total": len(programs)}
-
-
-@app.get("/api/college/applications")
-async def get_college_applications(
-    current_user = Depends(require_role("college")),
-    db: Session = Depends(get_db)
-):
-    """Get all applications to current college"""
-    from .db import College, CollegeApplication, Applicant
-    
-    college = db.query(College).filter(College.user_id == current_user.id).first()
-    if not college:
-        raise HTTPException(status_code=404, detail="College profile not found")
-    
-    # Get applications
-    applications = db.query(CollegeApplication, Applicant).join(
-        Applicant, CollegeApplication.applicant_id == Applicant.id
-    ).filter(CollegeApplication.college_id == college.id).all()
-    
-    result = []
-    for app, applicant in applications:
-        result.append({
-            "application_id": app.id,
-            "applicant_id": applicant.id,
-            "applicant_name": applicant.display_name,
-            "program_id": app.program_id,
-            "status": app.status,
-            "applied_at": app.applied_at.isoformat() if app.applied_at else None,
-            "twelfth_percentage": float(app.twelfth_percentage) if app.twelfth_percentage else None,  # type: ignore
-            "twelfth_board": app.twelfth_board,
-            "statement_of_purpose": app.statement_of_purpose
-        })
-    
-    return {"applications": result, "total": len(result)}
+    return job
 
 
 # ============================================================
@@ -1625,54 +1595,6 @@ async def apply_to_job(
     return application
 
 
-@app.post("/api/colleges/{college_id}/apply", response_model=CollegeApplicationResponse)
-async def apply_to_college(
-    college_id: int,
-    application_data: CollegeApplicationCreate,
-    current_user = Depends(require_role("student")),
-    db: Session = Depends(get_db)
-):
-    """Student applies to a college"""
-    from .db import College, CollegeApplication, Applicant
-    
-    # Verify college exists
-    college = db.query(College).filter(College.id == college_id).first()
-    if not college:
-        raise HTTPException(status_code=404, detail="College not found")
-    
-    # Get student's applicant profile
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=400, detail="Please upload your documents first")
-    
-    # Check if already applied to this program
-    existing = db.query(CollegeApplication).filter(
-        CollegeApplication.applicant_id == applicant.id,
-        CollegeApplication.college_id == college_id,
-        CollegeApplication.program_id == application_data.program_id
-    ).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="You have already applied to this program")
-    
-    # Create application
-    application = CollegeApplication(
-        applicant_id=applicant.id,
-        college_id=college_id,
-        program_id=application_data.program_id,
-        statement_of_purpose=application_data.statement_of_purpose,
-        twelfth_percentage=application_data.twelfth_percentage,
-        twelfth_board=application_data.twelfth_board,
-        twelfth_subjects=application_data.twelfth_subjects,
-        status='applied'
-    )
-    db.add(application)
-    db.commit()
-    db.refresh(application)
-    
-    logger.info(f"Student {applicant.display_name} applied to college {college.name}")
-    return application
-
-
 @app.get("/api/student/applications/jobs")
 async def get_student_job_applications(
     current_user = Depends(require_role("student")),
@@ -1700,43 +1622,6 @@ async def get_student_job_applications(
             "company": employer.company_name,
             "status": app.status,
             "applied_at": app.applied_at.isoformat() if app.applied_at else None
-        })
-    
-    return {"applications": result, "total": len(result)}
-
-
-@app.get("/api/student/applications/colleges")
-async def get_student_college_applications(
-    current_user = Depends(require_role("student")),
-    db: Session = Depends(get_db)
-):
-    """Get all college applications by current student"""
-    from .db import CollegeApplication, College, Applicant
-    
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        return {"applications": [], "total": 0}
-    
-    applications = db.query(CollegeApplication, College).join(
-        College, CollegeApplication.college_id == College.id
-    ).filter(CollegeApplication.applicant_id == applicant.id).all()
-    
-    result = []
-    for app, college in applications:
-        applied_at_val = app.applied_at if hasattr(app, 'applied_at') else None
-        if isinstance(applied_at_val, (dt.datetime, dt.date)):
-            applied_at_ser = applied_at_val.isoformat()
-        elif applied_at_val is not None:
-            applied_at_ser = str(applied_at_val)
-        else:
-            applied_at_ser = None
-        result.append({
-            "application_id": app.id,
-            "college_id": college.id,
-            "college_name": college.name,
-            "program_id": app.program_id,
-            "status": app.status,
-            "applied_at": applied_at_ser
         })
     
     return {"applications": result, "total": len(result)}
@@ -1794,75 +1679,13 @@ async def review_job_posting(
     return {"status": "success", "job_status": job.status}
 
 
-@app.patch("/api/admin/programs/{program_id}/review")
-async def review_college_program(
-    program_id: int,
-    action: ApprovalAction,
-    current_user = Depends(require_role("admin")),
-    db: Session = Depends(get_db)
-):
-    """Admin approves or rejects a college program"""
-    from .db import CollegeProgram, AuditLog
-    
-    program = db.query(CollegeProgram).filter(CollegeProgram.id == program_id).first()
-    if not program:
-        raise HTTPException(status_code=404, detail="Program not found")
-    
-    old_status = program.status
-    if action.action == "approve":
-        program.status = 'approved'  # type: ignore
-        program.reviewed_by = current_user.id  # type: ignore
-        program.reviewed_at = dt.datetime.utcnow()  # type: ignore
-    elif action.action == "reject":
-        program.status = 'rejected'  # type: ignore
-        program.rejection_reason = action.reason  # type: ignore
-        program.reviewed_by = current_user.id  # type: ignore
-        program.reviewed_at = dt.datetime.utcnow()  # type: ignore
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action")
-    
-    # Commit and ensure SQLAlchemy session state is refreshed so subsequent reads reflect the update
-    db.commit()
-    try:
-        db.refresh(program)
-    except Exception:
-        # If refresh fails for any reason, continue — the transaction is committed
-        pass
-    try:
-        # expire_all forces SQLAlchemy to reload state on next access
-        db.expire_all()
-    except Exception:
-        pass
-    
-    # Audit log
-    try:
-        audit = AuditLog(
-            action=f"program_{action.action}",
-            target_type="CollegeProgram",
-            target_id=program_id,
-            user_id=current_user.id,
-            details={"old_status": old_status, "new_status": program.status, "reason": action.reason}
-        )
-        db.add(audit)
-        db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to create audit log: {e}")
-
-    logger.info(
-        f"Program {getattr(program, 'program_name', None)} (id={getattr(program,'id',None)}) "
-        f"{action.action}ed by admin {getattr(current_user, 'name', None)}; new status={getattr(program,'status',None)}"
-    )
-
-    return {"status": "success", "program_status": program.status}
-
-
 @app.get("/api/admin/pending-reviews")
 async def get_pending_reviews(
     current_user = Depends(require_role("admin")),
     db: Session = Depends(get_db)
 ):
-    """Get all pending jobs and programs for review"""
-    from .db import Job, CollegeProgram, Employer, College
+    """Get all pending jobs for review"""
+    from .db import Job, Employer
     
     # Get pending jobs
     pending_jobs = db.query(Job, Employer).join(
@@ -1878,110 +1701,9 @@ async def get_pending_reviews(
             "created_at": job.created_at.isoformat() if job.created_at else None
         })
     
-    # Get pending programs
-    pending_programs = db.query(CollegeProgram, College).join(
-        College, CollegeProgram.college_id == College.id
-    ).filter(CollegeProgram.status == 'pending').all()
-    
-    programs_list = []
-    for program, college in pending_programs:
-        programs_list.append({
-            "id": program.id,
-            "program_name": program.program_name,
-            "college": college.name,
-            "created_at": program.created_at.isoformat() if program.created_at else None,
-            "status": getattr(program, 'status', None),
-            "rejection_reason": getattr(program, 'rejection_reason', None),
-            "reviewed_by": getattr(program, 'reviewed_by', None)
-        })
-    
     return {
         "pending_jobs": jobs_list,
-        "pending_programs": programs_list,
-        "total_pending": len(jobs_list) + len(programs_list)
-    }
-
-
-@app.get("/api/colleges")
-async def get_colleges(
-    skip: int = 0,
-    limit: int = 20,
-    current_user = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
-):
-    """Get colleges. College users cannot access this endpoint."""
-    # Block college users from accessing the colleges listing
-    if current_user and getattr(current_user, 'role', None) == 'college':
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="College users cannot browse other colleges"
-        )
-    
-    college_repo = get_college_repo()
-    colleges = await college_repo.list_all(limit=limit, offset=skip)
-    
-    result = []
-    for c in colleges:
-        result.append({
-            "id": c.get('id'),
-            "name": c.get('name'),
-            "location": c.get('location') or c.get('location_city'),
-            "ranking": c.get('ranking'),
-            "description": c.get('description'),
-            "website": c.get('website'),
-            "established_year": c.get('established_year')
-        })
-    
-    return {
-        "colleges": result,
-        "total": len(result),
-        "next_cursor": None
-    }
-
-
-@app.get("/api/college/{college_id}")
-async def get_college_details(college_id: int, db: Session = Depends(get_db)):
-    """Get detailed college information"""
-    from .db import CollegeEligibility, CollegeMetadata
-    
-    college = db.query(College).filter(College.id == college_id).first()
-    if not college:
-        raise HTTPException(status_code=404, detail=API_MESSAGES['COLLEGE_NOT_FOUND'])
-    
-    eligibility = db.query(CollegeEligibility).filter(CollegeEligibility.college_id == college_id).first()
-    metadata = db.query(CollegeMetadata).filter(CollegeMetadata.college_id == college_id).first()
-    programs = db.query(CollegeProgram).filter(CollegeProgram.college_id == college_id).all()
-    
-    return {
-        "college": {
-            "id": college.id,
-            "name": college.name,
-            "slug": college.slug,
-            "location_city": college.location_city,
-            "location_state": college.location_state,
-            "country": college.country,
-            "description": college.description,
-            "website": college.website
-        },
-        "eligibility": {
-            "min_jee_rank": eligibility.min_jee_rank if eligibility else None,
-            "min_cgpa": float(eligibility.min_cgpa) if eligibility and eligibility.min_cgpa is not None else None,  # type: ignore
-            "eligible_degrees": eligibility.eligible_degrees if eligibility else [],
-            "seats": eligibility.seats if eligibility else None
-        } if eligibility else None,
-        "programs": [
-            {
-                "id": p.id,
-                "program_name": p.program_name,
-                "duration_months": p.duration_months,
-                "required_skills": p.required_skills,
-                "description": p.program_description
-            } for p in programs
-        ],
-        "metadata": {
-            "canonical_skills": metadata.canonical_skills if metadata else [],
-            "popularity_score": float(metadata.popularity_score) if metadata and metadata.popularity_score is not None else 0.0  # type: ignore
-        } if metadata else None
+        "total_pending": len(jobs_list)
     }
 
 
@@ -2076,7 +1798,7 @@ async def get_job_details(job_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/recommendations/{applicant_id}")
 async def get_applicant_recommendations(applicant_id: str, db: Session = Depends(get_db)):
-    """Get college and job recommendations for an applicant.
+    """Get job recommendations for an applicant.
 
     Accepts either DB numeric id or external applicant_id string and resolves to DB id.
     """
@@ -2096,13 +1818,6 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
 
     resolved_id = applicant.id
 
-    # College recommendations
-    college_recs = db.query(CollegeApplicabilityLog, College).join(
-        College, CollegeApplicabilityLog.college_id == College.id
-    ).filter(CollegeApplicabilityLog.applicant_id == resolved_id).order_by(
-        desc(CollegeApplicabilityLog.recommend_score)
-    ).all()
-    
     # Job recommendations
     job_recs = db.query(JobRecommendation, Job, Employer).join(
         Job, JobRecommendation.job_id == Job.id
@@ -2113,22 +1828,6 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
     ).all()
     
     return {
-        "college_recommendations": [
-            {
-                "id": log.id,
-                "college": {
-                    "id": college.id,
-                    "name": college.name,
-                    "location_city": college.location_city,
-                    "location_state": college.location_state,
-                    "website": college.website
-                },
-                "match_score": float(log.recommend_score) if log.recommend_score else 0,
-                "recommend_score": float(log.recommend_score) if log.recommend_score else 0,
-                "explain": log.explain,
-                "status": log.status
-            } for log, college in college_recs
-        ],
         "job_recommendations": [
             {
                 "id": rec.id,
@@ -2158,9 +1857,7 @@ async def get_statistics(db: Session = Depends(get_db)):
     """Get dashboard statistics"""
     stats = {
         "total_applicants": db.query(Applicant).count(),
-        "total_colleges": db.query(College).count(),
         "total_jobs": db.query(Job).count(),
-        "total_college_recommendations": db.query(CollegeApplicabilityLog).count(),
         "total_job_recommendations": db.query(JobRecommendation).count(),
         "applicants_needing_review": db.query(LLMParsedRecord).filter(
             LLMParsedRecord.needs_review == True
@@ -2168,68 +1865,14 @@ async def get_statistics(db: Session = Depends(get_db)):
     }
     
     # Average match scores
-    college_avg = db.query(func.avg(CollegeApplicabilityLog.recommend_score)).scalar()
     job_avg = db.query(func.avg(JobRecommendation.score)).scalar()
     
-    avg_college = float(college_avg) if college_avg is not None else 0.0
     avg_job = float(job_avg) if job_avg is not None else 0.0
     
     return {
         **stats,
-        "avg_college_match": avg_college,
         "avg_job_match": avg_job
     }
-
-
-@app.patch("/api/college-recommendation/{rec_id}/status")
-def update_college_recommendation_status(
-    rec_id: int,
-    status: str = Body(..., embed=True),
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """Update the status of a college recommendation"""
-    from .db import CollegeApplicabilityLog, AuditLog
-    from .constants import API_MESSAGES
-    
-    valid_statuses = ['recommended', 'applied', 'accepted', 'rejected', 'withdrawn']
-    if status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
-    
-    rec = db.query(CollegeApplicabilityLog).filter(CollegeApplicabilityLog.id == rec_id).first()
-    if not rec:
-        raise HTTPException(status_code=404, detail=API_MESSAGES["applicant_not_found"])
-    
-    # Validate status transition
-    current_status = str(rec.status) if rec.status is not None else 'recommended'
-    allowed_transitions = VALID_COLLEGE_STATUS_TRANSITIONS.get(current_status, [])
-    if status != current_status and status not in allowed_transitions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid status transition: {current_status} → {status}. Allowed: {', '.join(allowed_transitions) if allowed_transitions else 'none (terminal state)'}"
-        )
-    
-    old_status = rec.status
-    rec.status = status  # type: ignore
-    db.commit()
-    db.refresh(rec)
-    
-    # Audit log
-    try:
-        audit = AuditLog(
-            action="college_recommendation_status_update",
-            target_type="CollegeRecommendation",
-            target_id=rec_id,
-            user_id=current_user.id,
-            details={"old_status": old_status, "new_status": status}
-        )
-        db.add(audit)
-        db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to create audit log: {e}")
-    
-    return {"id": rec.id, "status": rec.status, "message": "Status updated successfully"}
-
 
 @app.patch("/api/job-recommendation/{rec_id}/status")
 def update_job_recommendation_status(
@@ -2287,7 +1930,7 @@ async def generate_recommendations_for_applicant(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Generate or refresh college and job recommendations for an applicant.
+    """Generate or refresh job recommendations for an applicant.
     
     Uses the new RecommendationService with normalized 0–1 scores and semantic
     skill matching. Removes old recommendations before regenerating.
@@ -2302,7 +1945,6 @@ async def generate_recommendations_for_applicant(
         raise HTTPException(status_code=400, detail=API_MESSAGES['NO_PARSED_DATA'])
 
     # Clear existing recommendations
-    db.query(CollegeApplicabilityLog).filter(CollegeApplicabilityLog.applicant_id == applicant_id).delete()
     db.query(JobRecommendation).filter(JobRecommendation.applicant_id == applicant_id).delete()
     db.commit()
 
@@ -2312,16 +1954,14 @@ async def generate_recommendations_for_applicant(
         service = RecommendationService(db)
         result = service.get_recommendations(applicant_id)
         
-        college_count = len(result.get('college_recommendations', []))
         job_count = len(result.get('job_recommendations', []))
         
-        logger.info(f"✓ Generated {college_count} college + {job_count} job recommendations for applicant {applicant_id}")
+        logger.info(f"✓ Generated {job_count} job recommendations for applicant {applicant_id}")
         
         # Return counts based on generated lists
         return {
             "status": "success",
             "message": "Recommendations generated successfully",
-            "college_recommendations_count": college_count,
             "job_recommendations_count": job_count
         }
     except Exception as e:
@@ -2429,100 +2069,6 @@ async def update_job_application_status(
     }
 
 
-@app.patch("/api/college/applications/{application_id}/status")
-async def update_college_application_status(
-    application_id: int,
-    status: str = Body(...),
-    college_notes: Optional[str] = Body(None),
-    db: Session = Depends(get_db),
-    current_user = Depends(require_role("college"))
-):
-    """Update college application status (college only).
-    
-    Allows colleges to move applications through their workflow:
-    applied → under_review → shortlisted → accepted/rejected/waitlisted
-    """
-    from .db import CollegeApplication, AuditLog
-    
-    valid_statuses = ['applied', 'under_review', 'shortlisted', 'accepted', 'rejected', 'waitlisted', 'withdrawn']
-    if status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
-    
-    # Get application and verify college owns it
-    application = db.query(CollegeApplication).filter(CollegeApplication.id == application_id).first()
-    if not application:
-        raise HTTPException(status_code=404, detail="Application not found")
-    
-    # Get the college and verify ownership
-    college_record = db.query(College).filter(College.id == application.college_id).first()
-    if not college_record:
-        raise HTTPException(status_code=404, detail="College not found")
-    
-    college_user_id = getattr(college_record, 'user_id', None)
-    if college_user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You can only update applications for your own college")
-    
-    # Validate status transitions
-    valid_transitions = {
-        'applied': ['under_review', 'rejected', 'withdrawn'],
-        'under_review': ['shortlisted', 'rejected', 'withdrawn'],
-        'shortlisted': ['accepted', 'rejected', 'waitlisted', 'withdrawn'],
-        'accepted': [],  # terminal
-        'rejected': [],  # terminal
-        'waitlisted': ['accepted', 'rejected', 'withdrawn'],
-        'withdrawn': []  # terminal
-    }
-    
-    current_status = str(getattr(application, 'status', 'applied'))
-    allowed = valid_transitions.get(current_status, [])
-    
-    if status != current_status and status not in allowed:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid transition: {current_status} → {status}. Allowed: {', '.join(allowed) if allowed else 'none (terminal state)'}"
-        )
-    
-    old_status = getattr(application, 'status', 'applied')
-    application.status = status  # type: ignore
-    if college_notes:
-        application.college_notes = college_notes  # type: ignore
-    application.updated_at = dt.datetime.utcnow()  # type: ignore
-    
-    db.commit()
-    db.refresh(application)
-    
-    # Audit log
-    try:
-        audit = AuditLog(
-            action="college_application_status_update",
-            target_type="CollegeApplication",
-            target_id=application_id,
-            user_id=current_user.id,
-            details={
-                "old_status": old_status,
-                "new_status": status,
-                "notes": college_notes,
-                "college_id": college_record.id,
-                "applicant_id": application.applicant_id
-            }
-        )
-        db.add(audit)
-        db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to create audit log: {e}")
-    
-    logger.info(f"College {college_record.id} updated application {application_id}: {old_status} → {status}")
-    
-    app_updated = getattr(application, 'updated_at', None)
-    return {
-        "id": application.id,
-        "status": getattr(application, 'status'),
-        "college_notes": getattr(application, 'college_notes', None),
-        "updated_at": app_updated.isoformat() if app_updated else None,
-        "message": "Application status updated successfully"
-    }
-
-
 # ============================================================
 # VECTOR STORE & EMBEDDINGS ENDPOINTS
 # ============================================================
@@ -2622,6 +2168,196 @@ async def generate_embeddings(
         }
 
 
+@app.post("/api/embeddings/reindex/jobs")
+async def reindex_jobs_embeddings(
+    limit: int = Body(200),
+    offset: int = Body(0),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("admin")),
+):
+    """Queue async embedding refresh for approved jobs."""
+    from .db import Job
+    from .embedding_tasks import generate_job_embedding_task
+
+    safe_limit = max(1, min(limit, 1000))
+    jobs = db.query(Job).filter(Job.status == 'approved').order_by(Job.id.asc()).offset(offset).limit(safe_limit).all()
+
+    queued: List[Dict[str, Any]] = []
+    for job in jobs:
+        task_id = enqueue_embedding_task(generate_job_embedding_task, job.id)
+        queued.append({"job_id": job.id, "task_id": task_id})
+
+    return {
+        "status": "queued",
+        "count": len(queued),
+        "offset": offset,
+        "limit": safe_limit,
+        "items": queued,
+    }
+
+
+@app.post("/api/embeddings/reindex/applicants")
+async def reindex_applicant_embeddings(
+    limit: int = Body(200),
+    offset: int = Body(0),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("admin")),
+):
+    """Queue async embedding refresh for applicants with parsed records."""
+    from .db import Applicant
+    from .embedding_tasks import generate_resume_embedding_task
+
+    safe_limit = max(1, min(limit, 1000))
+    applicants = db.query(Applicant).join(
+        LLMParsedRecord, Applicant.id == LLMParsedRecord.applicant_id
+    ).order_by(Applicant.id.asc()).offset(offset).limit(safe_limit).all()
+
+    queued: List[Dict[str, Any]] = []
+    for applicant in applicants:
+        task_id = enqueue_embedding_task(generate_resume_embedding_task, applicant.id)
+        queued.append({"applicant_id": applicant.id, "task_id": task_id})
+
+    return {
+        "status": "queued",
+        "count": len(queued),
+        "offset": offset,
+        "limit": safe_limit,
+        "items": queued,
+    }
+
+
+@app.get("/api/embeddings/health")
+async def embedding_health(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("admin")),
+):
+    """Get embedding index coverage and queue configuration visibility."""
+    from .db import ApplicantEmbedding, JobEmbedding, Job
+
+    applicant_total = db.query(Applicant).count()
+    applicant_embedded = db.query(ApplicantEmbedding).count()
+    jobs_total = db.query(Job).filter(Job.status == 'approved').count()
+    jobs_embedded = db.query(JobEmbedding).count()
+
+    return {
+        "status": "ok",
+        "queue": {
+            "broker": settings.CELERY_BROKER_URL,
+            "result_backend": settings.CELERY_RESULT_BACKEND,
+            "default_queue": settings.CELERY_DEFAULT_QUEUE,
+            "embeddings_queue": settings.CELERY_EMBEDDINGS_QUEUE,
+        },
+        "coverage": {
+            "applicants_total": applicant_total,
+            "applicants_embedded": applicant_embedded,
+            "jobs_total": jobs_total,
+            "jobs_embedded": jobs_embedded,
+        },
+    }
+
+
+@app.get("/api/embeddings/task/{task_id}")
+async def embedding_task_status(
+    task_id: str,
+    current_user=Depends(require_role("admin")),
+):
+    """Check Celery task state for embedding jobs."""
+    import importlib
+    from .celery_app import celery_app
+
+    celery_result_module = importlib.import_module("celery.result")
+    AsyncResult = getattr(celery_result_module, "AsyncResult")
+    result = AsyncResult(task_id, app=celery_app)
+    return {
+        "task_id": task_id,
+        "state": result.state,
+        "ready": result.ready(),
+        "successful": result.successful() if result.ready() else None,
+        "result": result.result if result.ready() else None,
+    }
+
+
+@app.get("/api/applicant/{db_applicant_id}/pipeline-status")
+async def applicant_pipeline_status(
+    db_applicant_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Return parse/embedding/recommendation readiness for one applicant."""
+    from .db import ApplicantEmbedding
+
+    applicant = db.query(Applicant).filter(Applicant.id == db_applicant_id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+
+    is_admin = getattr(current_user, "role", None) == "admin"
+    owner_user_id = getattr(applicant, "user_id", None)
+    if not is_admin and owner_user_id != getattr(current_user, "id", None):
+        raise HTTPException(status_code=403, detail="Not authorized to view this applicant")
+
+    parsed = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == db_applicant_id).first()
+    embedding = db.query(ApplicantEmbedding).filter(ApplicantEmbedding.applicant_id == db_applicant_id).first()
+    rec_count = db.query(JobRecommendation).filter(JobRecommendation.applicant_id == db_applicant_id).count()
+
+    updated_at = None
+    embedding_updated_at = getattr(embedding, "updated_at", None) if embedding else None
+    parsed_updated_at = getattr(parsed, "updated_at", None) if parsed else None
+    if embedding_updated_at is not None:
+        updated_at = embedding_updated_at.isoformat()
+    elif parsed_updated_at is not None:
+        updated_at = parsed_updated_at.isoformat()
+
+    return {
+        "applicant_id": db_applicant_id,
+        "has_parsed_record": parsed is not None,
+        "has_embedding": embedding is not None,
+        "embedding_provider": getattr(embedding, "embedding_provider", None) if embedding else None,
+        "recommendations_count": rec_count,
+        "updated_at": updated_at,
+    }
+
+
+@app.get("/api/pipeline-status/{applicant_id}")
+async def applicant_pipeline_status_by_external_id(
+    applicant_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Return parse/embedding/recommendation readiness for external applicant_id."""
+    from .db import ApplicantEmbedding
+
+    applicant = db.query(Applicant).filter(Applicant.applicant_id == applicant_id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+
+    is_admin = getattr(current_user, "role", None) == "admin"
+    owner_user_id = getattr(applicant, "user_id", None)
+    if not is_admin and owner_user_id != getattr(current_user, "id", None):
+        raise HTTPException(status_code=403, detail="Not authorized to view this applicant")
+
+    parsed = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant.id).first()
+    embedding = db.query(ApplicantEmbedding).filter(ApplicantEmbedding.applicant_id == applicant.id).first()
+    rec_count = db.query(JobRecommendation).filter(JobRecommendation.applicant_id == applicant.id).count()
+
+    updated_at = None
+    embedding_updated_at = getattr(embedding, "updated_at", None) if embedding else None
+    parsed_updated_at = getattr(parsed, "updated_at", None) if parsed else None
+    if embedding_updated_at is not None:
+        updated_at = embedding_updated_at.isoformat()
+    elif parsed_updated_at is not None:
+        updated_at = parsed_updated_at.isoformat()
+
+    return {
+        "applicant_id": applicant_id,
+        "db_applicant_id": applicant.id,
+        "has_parsed_record": parsed is not None,
+        "has_embedding": embedding is not None,
+        "embedding_provider": getattr(embedding, "embedding_provider", None) if embedding else None,
+        "recommendations_count": rec_count,
+        "updated_at": updated_at,
+    }
+
+
 @app.post("/api/search/semantic")
 async def semantic_search(
     query: str = Body(...),
@@ -2637,8 +2373,8 @@ async def semantic_search(
     3. Return ranked results
     """
     
-    if entity_type not in ['job', 'college', 'applicant']:
-        raise HTTPException(status_code=400, detail="entity_type must be 'job', 'college', or 'applicant'")
+    if entity_type not in ['job', 'applicant']:
+        raise HTTPException(status_code=400, detail="entity_type must be 'job' or 'applicant'")
     
     logger.info(f"Semantic search: query='{query}', type={entity_type}, limit={limit}")
     
@@ -2660,24 +2396,6 @@ async def semantic_search(
                     "description": getattr(job, 'description', '')[:200] + "...",
                     "score": 0.85  # Mock similarity score
                 } for job in results
-            ]
-        }
-    elif entity_type == 'college':
-        results = db.query(College).filter(
-            (College.name.ilike(f"%{query}%")) | (College.description.ilike(f"%{query}%"))
-        ).limit(limit).all()
-        
-        return {
-            "status": "success",
-            "method": "text_fallback",
-            "message": "Using text search (vector store not configured)",
-            "results": [
-                {
-                    "id": college.id,
-                    "name": getattr(college, 'name'),
-                    "description": getattr(college, 'description', '')[:200] + "...",
-                    "score": 0.82
-                } for college in results
             ]
         }
     else:  # applicant
@@ -2779,50 +2497,8 @@ async def advanced_search(
             ]
         }
     
-    elif entity_type == 'college':
-        base_query = db.query(College)
-        
-        # Text search
-        if query:
-            search_pattern = f"%{query}%"
-            base_query = base_query.filter(
-                (College.name.ilike(search_pattern)) |
-                (College.description.ilike(search_pattern)) |
-                (College.location_city.ilike(search_pattern))
-            )
-        
-        # Apply filters
-        if filters:
-            if 'location' in filters:
-                base_query = base_query.filter(College.location_city.ilike(f"%{filters['location']}%"))
-            if 'state' in filters:
-                base_query = base_query.filter(College.location_state.ilike(f"%{filters['state']}%"))
-        
-        # Sorting
-        if sort_by == 'name':
-            base_query = base_query.order_by(College.name)
-        else:
-            base_query = base_query.order_by(desc(College.created_at))
-        
-        results = base_query.limit(limit).all()
-        
-        return {
-            "status": "success",
-            "count": len(results),
-            "results": [
-                {
-                    "id": college.id,
-                    "name": getattr(college, 'name'),
-                    "location_city": getattr(college, 'location_city'),
-                    "location_state": getattr(college, 'location_state'),
-                    "description": getattr(college, 'description', '')[:200] + "...",
-                    "website": getattr(college, 'website')
-                } for college in results
-            ]
-        }
-    
     else:
-        raise HTTPException(status_code=400, detail="Unsupported entity_type")
+        raise HTTPException(status_code=400, detail="Unsupported entity_type. Use 'job'.")
 
 
 # ============================================================
@@ -3002,184 +2678,6 @@ async def mark_as_reviewed(
         "status": "success",
         "message": "Marked as reviewed",
         "applicant_id": applicant_id
-    }
-
-
-@app.post("/api/applicant/{applicant_id}/generate-recommendations-old")
-def generate_recommendations(applicant_id: int, db: Session = Depends(get_db)):
-    """Generate college and job recommendations for an applicant"""
-    from .db import CollegeEligibility
-    import random
-    
-    # Check if applicant exists
-    applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail=API_MESSAGES['APPLICANT_NOT_FOUND'])
-    
-    # Get parsed data
-    llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
-    if not llm_record:
-        raise HTTPException(status_code=400, detail=API_MESSAGES['NO_PARSED_DATA'])
-    
-    parsed_data = llm_record.normalized
-    education = parsed_data.get('education', [])
-    skills = parsed_data.get('skills', [])
-    jee_rank = parsed_data.get('jee_rank')
-    
-    # Calculate applicant CGPA (use first education entry)
-    applicant_cgpa = None
-    if education and len(education) > 0:
-        first_edu = education[0]
-        if isinstance(first_edu, dict) and 'grade' in first_edu:
-            applicant_cgpa = first_edu.get('grade')
-    
-    # Pre-filter colleges by eligibility to improve performance
-    colleges = db.query(College, CollegeEligibility).outerjoin(
-        CollegeEligibility, College.id == CollegeEligibility.college_id
-    ).filter(
-        # Only include colleges where applicant meets basic requirements
-        (CollegeEligibility.min_cgpa.is_(None)) | (CollegeEligibility.min_cgpa <= applicant_cgpa if applicant_cgpa else True),
-        (CollegeEligibility.min_jee_rank.is_(None)) | (CollegeEligibility.min_jee_rank >= jee_rank if jee_rank else True)
-    ).all()
-    
-    college_recommendations = []
-    for college, eligibility in colleges:
-        if not eligibility:
-            continue
-        
-        score = 0.0
-        explain_parts = []
-        
-        # Check JEE rank eligibility
-        if eligibility.min_jee_rank and jee_rank:
-            if jee_rank <= eligibility.min_jee_rank:
-                score += RECOMMENDATION_WEIGHTS['JEE_RANK_SCORE']
-                explain_parts.append(f"JEE rank {jee_rank} meets cutoff")
-            else:
-                continue  # Skip if doesn't meet JEE requirement
-        
-        # Check CGPA eligibility
-        if eligibility.min_cgpa and applicant_cgpa:
-            if applicant_cgpa >= eligibility.min_cgpa:
-                score += RECOMMENDATION_WEIGHTS['CGPA_SCORE']
-                explain_parts.append(f"CGPA {applicant_cgpa} meets minimum")
-            else:
-                continue  # Skip if doesn't meet CGPA requirement
-        
-        # Skills match (simplified)
-        programs = db.query(CollegeProgram).filter(CollegeProgram.college_id == college.id).all()
-        if programs and skills:
-            skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
-            matched = 0
-            for program in programs:
-                if program.required_skills is not None:  # type: ignore
-                    for req_skill in program.required_skills:
-                        req_name = req_skill if isinstance(req_skill, str) else req_skill.get('name', '')
-                        # Improved skill matching: require word boundaries and minimum 3-char length
-                        if len(req_name) >= 3:
-                            import re
-                            pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
-                            if any(re.search(pattern, sn.lower()) for sn in skill_names):
-                                matched += 1
-                        else:
-                            # For short names, require exact match
-                            if any(req_name.lower() == sn.lower() for sn in skill_names):
-                                matched += 1
-            if matched > 0:
-                score += min(30.0, matched * 5)
-                explain_parts.append(f"{matched} skill(s) matched")
-        
-        if score > 0:
-            # Create recommendation
-            rec = CollegeApplicabilityLog(
-                applicant_id=applicant_id,
-                college_id=college.id,
-                recommend_score=score,
-                explain={"reasons": explain_parts, "match_details": "Auto-generated recommendation"},
-                status='recommended'
-            )
-            db.add(rec)
-            college_recommendations.append({
-                "college_name": college.name,
-                "score": score,
-                "reasons": explain_parts
-            })
-    
-    # Get all jobs
-    jobs = db.query(Job).all()
-    job_recommendations = []
-    
-    for job in jobs:
-        score = 0.0
-        breakdown: dict[str, float] = {"skill_score": 0.0, "academic_score": 0.0, "experience_score": 0.0}
-        explain_parts = []
-        
-        # Check CGPA requirement
-        if job.min_cgpa is not None and applicant_cgpa:  # type: ignore
-            if applicant_cgpa >= job.min_cgpa:
-                academic_score = RECOMMENDATION_WEIGHTS['ACADEMIC_SCORE']
-                breakdown["academic_score"] = academic_score
-                score += academic_score
-                explain_parts.append(f"CGPA {applicant_cgpa} meets requirement")
-            else:
-                continue  # Skip if doesn't meet requirement
-        
-        # Skills matching
-        if job.required_skills is not None and skills:  # type: ignore
-            skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
-            required = job.required_skills if isinstance(job.required_skills, list) else []
-            matched = 0
-            for req_skill in required:
-                req_name = req_skill.get('name', '') if isinstance(req_skill, dict) else str(req_skill)
-                # Improved skill matching for jobs
-                if len(req_name) >= 3:
-                    import re
-                    pattern = r'\b' + re.escape(req_name.lower()) + r'\b'
-                    if any(re.search(pattern, sn.lower()) for sn in skill_names):
-                        matched += 1
-                else:
-                    if any(req_name.lower() == sn.lower() for sn in skill_names):
-                        matched += 1
-
-            if matched > 0:
-                skill_score = min(50.0, (matched / max(len(required), 1)) * 50)
-                breakdown["skill_score"] = skill_score
-                score += skill_score
-                explain_parts.append(f"{matched}/{len(required)} required skills matched")
-        
-        # Experience (simplified - assume 0 years for students)
-        min_exp = float(job.min_experience_years) if job.min_experience_years is not None else 0.0  # type: ignore
-        experience_score = RECOMMENDATION_WEIGHTS['EXPERIENCE_SCORE'] if min_exp == 0 else 0.0
-        breakdown["experience_score"] = experience_score
-        score += experience_score
-        
-        if score >= RECOMMENDATION_WEIGHTS['MIN_JOB_RECOMMENDATION_SCORE']:  # Only recommend if score is decent
-            # Standardize explain format to match college recommendations (JSON)
-            rec = JobRecommendation(
-                applicant_id=applicant_id,
-                job_id=job.id,
-                score=score,
-                scoring_breakdown=breakdown,
-                explain={"reasons": explain_parts, "match_details": "Auto-generated recommendation", "breakdown": breakdown},
-                status='recommended'
-            )
-            db.add(rec)
-            employer = db.query(Employer).filter(Employer.id == job.employer_id).first()
-            job_recommendations.append({
-                "job_title": job.title,
-                "company": employer.company_name if employer else "Unknown",
-                "score": score,
-                "breakdown": breakdown
-            })
-    
-    db.commit()
-    
-    return {
-        "status": "success",
-        "college_recommendations_generated": len(college_recommendations),
-        "job_recommendations_generated": len(job_recommendations),
-        "college_recommendations": college_recommendations[:10],  # Top 10
-        "job_recommendations": job_recommendations[:10]  # Top 10
     }
 
 

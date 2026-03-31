@@ -2,8 +2,39 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../config/api'
 import LoadingButton from '../components/LoadingButton'
-import CreditWidget from '../components/CreditWidget'
-import { Clock, Brain, CheckCircle, XCircle, TrendingUp, Zap, AlertCircle } from 'lucide-react'
+import InterviewSidebarPanel from '../components/interview/InterviewSidebarPanel'
+import InterviewKpiStrip from '../components/interview/InterviewKpiStrip'
+import InterviewLearningPathCard from '../components/interview/InterviewLearningPathCard'
+import InterviewTipsPanel from '../components/interview/InterviewTipsPanel'
+import { ArrowRight, Clock, CheckCircle, TrendingUp, Zap, AlertCircle, Camera, BellOff, FileText } from 'lucide-react'
+
+const SESSION_TRACK_META = {
+  technical: {
+    title: 'Technical Track',
+    level: 'Advanced',
+    description: 'Data structures, coding rounds, and technical problem solving.'
+  },
+  hr: {
+    title: 'HR Communication',
+    level: 'Intermediate',
+    description: 'Communication clarity, role fit, and company expectation alignment.'
+  },
+  behavioral: {
+    title: 'Behavioral Masterclass',
+    level: 'Universal',
+    description: 'STAR format responses for leadership, conflict, and impact stories.'
+  },
+  mixed: {
+    title: 'Mixed Interview Prep',
+    level: 'Expert',
+    description: 'Balanced technical plus behavioral interview simulation rounds.'
+  }
+}
+
+const formatTrackName = (value) => {
+  if (!value) return 'mixed'
+  return String(value).toLowerCase()
+}
 
 const InterviewPage = () => {
   const navigate = useNavigate()
@@ -59,16 +90,29 @@ const InterviewPage = () => {
     }
   }
 
-  const startInterview = async () => {
+  const getSessionCost = (mode) => {
+    if (mode === 'micro') {
+      return credits?.costs?.micro_session || 1
+    }
+    return credits?.costs?.full_interview || 10
+  }
+
+  const canStartInMode = (mode) => {
+    if (!credits) return false
+    return credits.current_credits >= getSessionCost(mode)
+  }
+
+  const startInterview = async (overrides = {}) => {
     setLoading(true)
     try {
-      const skills = focusSkills ? focusSkills.split(',').map(s => s.trim()).filter(s => s) : null
+      const selectedFocusSkills = overrides.focusSkills ?? focusSkills
+      const skills = selectedFocusSkills ? selectedFocusSkills.split(',').map(s => s.trim()).filter(s => s) : null
 
       const response = await api.post('/api/interviews/start', {
-        session_type: sessionType,
-        difficulty_level: difficulty,
+        session_type: overrides.sessionType ?? sessionType,
+        difficulty_level: overrides.difficulty ?? difficulty,
         focus_skills: skills,
-        session_mode: sessionMode
+        session_mode: overrides.sessionMode ?? sessionMode
       })
 
       // Refresh credits after starting
@@ -84,10 +128,88 @@ const InterviewPage = () => {
     }
   }
 
+  const learningPathCards = React.useMemo(() => {
+    const sessions = history?.sessions || []
+    const grouped = sessions.reduce((acc, session) => {
+      const key = formatTrackName(session.session_type)
+      if (!acc[key]) {
+        acc[key] = {
+          total: 0,
+          completed: 0
+        }
+      }
+
+      acc[key].total += 1
+      if (session.status === 'completed') {
+        acc[key].completed += 1
+      }
+
+      return acc
+    }, {})
+
+    return Object.entries(grouped).map(([sessionKey, stats]) => {
+      const meta = SESSION_TRACK_META[sessionKey] || SESSION_TRACK_META.mixed
+      return {
+        id: `track-${sessionKey}`,
+        title: meta.title,
+        level: meta.level,
+        description: meta.description,
+        progress: stats.completed,
+        totalModules: stats.total,
+        sessionType: sessionKey
+      }
+    })
+  }, [history])
+
+  const dynamicTips = React.useMemo(() => {
+    const readiness = Math.round(history?.latest_score ?? history?.average_score ?? 0)
+    const creditsAvailable = credits?.current_credits ?? 0
+    const sessionsToday = history?.sessions_today ?? 0
+
+    return [
+      {
+        title: readiness < 50 ? 'Warm up with micro mode' : 'Push for full simulation',
+        description: readiness < 50
+          ? `Current readiness is ${readiness}%. Use a few short rounds before a full interview.`
+          : `Current readiness is ${readiness}%. You are ready for a full interview simulation.`,
+        icon: Camera
+      },
+      {
+        title: creditsAvailable <= 2 ? 'Watch credit usage' : 'Credits are healthy',
+        description: creditsAvailable <= 2
+          ? `Only ${creditsAvailable} credits remaining. Prioritize micro sessions until refill.`
+          : `${creditsAvailable} credits available. You can take full practice sessions today.`,
+        icon: BellOff
+      },
+      {
+        title: 'Daily consistency',
+        description: sessionsToday === 0
+          ? 'No sessions logged today yet. Start one quick run to keep momentum.'
+          : `${sessionsToday} session${sessionsToday > 1 ? 's' : ''} completed today. Keep your streak active.`,
+        icon: FileText
+      }
+    ]
+  }, [history, credits])
+
+  const handleStartFromPath = (selectedSessionType) => {
+    setSessionType(selectedSessionType)
+    setSessionMode('full')
+    startInterview({ sessionType: selectedSessionType, sessionMode: 'full' })
+  }
+
+  const handleViewCurriculum = (selectedSessionType) => {
+    setSessionType(selectedSessionType)
+    setSessionMode('full')
+    const startSection = document.getElementById('start-interview-section')
+    if (startSection) {
+      startSection.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+
   // Check eligibility when mode changes
   useEffect(() => {
     if (credits) {
-      const cost = sessionMode === 'full' ? credits.costs.full_interview : credits.costs.micro_session
+      const cost = getSessionCost(sessionMode)
       const canProceed = credits.current_credits >= cost
 
       let message = ''
@@ -116,270 +238,253 @@ const InterviewPage = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Mock Interview & Assessment</h1>
-        <p className="text-gray-600">Practice with AI-powered interviews to improve your skills and boost recommendations</p>
-      </div>
+    <div className="mx-auto max-w-[1500px] px-4 pb-8 pt-24 lg:px-6">
+      <div className="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)_300px]">
+        <InterviewSidebarPanel />
 
-      {/* Credit Widget */}
-      <div className="mb-8">
-        <CreditWidget />
-      </div>
-
-      {/* History Summary Card */}
-      {history && (
-        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg p-6 mb-8 text-white">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <div className="text-sm opacity-90">Total Sessions</div>
-              <div className="text-3xl font-bold">{history.total_sessions}</div>
-            </div>
-            <div>
-              <div className="text-sm opacity-90">Latest Score</div>
-              <div className="text-3xl font-bold">
-                {history.latest_score ? `${history.latest_score.toFixed(1)}%` : 'N/A'}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm opacity-90">Average Score</div>
-              <div className="text-3xl font-bold">
-                {history.average_score ? `${history.average_score.toFixed(1)}%` : 'N/A'}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm opacity-90">Today's Sessions</div>
-              <div className="text-3xl font-bold">{history.sessions_today}/2</div>
-            </div>
-          </div>
-
-          {history.needs_retake && (
-            <div className="mt-4 bg-white bg-opacity-20 rounded p-3">
-              <p className="text-sm">⚠️ Your last interview was over 6 months ago. Consider taking a new test to refresh your scores!</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Start New Interview */}
-      <div id="start-interview-section" className="bg-white rounded-lg shadow-md p-6 mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center">
-          <Brain className="mr-2 text-indigo-600" />
-          Start New Interview
-        </h2>
-
-        {eligibility && !eligibility.canProceed && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 flex items-start space-x-2">
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-red-800 font-semibold">Cannot start session</p>
-              <p className="text-red-700 text-sm">{eligibility.message}</p>
-            </div>
-          </div>
-        )}
-
-        {eligibility && eligibility.canProceed && eligibility.message && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 flex items-start space-x-2">
-            <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-yellow-800 font-semibold">Recommendation</p>
-              <p className="text-yellow-700 text-sm">{eligibility.message}</p>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {/* Session Mode Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Session Mode
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => setSessionMode('full')}
-                className={`p-4 rounded-lg border-2 transition-all ${sessionMode === 'full'
-                  ? 'border-indigo-600 bg-indigo-50'
-                  : 'border-gray-200 hover:border-gray-300'
-                  }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-gray-900">Full Interview</span>
-                  <div className="flex items-center text-indigo-600">
-                    <Zap className="w-4 h-4 mr-1" />
-                    <span className="text-sm font-bold">{credits?.costs.full_interview || 10}</span>
-                  </div>
+        <main className="space-y-6">
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="mb-3 inline-flex items-center rounded-full bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-600">
+                  Interview Readiness: {Math.round(history?.latest_score ?? history?.average_score ?? 0)}%
                 </div>
-                <p className="text-sm text-gray-600 text-left">~30 minutes • 7 MCQ + 3 Short Answer</p>
-              </button>
-              <button
-                onClick={() => setSessionMode('micro')}
-                className={`p-4 rounded-lg border-2 transition-all ${sessionMode === 'micro'
-                  ? 'border-indigo-600 bg-indigo-50'
-                  : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                <h1 className="text-4xl font-bold tracking-tight text-gray-900">Interview Preparation</h1>
+                <p className="mt-2 max-w-2xl text-gray-600">
+                  Practice your skills with AI-driven interview modules tailored to your current path and level.
+                </p>
+              </div>
+
+              <LoadingButton
+                onClick={() => startInterview({ sessionMode: 'micro' })}
+                loading={loading}
+                disabled={!canStartInMode('micro') || !history?.can_start_new}
+                icon={ArrowRight}
+                className="h-11 w-full md:w-auto md:min-w-52"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-gray-900">Micro Practice</span>
-                  <div className="flex items-center text-green-600">
-                    <Zap className="w-4 h-4 mr-1" />
-                    <span className="text-sm font-bold">{credits?.costs.micro_session || 1}</span>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 text-left">~5 minutes • 1 Quick Question</p>
-              </button>
+                Start Quick Practice
+              </LoadingButton>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Interview Type
-            </label>
-            <select
-              value={sessionType}
-              onChange={(e) => setSessionType(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              disabled={!history?.can_start_new}
-            >
-              <option value="technical">Technical Interview</option>
-              <option value="hr">HR Interview</option>
-              <option value="behavioral">Behavioral Interview</option>
-              <option value="mixed">Mixed Interview</option>
-            </select>
-          </div>
+          </section>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Difficulty Level
-            </label>
-            <select
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              disabled={!history?.can_start_new}
-            >
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </select>
-            {history?.average_score > 70 && (
-              <p className="mt-1 text-sm text-gray-500">
-                💡 Based on your performance, we recommend trying a harder level!
-              </p>
-            )}
-          </div>
+          <InterviewKpiStrip history={history} sessionMode={sessionMode} credits={credits} />
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Focus Skills (Optional)
-            </label>
-            <input
-              type="text"
-              value={focusSkills}
-              onChange={(e) => setFocusSkills(e.target.value)}
-              placeholder="e.g., Python, DSA, DBMS (comma-separated)"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              disabled={!history?.can_start_new}
-            />
-            <p className="mt-1 text-sm text-gray-500">
-              Leave empty to generate questions based on your resume skills
-            </p>
-          </div>
-
-          <div className="bg-blue-50 rounded-lg p-4 space-y-2">
-            <div className="flex items-center text-blue-800">
-              <Clock className="w-5 h-5 mr-2" />
-              <span className="text-sm font-medium">Session Details:</span>
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-gray-900">Learning Paths</h2>
+              <p className="text-sm text-gray-500">Filter by session focus</p>
             </div>
-            {sessionMode === 'full' ? (
-              <ul className="text-sm text-blue-700 space-y-1 ml-7">
-                <li>• Duration: ~30 minutes</li>
-                <li>• Questions: 7 MCQ + 3 Short Answer</li>
-                <li>• Instant AI feedback on each answer</li>
-                <li>• Comprehensive performance report</li>
-                <li>• Personalized learning path generated</li>
-              </ul>
+
+            {learningPathCards.length > 0 ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                {learningPathCards.map((mode) => (
+                  <InterviewLearningPathCard
+                    key={mode.id}
+                    title={mode.title}
+                    level={mode.level}
+                    description={mode.description}
+                    progress={mode.progress}
+                    totalModules={mode.totalModules}
+                    sessionType={mode.sessionType}
+                    onStart={handleStartFromPath}
+                    onCurriculum={handleViewCurriculum}
+                    loading={loading}
+                  />
+                ))}
+              </div>
             ) : (
-              <ul className="text-sm text-blue-700 space-y-1 ml-7">
-                <li>• Duration: ~5 minutes</li>
-                <li>• Questions: 1 quick question</li>
-                <li>• Instant AI feedback</li>
-                <li>• Perfect for daily practice</li>
-                <li>• Build confidence incrementally</li>
-              </ul>
+              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-600">
+                Learning paths appear automatically after your first interview session is recorded.
+              </div>
             )}
-          </div>
+          </section>
 
-          <LoadingButton
-            onClick={startInterview}
-            loading={loading}
-            disabled={!eligibility?.canProceed}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-medium transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-          >
-            <span>Start {sessionMode === 'full' ? 'Full Interview' : 'Micro Practice'}</span>
-            <div className="flex items-center">
-              <Zap className="w-4 h-4 ml-2" />
-              <span className="text-sm">
-                {sessionMode === 'full' ? credits?.costs.full_interview || 10 : credits?.costs.micro_session || 1}
-              </span>
+          <section id="start-interview-section" className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-semibold text-gray-900">Interview Configuration</h2>
+
+            {eligibility && !eligibility.canProceed && (
+              <div className="mt-4 flex items-start space-x-2 rounded-lg border border-red-200 bg-red-50 p-4">
+                <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+                <div>
+                  <p className="font-semibold text-red-800">Cannot start session</p>
+                  <p className="text-sm text-red-700">{eligibility.message}</p>
+                </div>
+              </div>
+            )}
+
+            {eligibility && eligibility.canProceed && eligibility.message && (
+              <div className="mt-4 flex items-start space-x-2 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+                <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600" />
+                <div>
+                  <p className="font-semibold text-yellow-800">Recommendation</p>
+                  <p className="text-sm text-yellow-700">{eligibility.message}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Session Mode</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSessionMode('full')}
+                    className={`flex h-24 flex-col justify-center rounded-lg border-2 p-4 text-left transition-all ${
+                      sessionMode === 'full' ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="font-semibold leading-none text-gray-900">Full Interview</p>
+                    <p className="mt-1 text-xs text-gray-600">~30 minutes</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSessionMode('micro')}
+                    className={`flex h-24 flex-col justify-center rounded-lg border-2 p-4 text-left transition-all ${
+                      sessionMode === 'micro' ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="font-semibold leading-none text-gray-900">Micro Practice</p>
+                    <p className="mt-1 text-xs text-gray-600">~5 minutes</p>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Interview Type</label>
+                <select
+                  value={sessionType}
+                  onChange={(e) => setSessionType(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
+                  disabled={!history?.can_start_new}
+                >
+                  <option value="technical">Technical Interview</option>
+                  <option value="hr">HR Interview</option>
+                  <option value="behavioral">Behavioral Interview</option>
+                  <option value="mixed">Mixed Interview</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Difficulty Level</label>
+                <select
+                  value={difficulty}
+                  onChange={(e) => setDifficulty(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
+                  disabled={!history?.can_start_new}
+                >
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Focus Skills (Optional)</label>
+                <input
+                  type="text"
+                  value={focusSkills}
+                  onChange={(e) => setFocusSkills(e.target.value)}
+                  placeholder="Python, DSA, DBMS"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-primary-500 focus:ring-2 focus:ring-primary-500"
+                  disabled={!history?.can_start_new}
+                />
+              </div>
             </div>
-          </LoadingButton>
-        </div>
-      </div>
 
-      {/* Recent Sessions */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center">
-          <TrendingUp className="mr-2 text-indigo-600" />
-          Recent Sessions
-        </h2>
+            <div className="mt-4 rounded-lg bg-blue-50 p-4 text-sm text-blue-800">
+              <p className="flex items-center font-medium">
+                <Clock className="mr-2 h-4 w-4" />
+                Session details for {sessionMode === 'full' ? 'full interview' : 'micro practice'}
+              </p>
+              <p className="mt-1 text-blue-700">
+                {sessionMode === 'full'
+                  ? 'Includes a complete mixed question round with detailed score breakdown and recommendations.'
+                  : 'Includes one focused question with immediate AI feedback to support daily consistency.'}
+              </p>
+            </div>
 
-        {loadingHistory ? (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          </div>
-        ) : history?.sessions?.length > 0 ? (
-          <div className="space-y-4">
-            {history.sessions.slice(0, 5).map((session) => (
-              <div
-                key={session.id}
-                className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate(`/dashboard/interview/results/${session.id}`)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center mb-2">
-                      <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-sm rounded-full">
-                        {session.session_type}
-                      </span>
-                      <span className="ml-2 px-3 py-1 bg-gray-100 text-gray-800 text-sm rounded-full">
-                        {session.difficulty_level}
-                      </span>
-                      {session.status === 'completed' ? (
-                        <CheckCircle className="ml-2 w-5 h-5 text-green-600" />
-                      ) : (
-                        <Clock className="ml-2 w-5 h-5 text-yellow-600" />
+            <LoadingButton
+              onClick={() => startInterview()}
+              loading={loading}
+              disabled={!eligibility?.canProceed || !history?.can_start_new}
+              icon={Zap}
+              className="mt-5 h-11 w-full"
+            >
+              Start {sessionMode === 'full' ? 'Full Interview' : 'Micro Practice'} ({getSessionCost(sessionMode)} credits)
+            </LoadingButton>
+          </section>
+
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-4 flex items-center text-2xl font-semibold text-gray-900">
+              <TrendingUp className="mr-2 h-6 w-6 text-primary-500" />
+              Recent Sessions
+            </h2>
+
+            {loadingHistory ? (
+              <div className="py-8 text-center">
+                <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary-500"></div>
+              </div>
+            ) : history?.sessions?.length > 0 ? (
+              <div className="space-y-4">
+                {history.sessions.slice(0, 5).map((session) => (
+                  <div
+                    key={session.id}
+                    className="cursor-pointer rounded-lg border border-gray-200 p-4 transition-shadow hover:shadow-md"
+                    onClick={() => navigate(`/dashboard/interview/results/${session.id}`)}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="mb-2 flex items-center">
+                          <span className="rounded-full bg-primary-50 px-3 py-1 text-sm text-primary-700">{session.session_type}</span>
+                          <span className="ml-2 rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{session.difficulty_level}</span>
+                          {session.status === 'completed' ? (
+                            <CheckCircle className="ml-2 h-5 w-5 text-green-600" />
+                          ) : (
+                            <Clock className="ml-2 h-5 w-5 text-yellow-600" />
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {new Date(session.started_at).toLocaleDateString()} at {new Date(session.started_at).toLocaleTimeString()}
+                        </div>
+                      </div>
+
+                      {session.overall_score !== null && (
+                        <div className={`rounded-lg px-4 py-2 text-right ${getScoreBg(session.overall_score)}`}>
+                          <div className={`text-2xl font-bold ${getScoreColor(session.overall_score)}`}>
+                            {session.overall_score.toFixed(1)}%
+                          </div>
+                          <div className="text-xs text-gray-600">Overall Score</div>
+                        </div>
                       )}
                     </div>
-                    <div className="text-sm text-gray-600">
-                      {new Date(session.started_at).toLocaleDateString()} at {new Date(session.started_at).toLocaleTimeString()}
-                    </div>
                   </div>
-                  {session.overall_score !== null && (
-                    <div className={`text-right ${getScoreBg(session.overall_score)} px-4 py-2 rounded-lg`}>
-                      <div className={`text-2xl font-bold ${getScoreColor(session.overall_score)}`}>
-                        {session.overall_score.toFixed(1)}%
-                      </div>
-                      <div className="text-xs text-gray-600">Overall Score</div>
-                    </div>
-                  )}
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            <p>No interview sessions yet. Start your first interview above!</p>
-          </div>
-        )}
+            ) : (
+              <div className="py-8 text-center text-gray-500">
+                <p>No interview sessions yet. Start your first interview above.</p>
+              </div>
+            )}
+          </section>
+
+          <footer className="rounded-2xl border border-gray-200 bg-gray-50 px-6 py-4 text-sm text-gray-500">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="font-semibold text-primary-600">Career Guide</p>
+              <div className="flex flex-wrap gap-4">
+                <button type="button" className="transition-colors hover:text-primary-600">Privacy Policy</button>
+                <button type="button" className="transition-colors hover:text-primary-600">Terms of Service</button>
+                <button type="button" className="transition-colors hover:text-primary-600">Contact Support</button>
+              </div>
+            </div>
+          </footer>
+        </main>
+
+        <InterviewTipsPanel
+          onStartQuickPractice={() => startInterview({ sessionMode: 'micro' })}
+          loading={loading || !canStartInMode('micro') || !history?.can_start_new}
+          tipsData={dynamicTips}
+        />
       </div>
     </div>
   )

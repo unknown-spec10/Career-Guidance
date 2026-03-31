@@ -4,6 +4,7 @@ Used for all environments. Persists data across restarts.
 """
 
 from typing import List, Optional, Dict, Any
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from datetime import datetime
 import logging
@@ -166,56 +167,6 @@ class PGApplicantRepository:
             'location_city': applicant.location_city,
         }
 
-
-class PGCollegeRepository:
-    """PostgreSQL College repository"""
-
-    def __init__(self, session: Session):
-        self.session = session
-
-    async def list_all(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """List colleges"""
-        from resume_pipeline.db import College
-
-        colleges = self.session.query(College).limit(limit).offset(offset).all()
-        return [self._to_dict(c) for c in colleges]
-
-    async def get_by_id(self, college_id: int) -> Optional[Dict[str, Any]]:
-        """Get college by ID"""
-        from resume_pipeline.db import College
-
-        college = self.session.query(College).filter(College.id == college_id).first()
-        if not college:
-            return None
-
-        return self._to_dict(college)
-
-    async def search_by_eligibility(self, jee_rank: int, cgpa: float, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search colleges by eligibility"""
-        from resume_pipeline.db import College
-
-        colleges = self.session.query(College).limit(limit).all()
-        return [self._to_dict(c) for c in colleges]
-
-    async def create(self, name: str, location: str, min_jee: int, min_cgpa: float, programs: List[Dict]) -> Dict[str, Any]:
-        """Create college"""
-        from resume_pipeline.db import College
-
-        college = College(name=name, location_city=location)
-        self.session.add(college)
-        self.session.commit()
-
-        return self._to_dict(college)
-
-    @staticmethod
-    def _to_dict(college):
-        return {
-            'id': college.id,
-            'name': college.name,
-            'location_city': college.location_city,
-        }
-
-
 class PGJobRepository:
     """PostgreSQL Job repository"""
 
@@ -228,7 +179,12 @@ class PGJobRepository:
 
         query = self.session.query(Job).filter(Job.status == 'approved')
         if location:
-            query = query.filter(Job.location == location)
+            query = query.filter(
+                or_(
+                    Job.location_city.ilike(f"%{location}%"),
+                    Job.location_state.ilike(f"%{location}%")
+                )
+            )
 
         jobs = query.limit(limit).all()
         return [self._to_dict(j) for j in jobs]
@@ -244,10 +200,23 @@ class PGJobRepository:
         return self._to_dict(job)
 
     async def create(self, title: str, company: str, location: str, skills: List[str], salary_min: float, salary_max: float) -> Dict[str, Any]:
-        """Create job"""
+        """Create job.
+
+        This repository helper is currently not used by active routes.
+        """
         from resume_pipeline.db import Job
 
-        job = Job(title=title, company=company, location=location)
+        location_parts = [part.strip() for part in location.split(',', 1)] if location else []
+        location_city = location_parts[0] if location_parts else ''
+        location_state = location_parts[1] if len(location_parts) > 1 else ''
+        job = Job(
+            employer_id=1,
+            title=title,
+            description='',
+            location_city=location_city,
+            location_state=location_state,
+            required_skills=skills,
+        )
         self.session.add(job)
         self.session.commit()
 
@@ -258,56 +227,16 @@ class PGJobRepository:
         return {
             'id': job.id,
             'title': job.title,
-            'company': job.company,
-            'location': job.location,
+            'company': job.employer.company_name if getattr(job, 'employer', None) else None,
+            'location': ', '.join(part for part in [job.location_city, job.location_state] if part),
         }
 
 
 class PGRecommendationRepository:
-    """PostgreSQL Recommendation repository"""
+    """PostgreSQL job recommendation repository"""
 
     def __init__(self, session: Session):
         self.session = session
-
-    async def save_college_recommendation(self, applicant_id: int, college_id: int, score: float, reason: str) -> int:
-        """Save college recommendation"""
-        from resume_pipeline.db import CollegeApplicabilityLog
-
-        rec = CollegeApplicabilityLog(
-            applicant_id=applicant_id,
-            college_id=college_id,
-            recommend_score=score,
-            explain={'reason': reason},
-        )
-        self.session.add(rec)
-        self.session.commit()
-
-        logger.info(f"✅ College recommendation saved: applicant {applicant_id} → college {college_id} ({score})")
-
-        return rec.id
-
-    async def get_college_recommendations(self, applicant_id: int, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get college recommendations"""
-        from resume_pipeline.db import CollegeApplicabilityLog
-
-        recs = self.session.query(CollegeApplicabilityLog).filter(
-            CollegeApplicabilityLog.applicant_id == applicant_id
-        ).order_by(CollegeApplicabilityLog.recommend_score.desc()).limit(limit).all()
-
-        return [self._to_dict(r) for r in recs]
-
-    async def update_college_recommendation_status(self, rec_id: int, status: str) -> bool:
-        """Update college recommendation status"""
-        from resume_pipeline.db import CollegeApplicabilityLog
-
-        rec = self.session.query(CollegeApplicabilityLog).filter(CollegeApplicabilityLog.id == rec_id).first()
-        if not rec:
-            return False
-
-        rec.status = status
-        self.session.commit()
-
-        return True
 
     async def save_job_recommendation(self, applicant_id: int, job_id: int, score: float, reason: str) -> int:
         """Save job recommendation"""
@@ -351,8 +280,6 @@ class PGRecommendationRepository:
 
     @staticmethod
     def _to_dict(rec):
-        # CollegeApplicabilityLog uses recommend_score + explain JSON
-        # JobRecommendation uses score + explain JSON
         score = getattr(rec, 'score', None) or getattr(rec, 'recommend_score', None)
         explain = getattr(rec, 'explain', None) or {}
         reason = explain.get('reason', '') if isinstance(explain, dict) else ''

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Lock, KeyRound, AlertTriangle, CheckCircle, ArrowLeft } from 'lucide-react'
+import { Lock, KeyRound, AlertTriangle, CheckCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
@@ -17,6 +17,8 @@ export default function ResetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -143,16 +145,23 @@ export default function ResetPasswordPage() {
                     <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
                     <input
                       id="newPassword"
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="••••••••"
                       required
                       minLength={8}
-                      className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg 
+                      className="w-full pl-10 pr-10 py-3 bg-white border border-gray-300 rounded-lg 
                                text-gray-900 placeholder-gray-500 focus:outline-none focus:border-primary-500 
                                focus:ring-1 focus:ring-primary-500 transition-colors\"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
                     Must be at least 8 characters
@@ -168,16 +177,23 @@ export default function ResetPasswordPage() {
                     <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
                     <input
                       id="confirmPassword"
-                      type="password"
+                      type={showConfirmPassword ? "text" : "password"}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="••••••••"
                       required
                       minLength={8}
-                      className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg 
+                      className="w-full pl-10 pr-10 py-3 bg-white border border-gray-300 rounded-lg 
                                text-gray-900 placeholder-gray-500 focus:outline-none focus:border-primary-500 
                                focus:ring-1 focus:ring-primary-500 transition-colors\"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                 </div>
 

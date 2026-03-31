@@ -24,12 +24,6 @@ class DatabaseFactory:
         return PGApplicantRepository
 
     @classmethod
-    def get_college_repository(cls):
-        """Get college repository"""
-        from .pg_impl import PGCollegeRepository
-        return PGCollegeRepository
-
-    @classmethod
     def get_job_repository(cls):
         """Get job repository"""
         from .pg_impl import PGJobRepository

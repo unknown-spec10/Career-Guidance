@@ -57,7 +57,7 @@ class GeminiRAGClient:
     Uses the same Gemini API as the resume parser.
     """
     
-    MODEL = "gemini-2.5-flash"  # Latest fast model for Q&A
+    MODEL = settings.GEMINI_SMALL_MODEL  # Reuse configured default model
     
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.GEMINI_API_KEY

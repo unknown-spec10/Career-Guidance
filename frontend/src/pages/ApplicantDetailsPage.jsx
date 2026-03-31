@@ -36,14 +36,14 @@ export default function ApplicantDetailsPage() {
         setRecommendations(recsRes.data)
       } else {
         console.warn('No DB ID found, skipping recommendations')
-        setRecommendations({ college_recommendations: [], job_recommendations: [] })
+        setRecommendations({ job_recommendations: [] })
       }
     } catch (error) {
       console.error('Error fetching applicant data:', error)
       console.error('Error details:', error.response?.data || error.message)
       // Set null data to trigger error UI
       setData(null)
-      setRecommendations({ college_recommendations: [], job_recommendations: [] })
+      setRecommendations({ job_recommendations: [] })
     } finally {
       setLoading(false)
     }
@@ -228,61 +228,11 @@ export default function ApplicantDetailsPage() {
                 {recalcLoading ? 'Recomputing...' : 'Re-run Recommendations'}
               </button>
             </div>
-            {/* College Recommendations */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="card"
-            >
-              <div className="flex items-center space-x-2 mb-4">
-                <GraduationCap className="w-6 h-6 text-primary-400" />
-                <h2 className="text-2xl font-semibold">College Recommendations</h2>
-              </div>
-              <div className="space-y-4">
-                {recommendations?.college_recommendations?.map((rec) => (
-                  <Link
-                    key={rec.id}
-                    to={`/college/${rec.college.id}`}
-                    className="block p-4 bg-white hover:bg-gray-50 rounded-lg border border-gray-200 hover:border-primary-500/50 transition-all duration-300"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="font-semibold text-lg">{rec.college.name}</h3>
-                        <p className="text-sm text-gray-600">
-                          {rec.college.location_city}, {rec.college.location_state}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center space-x-1">
-                          <TrendingUp className="w-4 h-4 text-primary-400" />
-                          <span className="text-xl font-bold text-primary-400">
-                            {(rec.match_score ?? rec.recommend_score ?? 0).toFixed(1)}%
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500">Match Score</p>
-                      </div>
-                    </div>
-                    {rec.explain && (
-                      <p className="text-sm text-gray-600 mt-2">
-                        {Array.isArray(rec.explain.reasons) 
-                          ? rec.explain.reasons.join(', ') 
-                          : rec.explain.reasoning || rec.explain.match_details || 'Good match based on profile'}
-                      </p>
-                    )}
-                  </Link>
-                ))}
-                {recommendations?.college_recommendations?.length === 0 && (
-                  <p className="text-gray-600 text-center py-4">No college recommendations yet</p>
-                )}
-              </div>
-            </motion.div>
-
             {/* Job Recommendations */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
+              transition={{ delay: 0.3 }}
               className="card"
             >
               <div className="flex items-center space-x-2 mb-4">

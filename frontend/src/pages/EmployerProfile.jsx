@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { User, Mail, Lock, Building2, MapPin, Phone, Globe, Calendar, Save, AlertTriangle, CheckCircle, Edit2, X, Briefcase } from 'lucide-react'
+import { User, Mail, Lock, Building2, MapPin, Phone, Globe, Calendar, Save, AlertTriangle, CheckCircle, Edit2, X, Briefcase, Eye, EyeOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -29,6 +29,10 @@ export default function EmployerProfile() {
     new_password: '',
     confirm_password: ''
   })
+
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   useEffect(() => {
     fetchProfile()
@@ -348,36 +352,63 @@ export default function EmployerProfile() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">Current Password</label>
-                      <input
-                        type="password"
-                        value={formData.current_password}
-                        onChange={(e) => setFormData({ ...formData, current_password: e.target.value })}
-                        className="input w-full"
-                        placeholder="Enter current password"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showCurrentPassword ? "text" : "password"}
+                          value={formData.current_password}
+                          onChange={(e) => setFormData({ ...formData, current_password: e.target.value })}
+                          className="input w-full pr-10"
+                          placeholder="Enter current password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                        >
+                          {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium mb-2">New Password</label>
-                        <input
-                          type="password"
-                          value={formData.new_password}
-                          onChange={(e) => setFormData({ ...formData, new_password: e.target.value })}
-                          className="input w-full"
-                          placeholder="Min 8 characters"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showNewPassword ? "text" : "password"}
+                            value={formData.new_password}
+                            onChange={(e) => setFormData({ ...formData, new_password: e.target.value })}
+                            className="input w-full pr-10"
+                            placeholder="Min 8 characters"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewPassword(!showNewPassword)}
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                          >
+                            {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                          </button>
+                        </div>
                       </div>
 
                       <div>
                         <label className="block text-sm font-medium mb-2">Confirm New Password</label>
-                        <input
-                          type="password"
-                          value={formData.confirm_password}
-                          onChange={(e) => setFormData({ ...formData, confirm_password: e.target.value })}
-                          className="input w-full"
-                          placeholder="Confirm password"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showConfirmPassword ? "text" : "password"}
+                            value={formData.confirm_password}
+                            onChange={(e) => setFormData({ ...formData, confirm_password: e.target.value })}
+                            className="input w-full pr-10"
+                            placeholder="Confirm password"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                          >
+                            {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

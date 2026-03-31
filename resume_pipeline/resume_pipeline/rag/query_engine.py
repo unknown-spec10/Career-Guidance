@@ -72,11 +72,11 @@ class QueryEngine:
     # App-related keywords for relevance detection
     APP_KEYWORDS = {
         # Core features
-        'resume', 'career', 'guidance', 'college', 'recommendation', 'job',
+        'resume', 'career', 'guidance', 'recommendation', 'job',
         'applicant', 'profile', 'skills', 'interview', 'credit', 'parse',
         
         # Technical
-        'api', 'endpoint', 'database', 'mysql', 'firestore', 'backend',
+        'api', 'endpoint', 'database', 'postgresql', 'backend',
         'frontend', 'react', 'fastapi', 'python', 'deploy', 'cloud',
         'authentication', 'login', 'register', 'token', 'jwt',
         

@@ -2,24 +2,23 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { 
-  Shield, Briefcase, Building2, CheckCircle, XCircle, 
+  Shield, Briefcase, CheckCircle, XCircle, 
   Clock, AlertTriangle, TrendingUp, LogOut, ArrowLeft 
 } from 'lucide-react'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import secureStorage from '../utils/secureStorage'
 
 export default function AdminReviewsPage() {
   const navigate = useNavigate()
   const toast = useToast()
   const [stats, setStats] = useState({
     pendingJobs: 0,
-    pendingPrograms: 0,
     totalPending: 0
   })
   const [pendingJobs, setPendingJobs] = useState([])
-  const [pendingPrograms, setPendingPrograms] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
@@ -39,12 +38,11 @@ export default function AdminReviewsPage() {
       setLoading(true)
       const response = await api.get('/api/admin/pending-reviews')
       
-      setPendingJobs(response.data.pending_jobs)
-      setPendingPrograms(response.data.pending_programs)
+      const jobs = response.data.pending_jobs || []
+      setPendingJobs(jobs)
       setStats({
-        pendingJobs: response.data.pending_jobs.length,
-        pendingPrograms: response.data.pending_programs.length,
-        totalPending: response.data.total_pending
+        pendingJobs: jobs.length,
+        totalPending: response.data.total_pending ?? jobs.length
       })
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load pending reviews')
@@ -67,29 +65,6 @@ export default function AdminReviewsPage() {
       }))
       
       toast.success(`Job ${action === 'approve' ? 'approved' : 'rejected'} successfully`)
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Action failed')
-      // Reload on error to restore accurate state
-      await fetchPendingReviews()
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleProgramReview = async (programId, action, reason = '') => {
-    try {
-      setActionLoading(`program-${programId}`)
-      await api.patch(`/api/admin/programs/${programId}/review`, { action, reason })
-      
-      // Optimistic update: remove from pending list
-      setPendingPrograms(prev => prev.filter(p => p.id !== programId))
-      setStats(prev => ({
-        ...prev,
-        pendingPrograms: Math.max(0, prev.pendingPrograms - 1),
-        totalPending: Math.max(0, prev.totalPending - 1)
-      }))
-      
-      toast.success(`Program ${action === 'approve' ? 'approved' : 'rejected'} successfully`)
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Action failed')
       // Reload on error to restore accurate state
@@ -142,7 +117,7 @@ export default function AdminReviewsPage() {
               <Shield className="w-8 h-8 text-yellow-400" />
               <h1 className="text-3xl md:text-4xl font-bold">Pending Reviews</h1>
             </div>
-            <p className="text-gray-600">Review and approve pending job postings and college programs</p>
+            <p className="text-gray-600">Review and approve pending job postings</p>
           </div>
           <button
             onClick={handleLogout}
@@ -154,7 +129,7 @@ export default function AdminReviewsPage() {
         </motion.div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -178,21 +153,6 @@ export default function AdminReviewsPage() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400 mb-1">Pending Programs</p>
-                <p className="text-3xl font-bold text-yellow-400">{stats.pendingPrograms}</p>
-              </div>
-              <Building2 className="w-10 h-10 text-yellow-400 opacity-50" />
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 3 }}
-            className="card"
-          >
-            <div className="flex items-center justify-between">
-              <div>
                 <p className="text-sm text-gray-400 mb-1">Total Pending</p>
                 <p className="text-3xl font-bold text-primary-400">{stats.totalPending}</p>
               </div>
@@ -201,7 +161,7 @@ export default function AdminReviewsPage() {
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-8">
           {/* Pending Jobs */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -259,62 +219,6 @@ export default function AdminReviewsPage() {
             )}
           </motion.div>
 
-          {/* Pending Programs */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 5 }}
-            className="card"
-          >
-            <h2 className="text-xl font-semibold mb-4 flex items-center space-x-2">
-              <Building2 className="w-6 h-6 text-primary-400" />
-              <span>Pending College Programs</span>
-            </h2>
-            {pendingPrograms.length === 0 ? (
-              <div className="text-center py-8">
-                <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
-                <p className="text-gray-600">No pending programs</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {pendingPrograms.map((program) => (
-                  <div key={program.id} className="p-4 bg-white rounded-lg border border-gray-200">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h3 className="font-semibold mb-1">{program.program_name}</h3>
-                        <p className="text-sm text-gray-600">{program.college}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Posted: {new Date(program.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Clock className="w-5 h-5 text-yellow-400" />
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleProgramReview(program.id, 'approve')}
-                        disabled={actionLoading === `program-${program.id}`}
-                        className="flex-1 px-3 py-2 bg-green-900/20 border border-green-500/30 rounded hover:bg-green-900/30 transition-colors flex items-center justify-center space-x-1 text-sm text-green-400"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                        <span>Approve</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          const reason = prompt('Rejection reason (optional):')
-                          if (reason !== null) handleProgramReview(program.id, 'reject', reason)
-                        }}
-                        disabled={actionLoading === `program-${program.id}`}
-                        className="flex-1 px-3 py-2 bg-red-900/20 border border-red-500/30 rounded hover:bg-red-900/30 transition-colors flex items-center justify-center space-x-1 text-sm text-red-400"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        <span>Reject</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
         </div>
       </div>
     </div>

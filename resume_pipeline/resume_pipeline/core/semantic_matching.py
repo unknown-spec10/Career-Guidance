@@ -10,6 +10,9 @@ from typing import Tuple, List, Optional, Dict
 from pathlib import Path
 import numpy as np
 
+from ..config import settings
+from .embedding_client import GoogleEmbeddingClient
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -17,7 +20,7 @@ try:
     EMBEDDING_AVAILABLE = True
 except ImportError:
     EMBEDDING_AVAILABLE = False
-    logger.warning("sentence-transformers not available; semantic matching disabled")
+    logger.warning("sentence-transformers not available; MiniLM fallback disabled")
 
 
 class SemanticMatcher:
@@ -43,22 +46,35 @@ class SemanticMatcher:
     def __init__(self):
         if self._initialized:
             return
-        
-        if not EMBEDDING_AVAILABLE:
-            logger.error("Semantic matching disabled: sentence-transformers not installed")
-            self.enabled = False
+
+        self.google_client = GoogleEmbeddingClient()
+        self.local_model_available = EMBEDDING_AVAILABLE
+        self.enabled = bool(self.google_client.is_available() or self.local_model_available)
+
+        if not self.enabled:
+            logger.error("Semantic matching disabled: neither Google embeddings nor MiniLM fallback is available")
             return
-        
-        self.enabled = True
+
         self.model = None  # Lazy load
         self.taxonomy = {}
         self.metadata = {}
         self.canonical_embeddings = {}
         self.embedding_cache = {}  # Cache user inputs
+        self.text_embedding_cache = {}  # Cache free-form text embeddings
+        self.last_embedding_provider = "unknown"
         
         self._load_taxonomy()
         self._initialized = True
         logger.info("SemanticMatcher initialized")
+
+    def _cache_text_embedding(self, key: str, value: np.ndarray):
+        max_items = max(100, int(settings.EMBEDDING_CACHE_MAX_ITEMS))
+        if len(self.text_embedding_cache) >= max_items:
+            # FIFO eviction based on insertion order
+            first_key = next(iter(self.text_embedding_cache), None)
+            if first_key is not None:
+                self.text_embedding_cache.pop(first_key, None)
+        self.text_embedding_cache[key] = value
     
     def _load_taxonomy(self):
         """Load skill taxonomy from JSON files"""
@@ -78,8 +94,7 @@ class SemanticMatcher:
                     break
             
             if not taxonomy_path:
-                logger.error("skill_taxonomy.json not found")
-                self.enabled = False
+                logger.warning("skill_taxonomy.json not found; canonical mapping will be limited")
                 return
             
             with open(taxonomy_path, 'r') as f:
@@ -95,17 +110,19 @@ class SemanticMatcher:
         
         except Exception as e:
             logger.error(f"Error loading taxonomy: {e}")
-            self.enabled = False
     
     def _ensure_model(self):
         """Lazy load embedding model on first use"""
+        if not self.local_model_available:
+            raise RuntimeError("MiniLM fallback is not available")
+
         if self.model is None:
             try:
                 self.model = SentenceTransformer("all-MiniLM-L6-v2")
                 logger.info("Loaded embedding model: all-MiniLM-L6-v2")
             except Exception as e:
                 logger.error(f"Failed to load embedding model: {e}")
-                self.enabled = False
+                self.local_model_available = False
                 raise
     
     def _precompute_embeddings(self):
@@ -113,12 +130,12 @@ class SemanticMatcher:
         if self.canonical_embeddings:
             return  # Already computed
         
-        if not self.enabled:
+        if not self.enabled or not self.local_model_available:
             return
         
         try:
             self._ensure_model()
-            if not self.enabled or self.model is None:
+            if self.model is None:
                 return
             
             for skill_name in self.taxonomy.keys():
@@ -129,7 +146,6 @@ class SemanticMatcher:
         
         except Exception as e:
             logger.error(f"Error pre-computing embeddings: {e}")
-            self.enabled = False
     
     def find_canonical_skill(
         self, 
@@ -146,12 +162,12 @@ class SemanticMatcher:
         Returns:
             (canonical_skill_name, confidence_score) or (None, 0.0) if no match
         """
-        if not self.enabled or not user_skill:
+        if not self.enabled or not user_skill or not self.local_model_available:
             return None, 0.0
 
         # Ensure model is loaded
         self._ensure_model()
-        if not self.enabled or self.model is None:
+        if self.model is None:
             return None, 0.0
         
         user_skill_lower = user_skill.lower().strip()
@@ -164,7 +180,7 @@ class SemanticMatcher:
         if not self.canonical_embeddings:
             self._precompute_embeddings()
         
-        if not self.enabled or self.model is None:
+        if self.model is None:
             return None, 0.0
         
         try:
@@ -258,8 +274,12 @@ class SemanticMatcher:
         """
         results = []
         
-        # Ensure model is loaded
-        self._ensure_model()
+        # Ensure local model is loaded for canonical mapping
+        try:
+            self._ensure_model()
+        except Exception:
+            self.model = None
+
         if not self.enabled or self.model is None:
             # Return unfound results if embeddings unavailable
             return [
@@ -309,5 +329,51 @@ class SemanticMatcher:
             "metadata_size": len(self.metadata),
             "canonical_embeddings": len(self.canonical_embeddings),
             "cache_size": len(self.embedding_cache),
-            "model_loaded": self.model is not None
+            "model_loaded": self.model is not None,
+            "text_embedding_cache_size": len(self.text_embedding_cache),
+            "last_embedding_provider": self.last_embedding_provider,
         }
+
+    def embed_text(self, text: str) -> Tuple[Optional[np.ndarray], str]:
+        """Embed free-form text with Google as primary and MiniLM as fallback."""
+        clean_text = (text or "").strip()
+        if not clean_text:
+            return None, "empty"
+
+        if clean_text in self.text_embedding_cache:
+            return self.text_embedding_cache[clean_text], self.last_embedding_provider
+
+        # Primary: Google embedding API
+        google_result = self.google_client.embed_text(clean_text)
+        if google_result.get("ok"):
+            values = google_result.get("values") or []
+            vector = np.array(values, dtype=float)
+            self.last_embedding_provider = "google"
+            self._cache_text_embedding(clean_text, vector)
+            return vector, "google"
+
+        # Fallback: local MiniLM
+        if EMBEDDING_AVAILABLE:
+            try:
+                self._ensure_model()
+                if self.model is not None:
+                    vector = np.array(self.model.encode(clean_text), dtype=float)
+                    self.last_embedding_provider = "minilm"
+                    self._cache_text_embedding(clean_text, vector)
+                    return vector, "minilm"
+            except Exception as e:
+                logger.error("MiniLM fallback embedding failed: %s", e)
+
+        self.last_embedding_provider = "unavailable"
+        return None, "unavailable"
+
+    @staticmethod
+    def cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
+        """Compute cosine similarity on two vectors."""
+        try:
+            denom = np.linalg.norm(vec_a) * np.linalg.norm(vec_b)
+            if denom == 0:
+                return 0.0
+            return float(np.dot(vec_a, vec_b) / denom)
+        except Exception:
+            return 0.0

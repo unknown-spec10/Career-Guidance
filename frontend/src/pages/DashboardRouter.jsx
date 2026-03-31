@@ -24,9 +24,6 @@ export default function DashboardRouter() {
         case 'employer':
           navigate('/employer/dashboard')
           break
-        case 'college':
-          navigate('/college/dashboard')
-          break
         case 'admin':
           navigate('/admin/dashboard')
           break

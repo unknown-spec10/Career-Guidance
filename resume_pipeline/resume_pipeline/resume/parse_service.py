@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 from typing import Tuple
+import zipfile
+import xml.etree.ElementTree as ET
 from jsonschema import validate, ValidationError  # type: ignore
 import logging
 
@@ -117,6 +119,17 @@ class ResumeParserService(ParserService):
         return resp, flags, needs_review
 
     def _preprocess_applicant(self, applicant_dir: str) -> dict:
+        def _extract_docx_text(path: str) -> str:
+            """Extract visible text from a .docx file without external dependencies."""
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    xml_bytes = zf.read("word/document.xml")
+                root = ET.fromstring(xml_bytes)
+                texts = [node.text for node in root.iter() if node.tag.endswith("}t") and node.text]
+                return "\n".join(texts)
+            except Exception:
+                return ""
+
         p = Path(applicant_dir)
         resume_files = list(p.glob('*'))
         resume_path = None
@@ -125,12 +138,24 @@ class ResumeParserService(ParserService):
                 resume_path = str(f)
                 break
         result = { 'doc_text': None, 'ocr_snippets': {}, 'page_count': 0 }
-        if resume_path and resume_path.lower().endswith('.pdf'):
-            raw = self.text.extract_text(resume_path)
-            if not raw or len(raw.strip())==0:
-                pages = self.ocr.ocr_pdf_pages(resume_path)
-                raw = "\n\n".join(pages.values())
-                result['page_count'] = len(pages)
+        if resume_path:
+            ext = Path(resume_path).suffix.lower()
+            raw = ""
+
+            if ext == '.pdf':
+                raw = self.text.extract_text(resume_path)
+                if not raw or len(raw.strip()) == 0:
+                    pages = self.ocr.ocr_pdf_pages(resume_path)
+                    raw = "\n\n".join(pages.values())
+                    result['page_count'] = len(pages)
+            elif ext == '.txt':
+                raw = Path(resume_path).read_text(encoding='utf-8', errors='ignore')
+            elif ext == '.docx':
+                raw = _extract_docx_text(resume_path)
+            else:
+                # .doc extraction requires external converters; keep empty and rely on OCR path only for images.
+                raw = ""
+
             result['doc_text'] = clean_text(raw)
             result['ocr_snippets'] = extract_numeric_snippets(raw)
         else:

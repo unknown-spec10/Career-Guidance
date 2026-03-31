@@ -87,7 +87,7 @@ export default function ForgotPasswordPage() {
                       placeholder="you@example.com"
                       required
                       className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg 
-                               text-white placeholder-gray-500 focus:outline-none focus:border-primary-500 
+                               text-gray-900 placeholder-gray-500 focus:outline-none focus:border-primary-500 
                                focus:ring-1 focus:ring-primary-500 transition-colors"
                     />
                   </div>

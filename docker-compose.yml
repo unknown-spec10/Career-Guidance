@@ -18,6 +18,22 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Redis broker for Celery tasks
+  redis:
+    image: redis:7-alpine
+    container_name: career-guidance-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - career-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   # Backend Service
   backend:
     build:
@@ -38,6 +54,8 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       FILE_STORAGE_PATH: /app/data/raw_files
       GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-false}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
     ports:
       - "8000:8000"
     volumes:
@@ -48,12 +66,44 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/stats"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
+
+  # Celery worker service for async embedding/indexing tasks
+  worker:
+    build:
+      context: ./resume_pipeline
+      dockerfile: Dockerfile
+    container_name: career-guidance-worker
+    command: celery -A resume_pipeline.celery_app:celery_app worker --loglevel=INFO --queues=embeddings,default
+    environment:
+      PG_HOST: db
+      PG_PORT: 5432
+      PG_USER: ${PG_USER:-app_user}
+      PG_PASSWORD: ${PG_PASSWORD:-root_password}
+      PG_DB: ${PG_DB:-resumes}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      SECRET_KEY: ${SECRET_KEY}
+      GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-false}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+    volumes:
+      - ./data/raw_files:/app/data/raw_files
+      - ./resume_pipeline/logs:/app/logs
+    networks:
+      - career-network
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   # Frontend Service
@@ -91,6 +141,7 @@ services:
 
 volumes:
   db_data:
+  redis_data:
 
 networks:
   career-network:

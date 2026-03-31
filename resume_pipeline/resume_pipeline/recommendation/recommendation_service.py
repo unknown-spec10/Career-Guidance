@@ -1,20 +1,13 @@
-"""
-Recommendation Service for Colleges and Jobs
-Implements weighted scoring algorithm with separate weights for college (academic-focused)
-and job (skills/experience-focused) recommendations following industry best practices.
-
-College Recommendations: Prioritize academic performance, entrance exams, research
-Job Recommendations: Prioritize skills match, experience, location, industry fit
-
-Uses semantic skill matching (embeddings + taxonomy) for intelligent skill normalization.
-"""
-from typing import List, Dict, Optional, Tuple
+"""Job recommendation service with semantic skill matching support."""
+from typing import List, Dict, Optional, Tuple, Any
+import datetime as dt
+import numpy as np
 from sqlalchemy.orm import Session, joinedload
 from ..config import settings
-from ..constants import COLLEGE_RECOMMENDATION_WEIGHTS, JOB_RECOMMENDATION_WEIGHTS, SEMANTIC_MATCHING_CONFIG
+from ..constants import JOB_RECOMMENDATION_WEIGHTS, SEMANTIC_MATCHING_CONFIG
 from ..db import (
-    Applicant, LLMParsedRecord, College, CollegeProgram, CollegeEligibility,
-    Job, InterviewSession, CollegeApplicabilityLog, JobRecommendation
+    Applicant, Job, InterviewSession, JobRecommendation,
+    ApplicantEmbedding, JobEmbedding
 )
 from ..core.semantic_matching import SemanticMatcher
 import logging
@@ -23,29 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class RecommendationService:
-    """
-    Generate personalized recommendations using industry-standard scoring algorithms.
-    
-    College Scoring (Academic-focused):
-    - CGPA: 25% - Primary academic indicator
-    - JEE/Entrance Rank: 20% - Competitive exam performance
-    - Academic Achievements: 15% - Research, publications, awards
-    - Skills: 15% - Technical skills relevant to programs
-    - Projects: 10% - Academic/research projects
-    - Interview: 10% - Mock interview performance
-    - Certifications: 5% - Relevant certifications
-    
-    Job Scoring (Skills-focused):
-    - Skills Match: 35% - Primary hiring criterion
-    - Experience: 20% - Work experience relevance
-    - Certifications: 10% - Industry certifications
-    - Location: 10% - Geographic preference match
-    - Interview: 8% - Mock interview performance
-    - Projects: 5% - Portfolio/practical work
-    - Work Type: 5% - Full-time/remote preference
-    - Salary: 5% - Compensation alignment
-    - Education: 2% - Basic degree requirements
-    """
+    """Generate personalized job recommendations for an applicant."""
     
     def __init__(self, db: Session):
         self.db = db
@@ -61,7 +32,7 @@ class RecommendationService:
             self.semantic_matcher = None
         
     def get_recommendations(self, applicant_id: int) -> Dict:
-        """Get all recommendations for an applicant"""
+        """Get job recommendations for an applicant."""
         try:
             # Fetch applicant data with parsed record eagerly loaded
             applicant = self.db.query(Applicant).options(
@@ -70,38 +41,32 @@ class RecommendationService:
             
             if not applicant:
                 logger.warning(f"Applicant {applicant_id} not found")
-                return {'college_recommendations': [], 'job_recommendations': []}
+                return {'job_recommendations': []}
             
             # Get parsed resume data
             parsed_record = applicant.parsed_record
             if not parsed_record:
                 logger.warning(f"No parsed resume for applicant {applicant_id}")
-                return {'college_recommendations': [], 'job_recommendations': []}
+                return {'job_recommendations': []}
             
             normalized_data = parsed_record.normalized or {}
             
             # Get interview scores
             interview_score = self._get_latest_interview_score(applicant_id)
             
-            # Generate college recommendations
-            college_recs = self._generate_college_recommendations(
-                applicant, normalized_data, interview_score
-            )
-            
             # Generate job recommendations
             job_recs = self._generate_job_recommendations(
                 applicant, normalized_data, interview_score
             )
             
-            logger.info(f"Generated {len(college_recs)} college and {len(job_recs)} job recommendations for applicant {applicant_id}")
+            logger.info(f"Generated {len(job_recs)} job recommendations for applicant {applicant_id}")
             
             return {
-                'college_recommendations': college_recs,
                 'job_recommendations': job_recs
             }
         except Exception as e:
             logger.error(f"Error in get_recommendations: {str(e)}", exc_info=True)
-            return {'college_recommendations': [], 'job_recommendations': []}
+            return {'job_recommendations': []}
     
     def _get_latest_interview_score(self, applicant_id: int) -> Optional[float]:
         """Get the most recent interview score (normalized 0-1)"""
@@ -114,229 +79,6 @@ class RecommendationService:
             # Normalize to 0-1 scale (overall_score is 0-100)
             return session.overall_score / 100.0
         return None
-    
-    def _generate_college_recommendations(
-        self, applicant: Applicant, normalized_data: Dict, interview_score: Optional[float]
-    ) -> List[Dict]:
-        """Generate college recommendations with match scores using academic-focused weights"""
-        
-        colleges = self.db.query(College).all()
-        
-        recommendations = []
-        min_score = settings.MIN_COLLEGE_REC_SCORE  # Use college-specific minimum
-        
-        for college in colleges:
-            match_score, breakdown = self._calculate_college_match(
-                normalized_data, college, interview_score
-            )
-            
-            if match_score >= min_score:
-                # Add to DB session (store as 0-100 percentage)
-                score_percent = match_score * 100
-                rec_log = self.db.query(CollegeApplicabilityLog).filter(
-                    CollegeApplicabilityLog.applicant_id == applicant.id,
-                    CollegeApplicabilityLog.college_id == college.id
-                ).first()
-                
-                if not rec_log:
-                    rec_log = CollegeApplicabilityLog(
-                        applicant_id=applicant.id,
-                        college_id=college.id,
-                        recommend_score=score_percent,
-                        explain=breakdown
-                    )
-                    self.db.add(rec_log)
-                else:
-                    # Update score
-                    rec_log.recommend_score = score_percent
-                    rec_log.explain = breakdown
-                
-                recommendations.append({
-                    'id': college.id,
-                    'name': college.name,
-                    'location': f"{college.location_city}, {college.location_state}",
-                    'description': college.description,
-                    'website': college.website,
-                    'logo_url': college.logo_url,
-                    'match_score': round(match_score * 100, 1), # Return as percentage for frontend
-                    'match_breakdown': breakdown,
-                    'recommendation_reason': self._generate_college_reason(breakdown, college)
-                })
-        
-        try:
-            self.db.commit()
-        except Exception as e:
-            logger.error(f"DB Commit error in recommendations: {e}")
-            self.db.rollback()
-            
-        recommendations.sort(key=lambda x: x['match_score'], reverse=True)
-        return recommendations[:settings.MAX_RECOMMENDATIONS]
-    
-    def _calculate_college_match(
-        self, normalized_data: Dict, college: College, interview_score: Optional[float]
-    ) -> Tuple[float, Dict]:
-        """
-        Calculate match score for a college using academic-focused weights.
-        
-        Follows industry best practices for higher education recommendations:
-        - Academic performance is primary (CGPA, entrance ranks)
-        - Research potential and academic projects valued
-        - Skills relevant to academic programs
-        
-        Returns:
-            (match_score, breakdown_dict) where match_score is 0-1
-        """
-        # Extract applicant data
-        skills = normalized_data.get('skills', [])
-        education = normalized_data.get('education', [])
-        projects = normalized_data.get('projects', [])
-        certifications = normalized_data.get('certifications', [])
-        jee_rank = normalized_data.get('jee_rank')
-        
-        # Get college-specific weights from settings
-        cgpa_weight = settings.COLLEGE_REC_CGPA_WEIGHT
-        jee_weight = settings.COLLEGE_REC_JEE_RANK_WEIGHT
-        academic_weight = settings.COLLEGE_REC_ACADEMIC_WEIGHT
-        skills_weight = settings.COLLEGE_REC_SKILLS_WEIGHT
-        projects_weight = settings.COLLEGE_REC_PROJECTS_WEIGHT
-        interview_weight = settings.COLLEGE_REC_INTERVIEW_WEIGHT
-        cert_weight = settings.COLLEGE_REC_CERTIFICATIONS_WEIGHT
-        
-        # Calculate individual component scores (0-1 scale)
-        cgpa_score = self._calculate_cgpa_score(education)
-        jee_score = self._calculate_jee_rank_score(jee_rank, college)
-        academic_score = self._calculate_academic_achievements_score(normalized_data)
-        skills_score, skills_breakdown = self._calculate_skills_match(skills, college)
-        projects_score = self._calculate_projects_score(projects, is_academic=True)
-        cert_score = self._calculate_certifications_score(certifications)
-        
-        # Calculate weighted score
-        if interview_score is not None:
-            final_score = (
-                cgpa_score * cgpa_weight +
-                jee_score * jee_weight +
-                academic_score * academic_weight +
-                skills_score * skills_weight +
-                projects_score * projects_weight +
-                interview_score * interview_weight +
-                cert_score * cert_weight
-            )
-        else:
-            # Redistribute interview weight to academic factors when no interview
-            redistributed_to_cgpa = interview_weight * 0.5  # 50% to CGPA
-            redistributed_to_jee = interview_weight * 0.3   # 30% to JEE
-            redistributed_to_skills = interview_weight * 0.2  # 20% to skills
-            
-            final_score = (
-                cgpa_score * (cgpa_weight + redistributed_to_cgpa) +
-                jee_score * (jee_weight + redistributed_to_jee) +
-                academic_score * academic_weight +
-                skills_score * (skills_weight + redistributed_to_skills) +
-                projects_score * projects_weight +
-                cert_score * cert_weight
-            )
-        
-        # Build detailed breakdown for transparency
-        breakdown = {
-            'cgpa_score': round(cgpa_score, 3),
-            'jee_rank_score': round(jee_score, 3),
-            'academic_score': round(academic_score, 3),
-            'skills_score': round(skills_score, 3),
-            'skills_breakdown': skills_breakdown,  # Include detailed skill matching info
-            'projects_score': round(projects_score, 3),
-            'certifications_score': round(cert_score, 3),
-            'interview_score': round(interview_score, 3) if interview_score else None,
-            'weights_used': {
-                'cgpa': cgpa_weight,
-                'jee_rank': jee_weight,
-                'academic': academic_weight,
-                'skills': skills_weight,
-                'projects': projects_weight,
-                'interview': interview_weight if interview_score else 0,
-                'certifications': cert_weight
-            },
-            'recommendation_type': 'college'
-        }
-        
-        return final_score, breakdown
-    
-    def _calculate_cgpa_score(self, education: List[Dict]) -> float:
-        """Calculate CGPA score using bracket-based scoring (0-1)"""
-        if not education:
-            return 0.3  # Default for no education data
-        
-        # Find highest CGPA/grade
-        max_grade = 0.0
-        for edu in education:
-            grade = edu.get('grade') or edu.get('cgpa') or 0
-            if isinstance(grade, (int, float)) and grade > max_grade:
-                max_grade = float(grade)
-        
-        if max_grade == 0:
-            return 0.3
-        
-        # Normalize to 10-point scale if needed
-        if max_grade > 10:
-            max_grade = max_grade / 10  # Assume percentage
-        
-        # Use bracket-based scoring from constants
-        brackets = COLLEGE_RECOMMENDATION_WEIGHTS.get('CGPA_BRACKETS', {})
-        if max_grade >= 9.0:
-            return 1.0
-        elif max_grade >= 8.0:
-            return 0.85
-        elif max_grade >= 7.0:
-            return 0.7
-        elif max_grade >= 6.0:
-            return 0.5
-        elif max_grade >= 5.0:
-            return 0.3
-        else:
-            return 0.1
-    
-    def _calculate_jee_rank_score(self, jee_rank: Optional[int], college: College) -> float:
-        """Calculate JEE/entrance rank score using bracket-based scoring (0-1)"""
-        if not jee_rank or jee_rank <= 0:
-            return 0.5  # Neutral score if no rank
-        
-        # Use bracket-based scoring
-        brackets = COLLEGE_RECOMMENDATION_WEIGHTS.get('JEE_RANK_BRACKETS', {})
-        
-        if jee_rank <= 1000:
-            return 1.0  # Excellent
-        elif jee_rank <= 5000:
-            return 0.9  # Very good
-        elif jee_rank <= 15000:
-            return 0.75  # Good
-        elif jee_rank <= 50000:
-            return 0.5  # Average
-        elif jee_rank <= 100000:
-            return 0.3  # Below average
-        else:
-            return 0.15  # Low rank
-    
-    def _calculate_academic_achievements_score(self, normalized_data: Dict) -> float:
-        """Calculate academic achievements score (0-1)"""
-        score = 0.3  # Base score
-        
-        # Check for publications/research
-        if normalized_data.get('publications'):
-            score += 0.3
-        
-        # Check for awards/honors
-        if normalized_data.get('awards') or normalized_data.get('achievements'):
-            score += 0.2
-        
-        # Check for extracurriculars related to academics
-        if normalized_data.get('extracurriculars'):
-            score += 0.1
-        
-        # Check for high-quality projects
-        projects = normalized_data.get('projects', [])
-        if len(projects) >= 3:
-            score += 0.1
-        
-        return min(1.0, score)
     
     def _calculate_projects_score(self, projects: List[Dict], is_academic: bool = False) -> float:
         """Calculate projects score (0-1)"""
@@ -377,192 +119,13 @@ class RecommendationService:
             return 0.5
         
         return 0.2
-    
-    def _calculate_skills_match(self, applicant_skills: List, college: College) -> Tuple[float, Dict]:
-        """
-        Calculate skill match score for college using semantic matching.
-        
-        Returns: (match_score, detailed_breakdown)
-        """
-        if not applicant_skills:
-            return 0.0, {"skills_score": 0.0, "matched_skills": [], "missing_skills": []}
-        
-        # Get college programs and their required skills
-        programs = college.programs
-        if not programs:
-            return 0.5, {"skills_score": 0.5, "matched_skills": [], "missing_skills": []}
-        
-        # Use semantic matching if enabled and available
-        if settings.SEMANTIC_MATCHING_ENABLED and self.semantic_matcher and self.semantic_matcher.enabled:
-            return self._calculate_skills_match_semantic(applicant_skills, programs)
-        else:
-            # Fallback to simple string matching
-            return self._calculate_skills_match_simple(applicant_skills, programs)
-    
-    def _calculate_skills_match_simple(self, applicant_skills: List, programs: List) -> Tuple[float, Dict]:
-        """Fallback: Simple string matching (old behavior)"""
-        # Extract applicant skill names
-        applicant_skill_names = set()
-        for skill in applicant_skills:
-            if isinstance(skill, dict):
-                applicant_skill_names.add(skill.get('name', '').lower())
-            elif isinstance(skill, str):
-                applicant_skill_names.add(skill.lower())
-        
-        # Check match with any program
-        best_match = 0.0
-        for program in programs:
-            if program.required_skills:
-                required = set(s.lower() for s in program.required_skills)
-                if required:
-                    matches = len(applicant_skill_names & required)
-                    match_ratio = matches / len(required)
-                    best_match = max(best_match, match_ratio)
-        
-        final_score = min(1.0, best_match + 0.2)
-        return final_score, {
-            "skills_score": round(final_score, 3),
-            "matched_skills": list(applicant_skill_names),
-            "matching_type": "simple_string_match"
-        }
-    
-    def _calculate_skills_match_semantic(self, applicant_skills: List, programs: List) -> Tuple[float, Dict]:
-        """Semantic skill matching using embeddings + taxonomy"""
-        try:
-            # Normalize applicant skills
-            applicant_skill_list = []
-            for skill in applicant_skills:
-                skill_name = skill.get('name', '') if isinstance(skill, dict) else str(skill)
-                if skill_name:
-                    applicant_skill_list.append(skill_name)
-            
-            # Use batch matching
-            applicant_matches = self.semantic_matcher.match_skills_batch(
-                applicant_skill_list,
-                threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
-            )
-            
-            applicant_canonical = set()
-            for match in applicant_matches:
-                if match["canonical"]:
-                    applicant_canonical.add(match["canonical"].lower())
-            
-            # Check against all programs
-            best_score = 0.0
-            all_required = set()
-            
-            for program in programs:
-                if program.required_skills:
-                    required_list = [s if isinstance(s, str) else s.get('name', '') for s in program.required_skills]
-                    required_matches = self.semantic_matcher.match_skills_batch(
-                        required_list,
-                        threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
-                    )
-                    
-                    required_canonical = set()
-                    for match in required_matches:
-                        if match["canonical"]:
-                            required_canonical.add(match["canonical"].lower())
-                    
-                    all_required.update(required_canonical)
-                    
-                    # Calculate match for this program
-            if required_canonical:
-                exact_matches = len(applicant_canonical & required_canonical)
-                partial_matches = 0
-                
-                for req_skill in required_canonical:
-                    if req_skill not in applicant_canonical:
-                        related = self.semantic_matcher.get_related_skills(req_skill)
-                        if any(r.lower() in applicant_canonical for r in related):
-                            partial_matches += 1
-                
-                program_score = (exact_matches + partial_matches * 0.5) / len(required_canonical)
-                best_score = max(best_score, program_score)
-            return best_score, {"skills_score": round(best_score, 3)}
-        except Exception as e:
-            logger.error(f"Error in semantic skill matching: {e}")
-            return self._calculate_skills_match_simple(applicant_skills, programs)
-    
-    def _calculate_education_match(self, education: List[Dict], college: College) -> float:
-        """Calculate education match score (0-1)"""
-        if not education:
-            return 0.3  # Low score if no education data
-        
-        # Get eligibility criteria
-        eligibility = college.eligibility
-        if not eligibility:
-            return 0.7  # Neutral-high if no specific requirements
-        
-        score = 0.0
-        for edu in education:
-            degree = edu.get('degree', '').lower()
-            grade = edu.get('grade')
-            
-            # Check degree eligibility
-            if eligibility[0].eligible_degrees:
-                eligible = any(d.lower() in degree for d in eligibility[0].eligible_degrees)
-                if eligible:
-                    score += 0.5
-            else:
-                score += 0.4  # Assume eligible if not specified
-            
-            # Check CGPA
-            if grade and eligibility[0].min_cgpa:
-                if grade >= eligibility[0].min_cgpa:
-                    score += 0.5
-                else:
-                    score += max(0, 0.5 * (grade / eligibility[0].min_cgpa))
-            else:
-                score += 0.3
-        
-        return min(1.0, score / len(education))
-    
-    def _calculate_experience_match(self, experience: List[Dict]) -> float:
-        """Calculate experience score (0-1)"""
-        if not experience:
-            return 0.5  # Neutral for students with no experience
-        
-        # Calculate total years of experience
-        total_months = 0
-        for exp in experience:
-            # Simple heuristic: assume 1 year if dates not parseable
-            total_months += 12
-        
-        years = total_months / 12
-        # Score increases with experience, capped at 1.0
-        return min(1.0, 0.5 + (years * 0.1))
-    
-    def _generate_college_reason(self, breakdown: Dict, college: College) -> str:
-        """Generate human-readable recommendation reason for college"""
-        reasons = []
-        
-        # Check academic factors first (most important for colleges)
-        if breakdown.get('cgpa_score', 0) > 0.7:
-            reasons.append("excellent academic performance")
-        if breakdown.get('jee_rank_score', 0) > 0.7:
-            reasons.append("strong entrance exam rank")
-        if breakdown.get('academic_score', 0) > 0.6:
-            reasons.append("impressive academic achievements")
-        if breakdown.get('skills_score', 0) > 0.7:
-            reasons.append("relevant technical skills")
-        if breakdown.get('projects_score', 0) > 0.6:
-            reasons.append("quality academic projects")
-        if breakdown.get('interview_score') and breakdown['interview_score'] > 0.7:
-            reasons.append("strong interview performance")
-        
-        if not reasons:
-            reasons.append("good overall academic profile")
-        
-        return f"Recommended based on {', '.join(reasons[:3])} for admission to {college.name}"
-    
+
     def _generate_job_recommendations(
         self, applicant: Applicant, normalized_data: Dict, interview_score: Optional[float]
     ) -> List[Dict]:
         """Generate job recommendations with match scores using skills-focused weights"""
-        
-        # Get all approved jobs
-        jobs = self.db.query(Job).filter(Job.status == 'approved').all()
+
+        jobs = self._load_candidate_jobs(applicant.id)
         
         recommendations = []
         min_score = settings.MIN_JOB_REC_SCORE  # Use job-specific minimum
@@ -628,6 +191,79 @@ class RecommendationService:
         # Sort by match score and limit
         recommendations.sort(key=lambda x: x['match_score'], reverse=True)
         return recommendations[:settings.MAX_RECOMMENDATIONS]
+
+    def _load_candidate_jobs(self, applicant_id: int) -> List[Job]:
+        """Load candidate jobs via vector retrieval when possible, else fallback safely."""
+        now = dt.datetime.utcnow()
+
+        base_query = self.db.query(Job).filter(
+            Job.status == 'approved',
+            ((Job.expires_at.is_(None)) | (Job.expires_at > now))
+        )
+
+        if not settings.USE_VECTOR_RETRIEVAL:
+            return base_query.all()
+
+        app_embedding = self.db.query(ApplicantEmbedding).filter(
+            ApplicantEmbedding.applicant_id == applicant_id
+        ).first()
+
+        # If embedding doesn't exist yet, fallback for now (task enqueue occurs in parse flow).
+        if not app_embedding or not app_embedding.embedding_vector:
+            logger.info("Vector retrieval fallback: missing applicant embedding for %s", applicant_id)
+            try:
+                from ..embedding_tasks import generate_resume_embedding_task
+                generate_resume_embedding_task.delay(applicant_id)
+            except Exception as exc:
+                logger.warning("Could not enqueue cold-start applicant embedding task for %s: %s", applicant_id, exc)
+            return base_query.all()
+
+        target = np.array(app_embedding.embedding_vector, dtype=float)
+        if target.size == 0:
+            return base_query.all()
+
+        job_embeddings = self.db.query(JobEmbedding, Job).join(
+            Job, Job.id == JobEmbedding.job_id
+        ).filter(
+            Job.status == 'approved',
+            ((Job.expires_at.is_(None)) | (Job.expires_at > now))
+        ).all()
+
+        if not job_embeddings:
+            try:
+                from ..embedding_tasks import generate_job_embedding_task
+                missing_jobs = base_query.limit(max(settings.VECTOR_RETRIEVAL_MIN_CANDIDATES, 50)).all()
+                for job in missing_jobs:
+                    generate_job_embedding_task.delay(job.id)
+            except Exception as exc:
+                logger.warning("Could not enqueue cold-start job embedding tasks: %s", exc)
+            return base_query.all()
+
+        scored_ids: List[Tuple[int, float]] = []
+        for emb, job in job_embeddings:
+            try:
+                vec = np.array(emb.embedding_vector, dtype=float)
+                if vec.size == 0 or vec.shape != target.shape:
+                    continue
+                denom = np.linalg.norm(target) * np.linalg.norm(vec)
+                if denom == 0:
+                    continue
+                similarity = float(np.dot(target, vec) / denom)
+                scored_ids.append((job.id, similarity))
+            except Exception:
+                continue
+
+        if not scored_ids:
+            return base_query.all()
+
+        scored_ids.sort(key=lambda x: x[1], reverse=True)
+        top_k = max(settings.VECTOR_RETRIEVAL_MIN_CANDIDATES, settings.VECTOR_RETRIEVAL_TOP_K)
+        top_job_ids = [job_id for job_id, _ in scored_ids[:top_k]]
+        if not top_job_ids:
+            return base_query.all()
+
+        # Keep DB-level filtering for freshness and status.
+        return base_query.filter(Job.id.in_(top_job_ids)).all()
     
     def _calculate_job_match(
         self, normalized_data: Dict, job: Job, interview_score: Optional[float],
@@ -664,6 +300,9 @@ class RecommendationService:
         salary_weight = settings.JOB_REC_SALARY_WEIGHT
         education_weight = settings.JOB_REC_EDUCATION_WEIGHT
         
+        # Make normalized context available to embedding payload builder.
+        self._current_normalized = normalized_data
+
         # Calculate individual component scores (0-1 scale)
         skills_score, skills_breakdown = self._calculate_job_skills_match(skills, job)
         experience_score = self._calculate_job_experience_match(experience, job)
@@ -832,139 +471,172 @@ class RecommendationService:
         if not applicant_skills or not job.required_skills:
             return 0.3, {"skills_score": 0.3, "matched_skills": [], "missing_skills": []}
         
-        # Use semantic matching if enabled and available
-        if settings.SEMANTIC_MATCHING_ENABLED and self.semantic_matcher and self.semantic_matcher.enabled:
-            return self._calculate_job_skills_match_semantic(applicant_skills, job)
-        else:
-            # Fallback to simple string matching
-            return self._calculate_job_skills_match_simple(applicant_skills, job)
-    
-    def _calculate_job_skills_match_simple(self, applicant_skills: List, job: Job) -> Tuple[float, Dict]:
-        """Fallback: Simple string matching (old behavior)"""
-        # Extract applicant skill names
-        applicant_skill_names = set()
-        for skill in applicant_skills:
-            if isinstance(skill, dict):
-                applicant_skill_names.add(skill.get('name', '').lower())
-            elif isinstance(skill, str):
-                applicant_skill_names.add(skill.lower())
-        
-        # Extract required skill names
-        required_skills = set()
-        for skill in job.required_skills:
-            if isinstance(skill, dict):
-                required_skills.add(skill.get('name', '').lower())
-            elif isinstance(skill, str):
-                required_skills.add(skill.lower())
-        
-        if not required_skills:
-            return 0.5, {"skills_score": 0.5, "matched_skills": [], "missing_skills": list(required_skills)}
-        
-        # Calculate match ratio
-        matches = len(applicant_skill_names & required_skills)
-        score = min(1.0, matches / len(required_skills))
-        
-        return score, {
-            "skills_score": round(score, 3),
-            "matched_skills": list(applicant_skill_names & required_skills),
-            "missing_skills": list(required_skills - applicant_skill_names),
-            "matching_type": "simple_string_match"
-        }
+        if not settings.SEMANTIC_MATCHING_ENABLED or not self.semantic_matcher:
+            return 0.3, {
+                "skills_score": 0.3,
+                "matched_skills": [],
+                "missing_skills": [],
+                "matching_type": "semantic_disabled",
+            }
+
+        return self._calculate_job_skills_match_semantic(applicant_skills, job)
     
     def _calculate_job_skills_match_semantic(self, applicant_skills: List, job: Job) -> Tuple[float, Dict]:
-        """Semantic skill matching using embeddings + taxonomy"""
+        """Semantic skill matching using Google embeddings with MiniLM fallback."""
         try:
-            # Normalize applicant skills to canonical names
             applicant_skill_list = []
             for skill in applicant_skills:
                 skill_name = skill.get('name', '') if isinstance(skill, dict) else str(skill)
                 if skill_name:
                     applicant_skill_list.append(skill_name)
-            
-            # Normalize job required skills
+
             required_skill_list = []
             for skill in job.required_skills:
                 skill_name = skill if isinstance(skill, str) else skill.get('name', '')
                 if skill_name:
                     required_skill_list.append(skill_name)
-            
+
             if not required_skill_list:
                 return 0.5, {"skills_score": 0.5, "matched_skills": [], "missing_skills": []}
-            
-            # Use batch matching for efficiency
-            applicant_matches = self.semantic_matcher.match_skills_batch(
-                applicant_skill_list,
-                threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
-            )
-            required_matches = self.semantic_matcher.match_skills_batch(
-                required_skill_list,
-                threshold=settings.SEMANTIC_SIMILARITY_THRESHOLD
-            )
-            
-            # Build canonical skill sets
-            applicant_canonical = set()
-            for match in applicant_matches:
-                if match["canonical"]:
-                    applicant_canonical.add(match["canonical"].lower())
-            
-            required_canonical = set()
-            required_skill_details = {}  # Track requirements
-            for match in required_matches:
-                if match["canonical"]:
-                    req_canonical = match["canonical"].lower()
-                    required_canonical.add(req_canonical)
-                    required_skill_details[req_canonical] = {
-                        "original": match["original"],
-                        "canonical": match["canonical"]
-                    }
-            
-            # Calculate matches with exact + related skills
-            matched_skills = []
-            partial_matches = []
-            
-            if required_canonical:
-                for req_skill in required_canonical:
-                    # Exact match
-                    if req_skill in applicant_canonical:
-                        matched_skills.append(req_skill)
-                    else:
-                        # Check related skills
-                        related = self.semantic_matcher.get_related_skills(req_skill)
-                        if any(r.lower() in applicant_canonical for r in related):
-                            partial_matches.append(req_skill)
-                
-                # Calculate score
-                exact_matches = len(matched_skills)
-                partial_match_score = len(partial_matches) * SEMANTIC_MATCHING_CONFIG["PARTIAL_CREDIT_FOR_RELATED"]
-                total_score = (exact_matches + partial_match_score) / len(required_canonical)
-                final_score = min(1.0, total_score)
-            else:
-                # No required skills to match
-                final_score = 0.5
-                exact_matches = 0
-                matched_skills = []
-                partial_matches = []
-            
-            # Build detailed breakdown
-            missing_skills = required_canonical - (set(matched_skills) | set(partial_matches))
-            
+
+            applicant_payload = self._build_applicant_embedding_payload(applicant_skills)
+            job_payload = self._build_job_embedding_payload(job)
+
+            applicant_vec, applicant_provider = self.semantic_matcher.embed_text(applicant_payload)
+            job_vec, job_provider = self.semantic_matcher.embed_text(job_payload)
+
+            context_similarity = 0.0
+            if applicant_vec is not None and job_vec is not None:
+                context_similarity = self.semantic_matcher.cosine_similarity(applicant_vec, job_vec)
+                context_similarity = (context_similarity + 1.0) / 2.0
+
+            matched_skills: List[str] = []
+            partial_matches: List[str] = []
+            missing_skills: List[str] = []
+            per_required_scores: Dict[str, float] = {}
+
+            threshold = settings.SEMANTIC_SIMILARITY_THRESHOLD
+            partial_threshold = max(0.0, threshold - 0.1)
+
+            applicant_skill_vectors: List[Tuple[str, Any]] = []
+            for skill in applicant_skill_list:
+                vec, _provider = self.semantic_matcher.embed_text(skill)
+                if vec is not None:
+                    applicant_skill_vectors.append((skill, vec))
+
+            for req in required_skill_list:
+                req_vec, _req_provider = self.semantic_matcher.embed_text(req)
+                if req_vec is None or not applicant_skill_vectors:
+                    missing_skills.append(req)
+                    per_required_scores[req] = 0.0
+                    continue
+
+                best_sim = -1.0
+                for _skill, app_vec in applicant_skill_vectors:
+                    sim = self.semantic_matcher.cosine_similarity(req_vec, app_vec)
+                    best_sim = max(best_sim, sim)
+
+                sim_01 = (best_sim + 1.0) / 2.0
+                per_required_scores[req] = round(sim_01, 3)
+
+                if sim_01 >= threshold:
+                    matched_skills.append(req)
+                elif sim_01 >= partial_threshold:
+                    partial_matches.append(req)
+                else:
+                    missing_skills.append(req)
+
+            required_count = max(1, len(required_skill_list))
+            exact_score = len(matched_skills) / required_count
+            partial_score = (len(partial_matches) * SEMANTIC_MATCHING_CONFIG["PARTIAL_CREDIT_FOR_RELATED"]) / required_count
+            coverage_score = min(1.0, exact_score + partial_score)
+            final_score = min(1.0, 0.7 * coverage_score + 0.3 * context_similarity)
+
             breakdown = {
                 "skills_score": round(final_score, 3),
-                "matched_skills": list(matched_skills),
-                "partial_matches": list(partial_matches),
-                "missing_skills": list(missing_skills),
-                "matching_type": "semantic_with_taxonomy",
-                "exact_matches": exact_matches,
+                "matched_skills": matched_skills,
+                "partial_matches": partial_matches,
+                "missing_skills": missing_skills,
+                "matching_type": "google_embedding_semantic",
+                "required_skills_count": len(required_skill_list),
+                "exact_matches": len(matched_skills),
                 "partial_matches_count": len(partial_matches),
-                "required_skills_count": len(required_canonical),
+                "coverage_score": round(coverage_score, 3),
+                "context_similarity": round(context_similarity, 3),
+                "providers_used": {
+                    "applicant_context": applicant_provider,
+                    "job_context": job_provider,
+                },
+                "required_skill_similarity": per_required_scores,
             }
-            
+
             return final_score, breakdown
-        
+
         except Exception as e:
             logger.error(f"Error in semantic skill matching: {e}")
-            # Fallback to simple matching on error
-            return self._calculate_job_skills_match_simple(applicant_skills, job)
+            return 0.3, {
+                "skills_score": 0.3,
+                "matched_skills": [],
+                "missing_skills": [],
+                "matching_type": "semantic_error",
+                "error": str(e),
+            }
+
+    def _build_applicant_embedding_payload(self, applicant_skills: List) -> str:
+        """Build compact applicant embedding text from selected fields only."""
+        skill_names: List[str] = []
+        for skill in applicant_skills:
+            name = skill.get('name', '') if isinstance(skill, dict) else str(skill)
+            if name:
+                skill_names.append(name.strip())
+
+        unique_skills = list(dict.fromkeys(skill_names))[:30]
+        normalized = getattr(self, "_current_normalized", {}) or {}
+        exp = normalized.get('experience', []) if isinstance(normalized, dict) else []
+        edu = normalized.get('education', []) if isinstance(normalized, dict) else []
+
+        roles: List[str] = []
+        for item in exp[:3]:
+            if isinstance(item, dict) and item.get('title'):
+                roles.append(str(item.get('title')))
+
+        degrees: List[str] = []
+        for item in edu[:2]:
+            if isinstance(item, dict):
+                degree = item.get('degree')
+                field = item.get('field')
+                if degree and field:
+                    degrees.append(f"{degree} in {field}")
+                elif degree:
+                    degrees.append(str(degree))
+
+        return " | ".join([
+            f"skills: {', '.join(unique_skills)}",
+            f"experience: {', '.join(roles) if roles else 'not_provided'}",
+            f"education: {', '.join(degrees) if degrees else 'not_provided'}",
+        ])
+
+    def _build_job_embedding_payload(self, job: Job) -> str:
+        """Build compact job embedding text from selected recruiter fields only."""
+        required: List[str] = []
+        for skill in (job.required_skills or []):
+            if isinstance(skill, str) and skill.strip():
+                required.append(skill.strip())
+            elif isinstance(skill, dict) and skill.get('name'):
+                required.append(str(skill.get('name')).strip())
+
+        required = list(dict.fromkeys(required))[:30]
+        city = (job.location_city or '').strip()
+        state = (job.location_state or '').strip()
+        location = f"{city}, {state}".strip(', ')
+
+        return " | ".join([
+            f"title: {job.title or 'unknown'}",
+            f"required_skills: {', '.join(required)}",
+            f"min_experience_years: {job.min_experience_years if job.min_experience_years is not None else 0}",
+            f"work_type: {job.work_type or 'unknown'}",
+            f"location: {location if location else 'unknown'}",
+        ])
     
     def _calculate_job_education_match(self, education: List[Dict], job: Job) -> float:
         """Calculate education match for job"""
