@@ -1,0 +1,59 @@
+services:
+  backend:
+    build:
+      context: ./resume_pipeline
+      dockerfile: Dockerfile
+    container_name: career-guidance-backend
+    environment:
+      PG_HOST: ${PG_HOST}
+      PG_PORT: ${PG_PORT:-5432}
+      PG_USER: ${PG_USER}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PG_DB: ${PG_DB}
+      SECRET_KEY: ${SECRET_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-true}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_SEARCH_ENGINE_ID: ${GOOGLE_SEARCH_ENGINE_ID:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GMAIL_USER: ${GMAIL_USER:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      FILE_STORAGE_PATH: /app/data/raw_files
+      ASYNC_PARSE_ENABLED: ${ASYNC_PARSE_ENABLED:-false}
+      USE_VECTOR_RETRIEVAL: ${USE_VECTOR_RETRIEVAL:-false}
+      RAG_PRELOAD_ON_STARTUP: ${RAG_PRELOAD_ON_STARTUP:-false}
+      RAG_ENABLE_FILE_WATCHER: ${RAG_ENABLE_FILE_WATCHER:-false}
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-true}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://localhost:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}
+    ports:
+      - "8000:8080"
+    volumes:
+      - ./data/raw_files:/app/data/raw_files
+      - ./resume_pipeline/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/api/stats', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: career-guidance-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped

@@ -128,3 +128,101 @@ After deployment, verify:
 - If jobs are missing from public endpoints, verify approval state and expiry timestamps.
 - If embeddings are not updating, verify worker logs and Redis connectivity.
 - If recommendation latency spikes, verify embedding coverage and run backfill.
+
+## AWS Deployment (Demo / Near-Zero Cost)
+
+This project can run on a single AWS EC2 free-tier instance for personal demos.
+
+Recommended profile:
+
+- 1 EC2 instance (`t3.micro` or free-tier eligible equivalent)
+- Docker Compose with only `frontend` + `backend`
+- Reuse existing external PostgreSQL (for example Supabase) to avoid running DB on EC2
+- Keep async/background workers disabled for demo mode
+- Stop the instance when not in use
+
+### Why this is cheapest
+
+- No managed AWS database service required.
+- No load balancer required.
+- No always-on worker/queue required.
+- You can stop the instance between demos.
+
+### Files Added for AWS
+
+- `docker-compose.aws-dev.yml` - lean runtime profile for EC2
+- `.env.aws.example` - environment template for AWS deployment
+- `deploy/aws/ec2-user-data.sh` - optional instance bootstrap script
+- `deploy/aws/aws-demo-control.ps1` - start/stop/status helper
+
+### 1) Launch EC2 (Ubuntu)
+
+Minimal requirements:
+
+- Open inbound ports `80` and `22` in the EC2 security group
+- Attach a key pair for SSH access
+- Use your normal AWS profile (`aws configure`)
+
+Optional user-data script:
+
+```bash
+# paste content from deploy/aws/ec2-user-data.sh as instance user-data
+```
+
+### 2) Prepare App On EC2
+
+```bash
+cd /opt
+git clone https://github.com/unknown-spec10/Career-Guidance.git career-guidance
+cd career-guidance
+cp .env.aws.example .env.aws
+```
+
+Edit `.env.aws` and set at least:
+
+- `PG_HOST`, `PG_USER`, `PG_PASSWORD`, `PG_DB`
+- `SECRET_KEY` (32+ chars)
+
+For zero external AI cost, keep:
+
+- `GEMINI_MOCK_MODE=true`
+- `ASYNC_PARSE_ENABLED=false`
+- `USE_VECTOR_RETRIEVAL=false`
+
+### 3) Build and Run
+
+```bash
+docker compose --env-file .env.aws -f docker-compose.aws-dev.yml up -d --build
+docker compose -f docker-compose.aws-dev.yml ps
+```
+
+App URL:
+
+- `http://<ec2-public-ip>/`
+
+### 4) Update and Redeploy Later
+
+```bash
+cd /opt/career-guidance
+git pull --ff-only
+docker compose --env-file .env.aws -f docker-compose.aws-dev.yml up -d --build
+```
+
+### 5) Keep Costs Near Zero
+
+- Stop EC2 when idle:
+
+```powershell
+pwsh ./deploy/aws/aws-demo-control.ps1 -Action stop -InstanceId <your-instance-id> -Region us-east-1
+```
+
+- Start only when you need demo access:
+
+```powershell
+pwsh ./deploy/aws/aws-demo-control.ps1 -Action start -InstanceId <your-instance-id> -Region us-east-1
+```
+
+Important:
+
+- AWS free tier has limits and expiry windows. Exceeding them may incur charges.
+- If you need strict zero billing risk, shut down the instance after each demo.

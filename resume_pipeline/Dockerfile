@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY resume_pipeline/requirements.txt .
+COPY requirements.txt .
 
 # Install Python dependencies with CPU-only PyTorch index
 RUN pip install --no-cache-dir --user \
@@ -39,7 +39,7 @@ ENV PATH=/root/.local/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1
 
 # Copy application code
-COPY resume_pipeline/ .
+COPY . .
 
 # Create data directory for uploaded files
 RUN mkdir -p /app/data/raw_files
