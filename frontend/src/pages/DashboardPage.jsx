@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Users, Briefcase, TrendingUp, AlertCircle } from 'lucide-react'
+import { Users, Briefcase, AlertCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../config/api'
 
@@ -136,7 +136,7 @@ export default function DashboardPage() {
             className="card"
           >
             <div className="flex items-center space-x-2 mb-4">
-              <TrendingUp className="w-6 h-6 text-green-400" />
+              <Briefcase className="w-6 h-6 text-green-400" />
               <h2 className="text-xl font-semibold">Job Recommendations</h2>
             </div>
             <div className="space-y-4">
@@ -145,18 +145,8 @@ export default function DashboardPage() {
                 <p className="text-2xl font-bold">{stats?.total_job_recommendations || 0}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-400 mb-2">Average Match Score</p>
-                <div className="flex items-center space-x-3">
-                  <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden\">
-                    <div 
-                      className="bg-gradient-to-r from-green-500 to-green-400 h-full rounded-full"
-                      style={{ width: `${stats?.avg_job_match || 0}%` }}
-                    ></div>
-                  </div>
-                  <span className="text-xl font-bold text-green-400">
-                    {(stats?.avg_job_match || 0).toFixed(1)}%
-                  </span>
-                </div>
+                <p className="text-sm text-gray-400">Match percentages are hidden in admin views.</p>
+                <p className="text-sm text-gray-400">Use applicant details and review notes for decision-making.</p>
               </div>
             </div>
           </motion.div>

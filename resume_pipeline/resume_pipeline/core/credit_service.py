@@ -201,10 +201,17 @@ class CreditService:
         
         # Check daily usage limit
         credits_today = getattr(stats, 'credits_used_today', 0)
-        if credits_today + cost > CREDIT_CONFIG['MAX_DAILY_CREDITS_USAGE']:
-            return False, f"Daily usage limit reached ({CREDIT_CONFIG['MAX_DAILY_CREDITS_USAGE']} credits/day)", {
+        max_daily_credits = int(CREDIT_CONFIG.get('MAX_DAILY_CREDITS_USAGE', 0) or 0)
+        if max_daily_credits > 0 and credits_today + cost > max_daily_credits:
+            remaining_today = max(0, max_daily_credits - credits_today)
+            return False, (
+                f"Daily usage limit reached ({credits_today}/{max_daily_credits} credits used today). "
+                f"Remaining today: {remaining_today}"
+            ), {
                 'credits': current_credits,
-                'daily_limit_reached': True
+                'daily_limit_reached': True,
+                'credits_used_today': credits_today,
+                'remaining_today': remaining_today,
             }
         
         # All checks passed
@@ -284,10 +291,19 @@ class CreditService:
         Admin function to add bonus credits.
         """
         account = self.get_or_create_account(applicant_id)
+        stats = self.db.query(CreditUsageStats).filter(
+            CreditUsageStats.account_id == account.id
+        ).first()
         
         account.current_credits = getattr(account, 'current_credits', 0) + amount
         account.total_earned = getattr(account, 'total_earned', 0) + amount
         account.admin_bonus_credits = getattr(account, 'admin_bonus_credits', 0) + amount
+
+        # Admin-added credits should be usable immediately. If daily credit usage cap is the
+        # blocker, release equivalent headroom for the same day.
+        if amount > 0 and stats:
+            used_today = getattr(stats, 'credits_used_today', 0)
+            stats.credits_used_today = max(0, used_today - amount)
         
         transaction = CreditTransaction(
             account_id=account.id,

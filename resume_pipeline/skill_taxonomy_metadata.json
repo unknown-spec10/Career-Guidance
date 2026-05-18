@@ -841,5 +841,157 @@
     "category": "programming",
     "related_skills": [],
     "market_demand": "very_low"
+  },
+  "rest api design": {
+    "skill_id": "skill_078",
+    "display_name": "REST API design",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "streaming (websockets)": {
+    "skill_id": "skill_079",
+    "display_name": "Streaming (WebSockets)",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "oauth2": {
+    "skill_id": "skill_080",
+    "display_name": "OAuth2",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "rate limiting": {
+    "skill_id": "skill_081",
+    "display_name": "Rate limiting",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "pgvector": {
+    "skill_id": "skill_082",
+    "display_name": "Pgvector",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "faiss": {
+    "skill_id": "skill_083",
+    "display_name": "FAISS",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "rag pipelines": {
+    "skill_id": "skill_084",
+    "display_name": "RAG pipelines",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "langchain": {
+    "skill_id": "skill_085",
+    "display_name": "LangChain",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "prompt engineering": {
+    "skill_id": "skill_086",
+    "display_name": "prompt engineering",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "chaining": {
+    "skill_id": "skill_087",
+    "display_name": "chaining",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "hallucination mitigation": {
+    "skill_id": "skill_088",
+    "display_name": "hallucination mitigation",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "context window optimization": {
+    "skill_id": "skill_089",
+    "display_name": "context window optimization",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "gemini": {
+    "skill_id": "skill_090",
+    "display_name": "Gemini",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "environment variable management": {
+    "skill_id": "skill_091",
+    "display_name": "environment variable management",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "horizontal vs vertical scaling concepts": {
+    "skill_id": "skill_092",
+    "display_name": "horizontal vs vertical scaling concepts",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "load balancing basics": {
+    "skill_id": "skill_093",
+    "display_name": "load balancing basics",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "monolith vs microservices architecture fundamentals": {
+    "skill_id": "skill_094",
+    "display_name": "monolith vs microservices architecture fundamentals",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "pdf parsing": {
+    "skill_id": "skill_095",
+    "display_name": "PDF parsing",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "data validation": {
+    "skill_id": "skill_096",
+    "display_name": "data validation",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
   }
 }

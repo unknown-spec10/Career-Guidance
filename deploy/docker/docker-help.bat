@@ -1,13 +1,19 @@
 @echo off
 REM Docker helper script for Career Guidance AI System
-REM Usage: docker-help.bat [command]
+REM Usage: deploy\docker\docker-help.bat [command]
 
 setlocal enabledelayedexpansion
+set "SCRIPT_DIR=%~dp0"
+set "COMPOSE_BASE=%SCRIPT_DIR%docker-compose.yml"
+set "DB_USER=%PG_USER%"
+if "%DB_USER%"=="" set "DB_USER=app_user"
+set "DB_NAME=%PG_DB%"
+if "%DB_NAME%"=="" set "DB_NAME=resumes"
 
 if "%1"=="" (
     echo Career Guidance AI - Docker Helper
     echo.
-    echo Usage: docker-help.bat [command]
+    echo Usage: deploy\docker\docker-help.bat [command]
     echo.
     echo Available commands:
     echo   build          - Build all Docker images
@@ -31,13 +37,13 @@ if "%1"=="" (
 
 if "%1"=="build" (
     echo Building Docker images...
-    docker-compose build
+    docker compose -f "%COMPOSE_BASE%" build
     goto end
 )
 
 if "%1"=="up" (
     echo Starting services...
-    docker-compose up -d
+    docker compose -f "%COMPOSE_BASE%" up -d
     echo.
     echo Services started! Access at:
     echo   Frontend: http://localhost
@@ -48,64 +54,64 @@ if "%1"=="up" (
 
 if "%1"=="down" (
     echo Stopping services...
-    docker-compose down
+    docker compose -f "%COMPOSE_BASE%" down
     echo Services stopped.
     goto end
 )
 
 if "%1"=="logs" (
-    docker-compose logs -f
+    docker compose -f "%COMPOSE_BASE%" logs -f
     goto end
 )
 
 if "%1"=="logs-backend" (
-    docker-compose logs -f backend
+    docker compose -f "%COMPOSE_BASE%" logs -f backend
     goto end
 )
 
 if "%1"=="logs-frontend" (
-    docker-compose logs -f frontend
+    docker compose -f "%COMPOSE_BASE%" logs -f frontend
     goto end
 )
 
 if "%1"=="logs-db" (
-    docker-compose logs -f db
+    docker compose -f "%COMPOSE_BASE%" logs -f db
     goto end
 )
 
 if "%1"=="ps" (
-    docker-compose ps
+    docker compose -f "%COMPOSE_BASE%" ps
     goto end
 )
 
 if "%1"=="shell-backend" (
     echo Connecting to backend shell...
-    docker-compose exec backend bash
+    docker compose -f "%COMPOSE_BASE%" exec backend bash
     goto end
 )
 
 if "%1"=="shell-db" (
-    echo Connecting to MySQL...
-    docker-compose exec db mysql -u root -p
+    echo Connecting to PostgreSQL...
+    docker compose -f "%COMPOSE_BASE%" exec db psql -U %DB_USER% -d %DB_NAME%
     goto end
 )
 
 if "%1"=="seed" (
     echo Seeding database with sample data...
-    docker-compose exec backend python scripts/seed_database.py
+    docker compose -f "%COMPOSE_BASE%" exec backend python scripts/seed_database.py
     echo Database seeded.
     goto end
 )
 
 if "%1"=="verify" (
     echo Verifying database integrity...
-    docker-compose exec backend python scripts/verify_data.py
+    docker compose -f "%COMPOSE_BASE%" exec backend python scripts/verify_data.py
     goto end
 )
 
 if "%1"=="clean" (
     echo Stopping and removing containers...
-    docker-compose down
+    docker compose -f "%COMPOSE_BASE%" down
     echo Containers removed.
     goto end
 )
@@ -114,7 +120,7 @@ if "%1"=="clean-all" (
     echo WARNING: This will delete all data including database!
     set /p confirm="Continue? (yes/no): "
     if "!confirm!"=="yes" (
-        docker-compose down -v
+        docker compose -f "%COMPOSE_BASE%" down -v
         echo All containers, volumes, and data removed.
     ) else (
         echo Cancelled.
@@ -144,7 +150,7 @@ if "%1"=="help" (
 )
 
 echo Unknown command: %1
-echo Run 'docker-help.bat help' for available commands
+echo Run 'deploy\docker\docker-help.bat help' for available commands
 
 :end
 endlocal

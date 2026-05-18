@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import ResultsPage from './pages/ResultsPage'
@@ -19,12 +19,11 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import StudentDashboard from './pages/StudentDashboard'
 import StudentProfile from './pages/StudentProfile'
 import InterviewPage from './pages/InterviewPage'
-import InterviewSessionPage from './pages/InterviewSessionPage'
+import LiveInterviewPage from './pages/LiveInterviewPage'
 import InterviewResultsPage from './pages/InterviewResultsPage'
 import LearningPathPage from './pages/LearningPathPage'
 import MyLearningPathsPage from './pages/MyLearningPathsPage'
 import TransactionHistoryPage from './pages/TransactionHistoryPage'
-import AdminCreditManagement from './pages/AdminCreditManagement'
 import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerProfile from './pages/EmployerProfile'
 import EmployerPostJob from './pages/EmployerPostJob'
@@ -36,6 +35,7 @@ import Footer from './components/Footer'
 import ErrorBoundary from './components/ErrorBoundary'
 import api from './config/api'
 import secureStorage from './utils/secureStorage'
+import { Sparkles } from 'lucide-react'
 
 function HomePage() {
   return (
@@ -49,6 +49,7 @@ function AppContent() {
   const location = useLocation()
   const hideNavbarPaths = ['/login', '/register', '/verify-email', '/verify-code', '/resend-verification', '/forgot-password', '/reset-password']
   const showNavbar = !hideNavbarPaths.includes(location.pathname)
+  const showAssistantLauncher = location.pathname !== '/ask'
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -105,7 +106,15 @@ function AppContent() {
             path="/dashboard/interview/:sessionId"
             element={
               <ProtectedRoute allowedRoles={['student']}>
-                <InterviewSessionPage />
+                <LiveInterviewPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/interview/live/:sessionId"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <LiveInterviewPage />
               </ProtectedRoute>
             }
           />
@@ -194,14 +203,6 @@ function AppContent() {
             }
           />
           <Route
-            path="/admin/credits"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <AdminCreditManagement />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/applicants"
             element={
               <ProtectedRoute allowedRoles={['admin']}>
@@ -218,6 +219,15 @@ function AppContent() {
           <Route path="/dashboard" element={<DashboardRouter />} />
         </Routes>
       </main>
+      {showAssistantLauncher && (
+        <Link
+          to="/ask"
+          aria-label="Open AI assistant"
+          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary-600 text-white shadow-lg shadow-primary-600/25 transition-transform duration-200 hover:scale-105 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 focus:ring-offset-white"
+        >
+          <Sparkles className="h-6 w-6" />
+        </Link>
+      )}
       <Footer />
     </div>
   )

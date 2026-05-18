@@ -37,7 +37,7 @@ services:
   # Backend Service
   backend:
     build:
-      context: ./resume_pipeline
+      context: ../../resume_pipeline
       dockerfile: Dockerfile
     container_name: career-guidance-backend
     environment:
@@ -59,8 +59,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data/raw_files:/app/data/raw_files
-      - ./resume_pipeline/logs:/app/logs
+      - ../../data/raw_files:/app/data/raw_files
+      - ../../resume_pipeline/logs:/app/logs
     networks:
       - career-network
     depends_on:
@@ -79,7 +79,7 @@ services:
   # Celery worker service for async embedding/indexing tasks
   worker:
     build:
-      context: ./resume_pipeline
+      context: ../../resume_pipeline
       dockerfile: Dockerfile
     container_name: career-guidance-worker
     command: celery -A resume_pipeline.celery_app:celery_app worker --loglevel=INFO --queues=embeddings,default
@@ -95,8 +95,8 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
     volumes:
-      - ./data/raw_files:/app/data/raw_files
-      - ./resume_pipeline/logs:/app/logs
+      - ../../data/raw_files:/app/data/raw_files
+      - ../../resume_pipeline/logs:/app/logs
     networks:
       - career-network
     depends_on:
@@ -109,7 +109,7 @@ services:
   # Frontend Service
   frontend:
     build:
-      context: ./frontend
+      context: ../../frontend
       dockerfile: Dockerfile
     container_name: career-guidance-frontend
     ports:

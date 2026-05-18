@@ -64,6 +64,7 @@ class Applicant(Base):
     job_applications = relationship('JobApplication', back_populates='applicant', cascade='all, delete-orphan')
     human_reviews = relationship('HumanReview', back_populates='applicant', cascade='all, delete-orphan')
     interview_sessions = relationship('InterviewSession', back_populates='applicant', cascade='all, delete-orphan')
+    live_interview_sessions = relationship('InterviewLiveSession', back_populates='applicant', cascade='all, delete-orphan')
     skill_assessments = relationship('SkillAssessment', back_populates='applicant', cascade='all, delete-orphan')
     learning_paths = relationship('LearningPath', back_populates='applicant', cascade='all, delete-orphan')
     credit_account = relationship('CreditAccount', uselist=False, cascade='all, delete-orphan')
@@ -368,6 +369,37 @@ class InterviewSession(Base):
     questions = relationship('InterviewQuestion', back_populates='session', cascade='all, delete-orphan')
     answers = relationship('InterviewAnswer', back_populates='session', cascade='all, delete-orphan')
     learning_paths = relationship('LearningPath', back_populates='source_session', foreign_keys='LearningPath.source_session_id')
+
+
+class InterviewLiveSession(Base):
+    """Real-time interview sessions proxied through Gemini Live API."""
+    __tablename__ = 'interview_live_sessions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    session_type = Column(String(64), default='technical', index=True)
+    difficulty_level = Column(String(32), default='medium', index=True)
+    status = Column(
+        Enum('created', 'active', 'paused', 'completed', 'failed', name='live_session_status'),
+        default='created',
+        index=True,
+    )
+
+    started_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    ends_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    credits_used = Column(Integer, default=0)
+
+    # Optional transcript snapshots for post-session analysis
+    user_transcript = Column(Text, nullable=True)
+    model_transcript = Column(Text, nullable=True)
+    notes = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    applicant = relationship('Applicant', back_populates='live_interview_sessions')
 
 
 class InterviewQuestion(Base):

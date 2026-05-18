@@ -17,13 +17,13 @@ import {
   BookOpen,
   Briefcase,
   Code,
-  Heart,
   Coins,
   ChevronRight,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
+import secureStorage from '../utils/secureStorage'
 
 export default function StudentProfile() {
   const navigate = useNavigate()
@@ -33,6 +33,7 @@ export default function StudentProfile() {
   const [profile, setProfile] = useState({
     full_name: '',
     email: '',
+    phone: '',
     jee_rank: null,
     cgpa: null,
     location: '',
@@ -43,14 +44,28 @@ export default function StudentProfile() {
   const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' })
   const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false })
   const [uploadingResume, setUploadingResume] = useState(false)
+  const [parsingResume, setParsingResume] = useState(false)
+  const [resumeStatusMessage, setResumeStatusMessage] = useState('')
+  const [resumeStatusType, setResumeStatusType] = useState('info')
   const [newSkill, setNewSkill] = useState('')
   const [creditInfo, setCreditInfo] = useState(null)
+  const [accountActive, setAccountActive] = useState(true)
 
   useEffect(() => {
     fetchProfile()
     fetchResumeData()
     fetchCreditInfo()
   }, [])
+
+  useEffect(() => {
+    if (!resumeData) return
+    setProfile((prev) => ({
+      ...prev,
+      full_name: prev.full_name?.trim() || resumeData?.personal_info?.name || resumeData?.display_name || '',
+      location: prev.location?.trim() || resumeData?.personal_info?.location || '',
+      phone: prev.phone?.trim() || resumeData?.personal_info?.phone || '',
+    }))
+  }, [resumeData])
 
   const fetchProfile = async () => {
     try {
@@ -59,11 +74,13 @@ export default function StudentProfile() {
         setProfile({
           full_name: response.data.name || '',
           email: response.data.email || '',
+          phone: response.data.phone || '',
           jee_rank: response.data.jee_rank || null,
           cgpa: response.data.cgpa || null,
           location: response.data.location || '',
           skills: response.data.skills || [],
         })
+        setAccountActive(response.data.is_active !== false)
       }
       setLoading(false)
     } catch (err) {
@@ -78,20 +95,77 @@ export default function StudentProfile() {
       const response = await api.get('/api/student/profile')
       if (response.data) {
         setResumeData(response.data)
+        setProfile((prev) => ({
+          ...prev,
+          full_name: prev.full_name?.trim() || response.data?.personal_info?.name || response.data?.display_name || '',
+          location: prev.location?.trim() || response.data?.personal_info?.location || '',
+          phone: prev.phone?.trim() || response.data?.personal_info?.phone || '',
+        }))
       }
     } catch (err) {
       console.error('Error fetching resume data:', err)
     }
   }
 
+  const hasParsedResumeData = (data) => {
+    if (!data) return false
+    const hasSummary = typeof data.summary === 'string' && data.summary.trim().length > 0
+    const hasEducation = Array.isArray(data.education) && data.education.length > 0
+    const hasExperience = Array.isArray(data.experience) && data.experience.length > 0
+    const hasSkills = Array.isArray(data.skills) && data.skills.length > 0
+    return hasSummary || hasEducation || hasExperience || hasSkills
+  }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const pollForParsedResume = async () => {
+    // Poll for up to ~60 seconds while parser updates student profile payload.
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await wait(5000)
+      try {
+        const response = await api.get('/api/student/profile')
+        if (response.data) {
+          setResumeData(response.data)
+        }
+        if (hasParsedResumeData(response.data)) {
+          setParsingResume(false)
+          setResumeStatusType('success')
+          setResumeStatusMessage('Parsing complete. Your profile has been updated.')
+          return
+        }
+      } catch (err) {
+        console.error('Error polling parsed resume data:', err)
+      }
+    }
+
+    setParsingResume(false)
+    setResumeStatusType('info')
+    setResumeStatusMessage('Parsing is taking longer than usual. Please refresh after a moment.')
+  }
+
   const fetchCreditInfo = async () => {
     try {
-      const response = await api.get('/api/credit/account')
+      const response = await api.get('/api/credits/balance')
       if (response.data) {
         setCreditInfo(response.data)
       }
     } catch (err) {
       console.error('Error fetching credit info:', err)
+    }
+  }
+
+  const handleDeactivateAccount = async () => {
+    const confirmed = window.confirm('Are you sure you want to deactivate your account?')
+    if (!confirmed) return
+
+    try {
+      await api.patch('/api/auth/deactivate')
+      showToast('Account deactivated successfully', 'success')
+      secureStorage.clear()
+      navigate('/login')
+    } catch (err) {
+      console.error('Error deactivating account:', err)
+      showToast(err.response?.data?.detail || 'Failed to deactivate account', 'error')
     }
   }
 
@@ -138,6 +212,9 @@ export default function StudentProfile() {
     if (!file) return
 
     setUploadingResume(true)
+    setParsingResume(false)
+    setResumeStatusType('info')
+    setResumeStatusMessage('Uploading resume...')
     try {
       const formData = new FormData()
       formData.append('resume', file)
@@ -146,12 +223,32 @@ export default function StudentProfile() {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
 
-      if (response.data?.db_id) {
-        showToast('Resume uploaded and parsed successfully', 'success')
-        fetchResumeData()
+      if (response.data?.applicant_id) {
+        setResumeStatusMessage('Resume uploaded. Parsing in progress...')
+        setParsingResume(true)
+
+        const parseResponse = await api.post(`/parse/${response.data.applicant_id}`, null, {
+          timeout: 120000,
+        })
+
+        if (parseResponse?.data?.status === 'queued') {
+          setResumeStatusType('info')
+          setResumeStatusMessage('Parsing queued. This may take up to a minute...')
+          await pollForParsedResume()
+          showToast('Resume uploaded. Parsing started.', 'success')
+        } else {
+          setParsingResume(false)
+          setResumeStatusType('success')
+          setResumeStatusMessage('Resume uploaded and parsed successfully.')
+          showToast('Resume uploaded and parsed successfully', 'success')
+          fetchResumeData()
+        }
       }
     } catch (err) {
       console.error('Error uploading resume:', err)
+      setParsingResume(false)
+      setResumeStatusType('error')
+      setResumeStatusMessage(err.response?.data?.detail || 'Failed to upload or parse resume.')
       showToast('Failed to upload resume', 'error')
     } finally {
       setUploadingResume(false)
@@ -207,27 +304,19 @@ export default function StudentProfile() {
 
   const fieldClass = 'w-full px-4 py-2.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition'
   const buttonClass = 'px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium'
+  const parsedSkills = Array.isArray(resumeData?.skills)
+    ? resumeData.skills
+      .map((skill) => (typeof skill === 'string' ? skill : skill?.name))
+      .filter(Boolean)
+    : []
+  const creditBalance = typeof creditInfo?.current_credits === 'number' ? creditInfo.current_credits : 0
+  const deepAnalysisCost = creditInfo?.costs?.deep_analysis || 5
+  const estimatedAnalyses = deepAnalysisCost > 0 ? Math.floor(creditBalance / deepAnalysisCost) : 0
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-blue-600">Career AI</h1>
-          <div className="flex items-center gap-4">
-            <div className="flex gap-3">
-              <button onClick={() => navigate('/dashboard')} className="text-gray-600 hover:text-gray-900">Dashboard</button>
-              <button onClick={() => navigate('/jobs')} className="text-gray-600 hover:text-gray-900">Jobs</button>
-              <button className="text-gray-900 font-semibold">My Profile</button>
-              <button onClick={() => navigate('/mentors')} className="text-gray-600 hover:text-gray-900">Mentors</button>
-            </div>
-            <button className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full" />
-          </div>
-        </div>
-      </nav>
-
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-6 py-12">
+      <div className="max-w-7xl mx-auto px-6 pt-24 pb-12">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
@@ -255,7 +344,7 @@ export default function StudentProfile() {
             </motion.button>
             <label className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-300 rounded-lg font-semibold text-gray-900 hover:bg-gray-50 transition cursor-pointer">
               <Upload className="w-4 h-4" />
-              {uploadingResume ? 'Uploading...' : 'Upload Resume'}
+              {uploadingResume ? 'Uploading...' : parsingResume ? 'Parsing...' : 'Upload Resume'}
               <input type="file" accept=".pdf" onChange={handleResumeUpload} hidden />
             </label>
             {editing && (
@@ -311,10 +400,6 @@ export default function StudentProfile() {
                   <Code className="w-4 h-4 inline mr-2" />
                   Skills
                 </a>
-                <a href="#health" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
-                  <Heart className="w-4 h-4 inline mr-2" />
-                  Health
-                </a>
                 <a href="#credits" className="block px-4 py-2 rounded-lg hover:bg-blue-700 transition">
                   <Coins className="w-4 h-4 inline mr-2" />
                   Credits
@@ -362,7 +447,9 @@ export default function StudentProfile() {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
                   <input
                     type="tel"
-                    placeholder="+1 (555) 0000-0000"
+                    value={profile.phone}
+                    onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                    placeholder="+91XXXXXXXXXX"
                     disabled={!editing}
                     className={fieldClass}
                   />
@@ -402,8 +489,8 @@ export default function StudentProfile() {
                   {resumeData.education.map((edu, idx) => (
                     <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <h4 className="font-bold text-gray-900">{edu.institution}</h4>
-                      <p className="text-sm text-gray-600">{edu.duration}</p>
-                      <p className="text-sm text-gray-700">{edu.field_of_study}</p>
+                      <p className="text-sm text-gray-600">{[edu.start_date, edu.end_date].filter(Boolean).join(' - ')}</p>
+                      <p className="text-sm text-gray-700">{[edu.degree, edu.field].filter(Boolean).join(' - ')}</p>
                     </div>
                   ))}
                 </div>
@@ -433,9 +520,9 @@ export default function StudentProfile() {
                 <div className="space-y-4">
                   {resumeData.experience.map((exp, idx) => (
                     <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <h4 className="font-bold text-gray-900">{exp.job_title}</h4>
+                      <h4 className="font-bold text-gray-900">{exp.title}</h4>
                       <p className="text-sm text-gray-700">{exp.company}</p>
-                      <p className="text-sm text-gray-600">{exp.duration}</p>
+                      <p className="text-sm text-gray-600">{[exp.start_date, exp.end_date].filter(Boolean).join(' - ')}</p>
                       <p className="text-sm text-gray-600 mt-2">{exp.description}</p>
                     </div>
                   ))}
@@ -453,6 +540,20 @@ export default function StudentProfile() {
                 </div>
                 <h3 className="text-2xl font-bold text-gray-900">Resume</h3>
               </div>
+
+              {resumeStatusMessage && (
+                <div
+                  className={`mb-6 rounded-lg border px-4 py-3 text-sm font-medium ${
+                    resumeStatusType === 'success'
+                      ? 'border-green-200 bg-green-50 text-green-800'
+                      : resumeStatusType === 'error'
+                        ? 'border-red-200 bg-red-50 text-red-800'
+                        : 'border-blue-200 bg-blue-50 text-blue-800'
+                  }`}
+                >
+                  {resumeStatusMessage}
+                </div>
+              )}
 
               {resumeData ? (
                 <div className="space-y-6">
@@ -486,13 +587,13 @@ export default function StudentProfile() {
 
               <div className="mb-6">
                 <div className="flex flex-wrap gap-3">
-                  {profile.skills.length > 0 ? (
-                    profile.skills.map((skill, idx) => (
+                  {(parsedSkills.length > 0 ? parsedSkills : profile.skills).length > 0 ? (
+                    (parsedSkills.length > 0 ? parsedSkills : profile.skills).map((skill, idx) => (
                       <div
                         key={idx}
                         className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-900 rounded-full font-medium border border-blue-300"
                       >
-                        {editing ? (
+                        {editing && parsedSkills.length === 0 ? (
                           <input
                             type="text"
                             value={skill}
@@ -532,44 +633,6 @@ export default function StudentProfile() {
               )}
             </section>
 
-            {/* Profile Health */}
-            <section id="health" className="bg-white border border-gray-200 rounded-lg p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
-                  <Heart className="w-5 h-5 text-red-600" />
-                </div>
-                <h3 className="text-2xl font-bold text-gray-900">Profile Health</h3>
-              </div>
-
-              <div className="text-center mb-8">
-                <div className="text-6xl font-bold text-blue-600 mb-2">850</div>
-                <p className="text-gray-600 font-medium">Health Score</p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-                  <span className="text-gray-700">Education details added</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-                  <span className="text-gray-700">Skills categorized</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-5 h-5 border-2 border-gray-400 rounded-full flex-shrink-0" />
-                  <span className="text-gray-600">Link LinkedIn profile</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-5 h-5 border-2 border-gray-400 rounded-full flex-shrink-0" />
-                  <span className="text-gray-600">Add a profile photo</span>
-                </div>
-              </div>
-
-              <button className="mt-6 w-full text-left px-4 py-3 text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-2">
-                Improve Recommendations <ChevronRight className="w-4 h-4" />
-              </button>
-            </section>
-
             {/* AI Credits */}
             <section id="credits" className="bg-white border border-gray-200 rounded-lg p-8">
               <div className="flex items-center gap-3 mb-6">
@@ -582,9 +645,12 @@ export default function StudentProfile() {
               {creditInfo ? (
                 <div>
                   <div className="text-center py-8 bg-yellow-50 rounded-lg border border-yellow-200 mb-6">
-                    <div className="text-5xl font-bold text-yellow-600 mb-2">{creditInfo.balance}</div>
+                    <div className="text-5xl font-bold text-yellow-600 mb-2">{creditBalance}</div>
                     <p className="text-gray-600 font-medium">Tokens remaining</p>
-                    <p className="text-sm text-gray-500 mt-1">Estimated 12 deep career analyses</p>
+                    <p className="text-sm text-gray-500 mt-1">Estimated {estimatedAnalyses} deep career analyses</p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Next refill in {creditInfo.next_refill_days}d {creditInfo.next_refill_hours}h
+                    </p>
                   </div>
                   <button className="w-full px-6 py-3 text-blue-600 hover:text-blue-700 font-semibold flex items-center justify-center gap-2">
                     View Transaction History <ChevronRight className="w-4 h-4" />
@@ -610,9 +676,11 @@ export default function StudentProfile() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-semibold text-gray-700">Account Status</p>
-                      <p className="text-lg font-bold text-green-600 mt-1">Active</p>
+                      <p className={`text-lg font-bold mt-1 ${accountActive ? 'text-green-600' : 'text-red-600'}`}>
+                        {accountActive ? 'Active' : 'Deactivated'}
+                      </p>
                     </div>
-                    <CheckCircle className="w-8 h-8 text-green-600" />
+                    <CheckCircle className={`w-8 h-8 ${accountActive ? 'text-green-600' : 'text-red-600'}`} />
                   </div>
                 </div>
 
@@ -686,7 +754,13 @@ export default function StudentProfile() {
                 {/* Danger Zone */}
                 <div className="p-6 bg-red-50 rounded-lg border border-red-200">
                   <h4 className="font-bold text-red-900 mb-4">Danger Zone</h4>
-                  <button className="w-full px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold">
+                  <button
+                    onClick={handleDeactivateAccount}
+                    disabled={!accountActive}
+                    className={`w-full px-6 py-3 text-white rounded-lg transition font-semibold ${
+                      accountActive ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-400 cursor-not-allowed'
+                    }`}
+                  >
                     Deactivate Account
                   </button>
                 </div>

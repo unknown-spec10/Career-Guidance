@@ -18,7 +18,6 @@ export default function InterviewLearningPathCard({
   totalModules,
   sessionType,
   onStart,
-  onCurriculum,
   loading
 }) {
   const progressPercent = totalModules > 0 ? Math.round((progress / totalModules) * 100) : 0
@@ -50,7 +49,7 @@ export default function InterviewLearningPathCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div>
         <LoadingButton
           loading={loading}
           disabled={loading}
@@ -60,13 +59,6 @@ export default function InterviewLearningPathCard({
         >
           Start Interview
         </LoadingButton>
-        <button
-          type="button"
-          onClick={() => onCurriculum(sessionType)}
-          className="h-10 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 transition-colors hover:border-primary-400 hover:text-primary-600"
-        >
-          View Curriculum
-        </button>
       </div>
     </article>
   )

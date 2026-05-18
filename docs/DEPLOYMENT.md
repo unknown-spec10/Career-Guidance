@@ -136,22 +136,22 @@ This project can run on a single AWS EC2 free-tier instance for personal demos.
 Recommended profile:
 
 - 1 EC2 instance (`t3.micro` or free-tier eligible equivalent)
-- Docker Compose with only `frontend` + `backend`
-- Reuse existing external PostgreSQL (for example Supabase) to avoid running DB on EC2
+- Docker Compose with `db` + `backend` + `frontend`
 - Keep async/background workers disabled for demo mode
 - Stop the instance when not in use
 
 ### Why this is cheapest
 
-- No managed AWS database service required.
+- No managed AWS database service required (PostgreSQL runs in the same EC2 host).
 - No load balancer required.
 - No always-on worker/queue required.
 - You can stop the instance between demos.
 
 ### Files Added for AWS
 
-- `docker-compose.aws-dev.yml` - lean runtime profile for EC2
-- `.env.aws.example` - environment template for AWS deployment
+- `deploy/docker/docker-compose.yml` - base Docker Compose stack
+- `deploy/docker/docker-compose.aws-dev.yml` - lean AWS override profile for EC2
+- `deploy/aws/.env.aws.example` - environment template for AWS deployment
 - `deploy/aws/ec2-user-data.sh` - optional instance bootstrap script
 - `deploy/aws/aws-demo-control.ps1` - start/stop/status helper
 
@@ -175,12 +175,12 @@ Optional user-data script:
 cd /opt
 git clone https://github.com/unknown-spec10/Career-Guidance.git career-guidance
 cd career-guidance
-cp .env.aws.example .env.aws
+cp deploy/aws/.env.aws.example .env.aws
 ```
 
 Edit `.env.aws` and set at least:
 
-- `PG_HOST`, `PG_USER`, `PG_PASSWORD`, `PG_DB`
+- `PG_USER`, `PG_PASSWORD`, `PG_DB` (`PG_HOST=db` for container-to-container networking)
 - `SECRET_KEY` (32+ chars)
 
 For zero external AI cost, keep:
@@ -192,8 +192,8 @@ For zero external AI cost, keep:
 ### 3) Build and Run
 
 ```bash
-docker compose --env-file .env.aws -f docker-compose.aws-dev.yml up -d --build
-docker compose -f docker-compose.aws-dev.yml ps
+docker compose --env-file .env.aws -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.aws-dev.yml up -d --build
+docker compose --env-file .env.aws -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.aws-dev.yml ps
 ```
 
 App URL:
@@ -205,7 +205,7 @@ App URL:
 ```bash
 cd /opt/career-guidance
 git pull --ff-only
-docker compose --env-file .env.aws -f docker-compose.aws-dev.yml up -d --build
+docker compose --env-file .env.aws -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.aws-dev.yml up -d --build
 ```
 
 ### 5) Keep Costs Near Zero

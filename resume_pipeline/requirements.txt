@@ -13,6 +13,7 @@ requests>=2.31.0
 httpx>=0.26.0
 celery>=5.4.0
 redis>=5.2.0
+websockets>=12.0
 
 # Configuration
 python-dotenv>=1.0.0

@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { 
   Shield, Briefcase, CheckCircle, XCircle, 
-  Clock, AlertTriangle, TrendingUp, LogOut, ArrowLeft 
+  Clock, AlertTriangle, TrendingUp, LogOut, ArrowLeft, Search, Coins, Plus, Minus
 } from 'lucide-react'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
@@ -22,6 +22,13 @@ export default function AdminReviewsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
+  const [applicantQuery, setApplicantQuery] = useState('')
+  const [applicants, setApplicants] = useState([])
+  const [selectedApplicant, setSelectedApplicant] = useState(null)
+  const [selectedApplicantCredits, setSelectedApplicantCredits] = useState(null)
+  const [creditAmount, setCreditAmount] = useState('')
+  const [creditReason, setCreditReason] = useState('')
+  const [creditLoading, setCreditLoading] = useState(false)
 
   const handleLogout = () => {
     secureStorage.clear()
@@ -31,7 +38,19 @@ export default function AdminReviewsPage() {
 
   useEffect(() => {
     fetchPendingReviews()
+    fetchApplicants()
   }, [])
+
+  const fetchApplicants = async () => {
+    try {
+      const response = await api.get('/api/applicants?limit=200')
+      const list = response.data?.applicants || []
+      setApplicants(list)
+    } catch (err) {
+      // Keep review page usable even if applicants lookup fails.
+      setApplicants([])
+    }
+  }
 
   const fetchPendingReviews = async () => {
     try {
@@ -71,6 +90,63 @@ export default function AdminReviewsPage() {
       await fetchPendingReviews()
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  const filteredApplicants = applicants.filter((applicant) => {
+    const query = applicantQuery.trim().toLowerCase()
+    if (!query) return true
+    const name = (applicant.display_name || '').toLowerCase()
+    const applicantId = (applicant.applicant_id || '').toLowerCase()
+    return name.includes(query) || applicantId.includes(query) || String(applicant.id).includes(query)
+  })
+
+  const handleCreditAdjustment = async () => {
+    if (!selectedApplicant) {
+      toast.error('Select an applicant first')
+      return
+    }
+
+    const amount = parseInt(creditAmount, 10)
+    if (Number.isNaN(amount) || amount === 0) {
+      toast.error('Enter a valid non-zero amount')
+      return
+    }
+
+    if (!creditReason.trim()) {
+      toast.error('Reason is required')
+      return
+    }
+
+    try {
+      setCreditLoading(true)
+      await api.post('/api/admin/credits/adjust', {
+        applicant_id: selectedApplicant.id,
+        amount,
+        reason: creditReason.trim(),
+      })
+      const creditResponse = await api.get(`/api/admin/credits/applicant/${selectedApplicant.id}`)
+      setSelectedApplicantCredits(creditResponse.data)
+      toast.success(`Credits updated for ${selectedApplicant.display_name || selectedApplicant.applicant_id || `Applicant #${selectedApplicant.id}`}`)
+      setCreditAmount('')
+      setCreditReason('')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to adjust credits')
+    } finally {
+      setCreditLoading(false)
+    }
+  }
+
+  const handleSelectApplicant = async (applicant) => {
+    setSelectedApplicant(applicant)
+    setSelectedApplicantCredits(null)
+    setCreditAmount('')
+    setCreditReason('')
+    try {
+      const creditResponse = await api.get(`/api/admin/credits/applicant/${applicant.id}`)
+      setSelectedApplicantCredits(creditResponse.data)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to fetch applicant credits')
     }
   }
 
@@ -217,6 +293,114 @@ export default function AdminReviewsPage() {
                 ))}
               </div>
             )}
+          </motion.div>
+
+          {/* Quick Credit Controls */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 5 }}
+            className="card"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold flex items-center space-x-2">
+                <Coins className="w-6 h-6 text-primary-400" />
+                <span>Applicant Credits</span>
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">Search Applicant</label>
+                <div className="relative mb-3">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={applicantQuery}
+                    onChange={(e) => setApplicantQuery(e.target.value)}
+                    placeholder="Name, applicant_id, or DB id"
+                    className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div className="max-h-52 overflow-auto border border-gray-200 rounded-lg">
+                  {filteredApplicants.slice(0, 20).map((applicant) => (
+                    <button
+                      key={applicant.id}
+                      onClick={() => handleSelectApplicant(applicant)}
+                      className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-b-0 transition-colors ${selectedApplicant?.id === applicant.id ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
+                    >
+                      <p className="font-medium text-gray-800">{applicant.display_name || `Applicant #${applicant.id}`}</p>
+                      <p className="text-xs text-gray-500">{applicant.applicant_id || `DB ID: ${applicant.id}`}</p>
+                    </button>
+                  ))}
+                  {filteredApplicants.length === 0 && (
+                    <p className="px-3 py-4 text-sm text-gray-500">No applicants found.</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">Selected Applicant</label>
+                <div className="mb-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
+                  {selectedApplicant ? (
+                    <>
+                      <p className="font-medium text-gray-800">{selectedApplicant.display_name || `Applicant #${selectedApplicant.id}`}</p>
+                      <p className="text-xs text-gray-500">{selectedApplicant.applicant_id || `DB ID: ${selectedApplicant.id}`}</p>
+                      <p className="text-sm text-gray-700 mt-2">
+                        Remaining Credits:{' '}
+                        <span className="font-semibold text-primary-600">
+                          {selectedApplicantCredits?.current_credits ?? '--'}
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-500">Pick an applicant from the list.</p>
+                  )}
+                </div>
+
+                <label className="block text-sm text-gray-600 mb-2">Amount</label>
+                <div className="flex items-center gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setCreditAmount('-10')}
+                    className="px-3 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="number"
+                    value={creditAmount}
+                    onChange={(e) => setCreditAmount(e.target.value)}
+                    placeholder="Use + for add, - for deduct"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCreditAmount('10')}
+                    className="px-3 py-2 border border-green-200 text-green-600 rounded-lg hover:bg-green-50"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <label className="block text-sm text-gray-600 mb-2">Reason</label>
+                <textarea
+                  value={creditReason}
+                  onChange={(e) => setCreditReason(e.target.value)}
+                  rows={3}
+                  placeholder="Reason for allocation/deallocation"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 mb-3"
+                />
+
+                <button
+                  onClick={handleCreditAdjustment}
+                  disabled={creditLoading}
+                  className="w-full px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {creditLoading ? 'Applying...' : 'Apply Credit Adjustment'}
+                </button>
+              </div>
+            </div>
           </motion.div>
 
         </div>

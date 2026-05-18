@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request, status
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request, status, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -8,12 +8,14 @@ from typing import Optional, List, Dict, Any
 from collections import defaultdict
 from time import time
 import os
+import socket
+from urllib.parse import urlparse
 from .utils import save_upload, sha256_file, sanitize_text, sanitize_dict, validate_email, sanitize_filename
 from .config import settings, IS_SUPABASE
 from .constants import (
     ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB,
     API_MESSAGES, DEFAULT_PAGE_SIZE,
-    INTERVIEW_CONFIG, INTERVIEW_SCORE_MULTIPLIERS
+    INTERVIEW_CONFIG, INTERVIEW_SCORE_MULTIPLIERS, LIVE_INTERVIEW_CONFIG
 )
 from .schemas import (
     UserRegister, UserLogin, Token, UserResponse,
@@ -24,11 +26,12 @@ from .schemas import (
     AnswerSubmit, AnswerEvaluation, SessionCompleteRequest, SessionCompleteResponse,
     SkillAssessmentCreate, SkillAssessmentResponse, LearningPathResponse,
     InterviewHistoryResponse, CreditAccountResponse, CreditTransactionResponse,
-    AdminCreditAdjustment
+    AdminCreditAdjustment, LiveInterviewStartRequest, LiveInterviewSessionResponse,
+    LiveInterviewEndRequest
 )
 from .auth import (
     get_password_hash, verify_password, create_access_token,
-    get_current_user, get_current_user_optional, require_role
+    get_current_user, get_current_user_optional, require_role, decode_access_token
 )
 from pathlib import Path
 import json
@@ -47,12 +50,50 @@ logger = logging.getLogger(__name__)
 # Runtime circuit breaker for async embedding queueing.
 # If broker/backend is unavailable, disable enqueue attempts for this process.
 _EMBEDDING_QUEUE_DISABLED = False
+_EMBEDDING_BROKER_UNAVAILABLE_LOGGED = False
+
+
+def _is_celery_broker_reachable(timeout_seconds: float = 0.35) -> bool:
+    """Fast connectivity check for Redis-backed Celery broker."""
+    global _EMBEDDING_BROKER_UNAVAILABLE_LOGGED
+
+    if settings.CELERY_TASK_ALWAYS_EAGER:
+        return True
+
+    broker_url = (settings.CELERY_BROKER_URL or "").strip()
+    lowered = broker_url.lower()
+
+    # Non-Redis brokers are not validated here; let Celery handle them.
+    if not (lowered.startswith("redis://") or lowered.startswith("rediss://")):
+        return True
+
+    parsed = urlparse(broker_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 6379
+
+    try:
+        with socket.create_connection((host, port), timeout=timeout_seconds):
+            return True
+    except OSError as exc:
+        if not _EMBEDDING_BROKER_UNAVAILABLE_LOGGED:
+            logger.warning(
+                "Celery broker unreachable at %s:%s (%s). Async queueing will be skipped.",
+                host,
+                port,
+                exc,
+            )
+            _EMBEDDING_BROKER_UNAVAILABLE_LOGGED = True
+        return False
 
 
 def enqueue_embedding_task(task_fn, *args) -> Optional[str]:
     """Queue embedding work without blocking API requests."""
     global _EMBEDDING_QUEUE_DISABLED
     if _EMBEDDING_QUEUE_DISABLED:
+        return None
+
+    if not _is_celery_broker_reachable():
+        _EMBEDDING_QUEUE_DISABLED = True
         return None
 
     try:
@@ -539,6 +580,27 @@ async def change_password(
     return {"status": "success", "message": "Password changed successfully"}
 
 
+@app.patch("/api/auth/deactivate")
+async def deactivate_account(
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Deactivate currently authenticated user account."""
+    from .db import User
+
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not getattr(user, 'is_active', True):
+        return {"status": "success", "message": "Account already deactivated"}
+
+    setattr(user, 'is_active', False)
+    db.commit()
+
+    return {"status": "success", "message": "Account deactivated successfully"}
+
+
 @app.get("/api/student/profile")
 async def get_student_profile(
     current_user = Depends(get_current_user),
@@ -547,10 +609,14 @@ async def get_student_profile(
     """Get student resume profile with parsed data"""
     from .db import Applicant, LLMParsedRecord
     
-    # Find applicant linked to this user
-    applicant = db.query(Applicant).filter(
-        Applicant.user_id == current_user.id
-    ).options(joinedload(Applicant.parsed_record)).first()
+    # Always use the latest applicant record linked to this user.
+    applicant = (
+        db.query(Applicant)
+        .filter(Applicant.user_id == current_user.id)
+        .options(joinedload(Applicant.parsed_record))
+        .order_by(desc(Applicant.id))
+        .first()
+    )
     
     if not applicant:
         # Return empty profile structure if no applicant found
@@ -584,17 +650,58 @@ async def get_student_profile(
     def get_list(key, default=[]):
         val = normalized.get(key, default)
         return val if isinstance(val, list) else default
+
+    skills = get_list("skills", [])
+    parsed_personal = normalized.get("personal_info") or normalized.get("personal", {})
+    if not isinstance(parsed_personal, dict):
+        parsed_personal = {}
+
+    auth_name = (getattr(current_user, 'name', None) or '').strip()
+    auth_phone = (getattr(current_user, 'phone', None) or '').strip()
+    auth_location = ''
+    if getattr(applicant, 'location_city', None):
+        auth_location = str(getattr(applicant, 'location_city')).strip()
+    if getattr(applicant, 'location_state', None):
+        state = str(getattr(applicant, 'location_state')).strip()
+        auth_location = f"{auth_location}, {state}" if auth_location else state
+
+    personal_info = {
+        "name": auth_name or (parsed_personal.get("name") or ""),
+        "email": (getattr(current_user, 'email', None) or '').strip() or (parsed_personal.get("email") or ""),
+        "phone": auth_phone or (parsed_personal.get("phone") or ""),
+        "location": auth_location or (parsed_personal.get("location") or ""),
+    }
+    summary = normalized.get("summary")
+
+    if not summary:
+        top_skills = []
+        for skill in skills[:5]:
+            if isinstance(skill, dict) and skill.get("name"):
+                top_skills.append(str(skill.get("name")))
+            elif isinstance(skill, str):
+                top_skills.append(skill)
+
+        person_name = personal_info.get("name") if isinstance(personal_info, dict) else None
+        if person_name and top_skills:
+            summary = f"{person_name} with skills in {', '.join(top_skills)}."
+        elif person_name:
+            summary = f"{person_name}'s resume has been parsed successfully."
+        elif top_skills:
+            summary = f"Parsed skills include {', '.join(top_skills)}."
+        else:
+            summary = "Resume parsed successfully."
     
     return {
         "applicant_id": applicant.id,
         "display_name": applicant.display_name or current_user.name,
-        "skills": get_list("skills", []),
+        "skills": skills,
         "education": get_list("education", []),
         "experience": get_list("experience", []),
         "projects": get_list("projects", []),
         "certifications": get_list("certifications", []),
         "jee_rank": normalized.get("jee_rank"),
-        "personal_info": normalized.get("personal_info", {})
+        "summary": summary,
+        "personal_info": personal_info,
     }
 
 
@@ -607,10 +714,14 @@ async def update_student_profile(
     """Update student resume profile"""
     from .db import Applicant, LLMParsedRecord
     
-    # Find applicant linked to this user
-    applicant = db.query(Applicant).filter(
-        Applicant.user_id == current_user.id
-    ).options(joinedload(Applicant.parsed_record)).first()
+    # Always use the latest applicant record linked to this user.
+    applicant = (
+        db.query(Applicant)
+        .filter(Applicant.user_id == current_user.id)
+        .options(joinedload(Applicant.parsed_record))
+        .order_by(desc(Applicant.id))
+        .first()
+    )
     
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant profile not found")
@@ -824,6 +935,7 @@ async def resend_verification_email(email: str = Body(..., embed=True), db: Sess
 
 
 @app.post("/upload")
+@app.post("/api/upload/resume")
 async def upload_resume(
     request: Request,
     resume: UploadFile = File(...),
@@ -1107,25 +1219,31 @@ async def parse_applicant(applicant_id: str, sync: bool = False, db: Session = D
 
         # Queue async embedding -> recommendation workflow.
         try:
-            from celery import chain
-            from .embedding_tasks import generate_recommendations_task, generate_resume_embedding_task
+            if _EMBEDDING_QUEUE_DISABLED or not _is_celery_broker_reachable():
+                logger.info(
+                    "Skipping embedding/recommendation queueing for applicant %s because broker is unavailable",
+                    applicant.id,
+                )
+            else:
+                from celery import chain
+                from .embedding_tasks import generate_recommendations_task, generate_resume_embedding_task
 
-            workflow = chain(
-                generate_resume_embedding_task.s(applicant.id),
-                generate_recommendations_task.s(applicant.id),
-            ).apply_async()
+                workflow = chain(
+                    generate_resume_embedding_task.s(applicant.id),
+                    generate_recommendations_task.s(applicant.id),
+                ).apply_async()
 
-            workflow_id = getattr(workflow, "id", None)
-            workflow_parent = getattr(workflow, "parent", None)
-            embedding_task_id = getattr(workflow_parent, "id", None)
+                workflow_id = getattr(workflow, "id", None)
+                workflow_parent = getattr(workflow, "parent", None)
+                embedding_task_id = getattr(workflow_parent, "id", None)
 
-            result['resume_embedding_task_id'] = embedding_task_id
-            result['recommendation_task_id'] = workflow_id
-            logger.info(
-                "Queued embedding->recommendation workflow %s for applicant %s",
-                workflow_id,
-                applicant.id,
-            )
+                result['resume_embedding_task_id'] = embedding_task_id
+                result['recommendation_task_id'] = workflow_id
+                logger.info(
+                    "Queued embedding->recommendation workflow %s for applicant %s",
+                    workflow_id,
+                    applicant.id,
+                )
         except Exception as e:
             logger.warning(f"Could not enqueue embedding/recommendation workflow for applicant {applicant.id}: {e}")
         
@@ -1863,16 +1981,8 @@ async def get_statistics(db: Session = Depends(get_db)):
             LLMParsedRecord.needs_review == True
         ).count()
     }
-    
-    # Average match scores
-    job_avg = db.query(func.avg(JobRecommendation.score)).scalar()
-    
-    avg_job = float(job_avg) if job_avg is not None else 0.0
-    
-    return {
-        **stats,
-        "avg_job_match": avg_job
-    }
+
+    return stats
 
 @app.patch("/api/job-recommendation/{rec_id}/status")
 def update_job_recommendation_status(
@@ -2764,15 +2874,26 @@ def start_interview_session(
             short_answer_count=short_count
         )
     except Exception as e:
-        logger.error(f"Error generating questions: {e}")
+        error_text = str(e)
+        logger.error(f"Error generating questions: {error_text}")
         # Refund credits on failure
         credit_service.add_bonus_credits(
             applicant_id=applicant_id_val,
             amount=cost,
             admin_email="system",
-            reason=f"Refund for failed session generation: {str(e)[:100]}"
+            reason=f"Refund for failed session generation: {error_text[:100]}"
         )
-        raise HTTPException(status_code=500, detail=f"Failed to generate questions: {str(e)}")
+
+        if "API_KEY_INVALID" in error_text or "INVALID_ARGUMENT" in error_text:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Failed to generate interview questions: Gemini API key is invalid or not authorized for the Generative Language API. "
+                    "Update GEMINI_API_KEY (Google AI Studio key) and ensure the API is enabled for that project."
+                )
+            )
+
+        raise HTTPException(status_code=500, detail=f"Failed to generate questions: {error_text}")
     
     # Build response
     session_dict = {
@@ -2847,8 +2968,19 @@ def get_interview_questions(
                 short_answer_count=short_count
             )
         except Exception as e:
-            logger.error(f"Error generating questions for session {session_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to generate questions: {str(e)}")
+            error_text = str(e)
+            logger.error(f"Error generating questions for session {session_id}: {error_text}")
+
+            if "API_KEY_INVALID" in error_text or "INVALID_ARGUMENT" in error_text:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Failed to generate interview questions: Gemini API key is invalid or not authorized for the Generative Language API. "
+                        "Update GEMINI_API_KEY (Google AI Studio key) and ensure the API is enabled for that project."
+                    )
+                )
+
+            raise HTTPException(status_code=500, detail=f"Failed to generate questions: {error_text}")
     
     # If session time has expired but status is still in_progress, extend the timer
     now = dt.datetime.utcnow()
@@ -3348,6 +3480,347 @@ def start_skill_assessment(
 
 
 # ============================================================
+# LIVE INTERVIEW ENDPOINTS (Gemini Live API Proxy)
+# ============================================================
+
+@app.post("/api/interviews/live/start", response_model=LiveInterviewSessionResponse)
+def start_live_interview_session(
+    payload: LiveInterviewStartRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Start a real-time interview session and reserve credits."""
+    from .db import InterviewLiveSession
+    from .core.credit_service import CreditService
+
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found")
+
+    credit_service = CreditService(db)
+    applicant_id_val = getattr(applicant, 'id', 0)
+    session_mode = payload.session_mode if payload.session_mode in ('full', 'micro') else 'full'
+    activity_type = 'micro_session' if session_mode == 'micro' else 'full_interview'
+    can_proceed, message, context = credit_service.check_eligibility(applicant_id_val, activity_type)
+    if not can_proceed:
+        raise HTTPException(status_code=429, detail=message)
+
+    duration_seconds = (
+        INTERVIEW_CONFIG['MICRO_SESSION_DURATION_SECONDS']
+        if session_mode == 'micro'
+        else LIVE_INTERVIEW_CONFIG['SESSION_DURATION_SECONDS']
+    )
+
+    now = dt.datetime.utcnow()
+    session_kwargs = {
+        'applicant_id': applicant_id_val,
+        'session_type': payload.session_type,
+        'difficulty_level': payload.difficulty_level,
+        'status': 'created',
+        'started_at': now,
+        'ends_at': now + dt.timedelta(seconds=duration_seconds),
+        'duration_seconds': duration_seconds,
+        'credits_used': int(context.get('cost', 10 if session_mode == 'full' else 1)),
+    }
+
+    # Keep compatibility across DB/schema versions where session_mode may not exist yet.
+    if hasattr(InterviewLiveSession, 'session_mode'):
+        session_kwargs['session_mode'] = session_mode
+
+    session = InterviewLiveSession(**session_kwargs)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    credit_service.spend_credits(
+        applicant_id=applicant_id_val,
+        activity_type=activity_type,
+        cost=int(context.get('cost', 10 if session_mode == 'full' else 1)),
+        reference_id=getattr(session, 'id', None),
+        reference_type='live_interview_session',
+        description=f"Started live {session_mode} {payload.session_type} interview",
+    )
+
+    return {
+        'id': session.id,
+        'applicant_id': getattr(session, 'applicant_id', 0),
+        'session_type': getattr(session, 'session_type', payload.session_type),
+        'session_mode': resolve_live_session_mode(session, fallback=session_mode),
+        'difficulty_level': getattr(session, 'difficulty_level', payload.difficulty_level),
+        'status': getattr(session, 'status', 'created'),
+        'started_at': getattr(session, 'started_at', now),
+        'ends_at': getattr(session, 'ends_at', None),
+        'completed_at': getattr(session, 'completed_at', None),
+        'duration_seconds': getattr(session, 'duration_seconds', None),
+        'credits_used': getattr(session, 'credits_used', 0),
+        'websocket_url': f"/ws/interviews/live/{session.id}",
+    }
+
+
+def resolve_live_session_mode(session: Any, fallback: str = 'full') -> str:
+    """Resolve the live interview mode even on databases that lack a dedicated column."""
+
+    session_mode = getattr(session, 'session_mode', None)
+    if session_mode in ('full', 'micro'):
+        return session_mode
+
+    credits_used = getattr(session, 'credits_used', None)
+    duration_seconds = getattr(session, 'duration_seconds', None)
+
+    if (
+        credits_used == 1
+        and duration_seconds == INTERVIEW_CONFIG['MICRO_SESSION_DURATION_SECONDS']
+    ):
+        return 'micro'
+
+    if (
+        credits_used == 1
+        and duration_seconds is not None
+        and duration_seconds <= INTERVIEW_CONFIG['MICRO_SESSION_DURATION_SECONDS']
+    ):
+        return 'micro'
+
+    return fallback
+
+
+@app.get("/api/interviews/live/session/{session_id}", response_model=LiveInterviewSessionResponse)
+def get_live_interview_session(
+    session_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Fetch current live session status."""
+    from .db import InterviewLiveSession
+
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found")
+
+    session = db.query(InterviewLiveSession).filter(
+        InterviewLiveSession.id == session_id,
+        InterviewLiveSession.applicant_id == applicant.id,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Live interview session not found")
+
+    return {
+        'id': session.id,
+        'applicant_id': getattr(session, 'applicant_id', 0),
+        'session_type': getattr(session, 'session_type', 'technical'),
+        'session_mode': resolve_live_session_mode(session),
+        'difficulty_level': getattr(session, 'difficulty_level', 'medium'),
+        'status': getattr(session, 'status', 'created'),
+        'started_at': getattr(session, 'started_at', dt.datetime.utcnow()),
+        'ends_at': getattr(session, 'ends_at', None),
+        'completed_at': getattr(session, 'completed_at', None),
+        'duration_seconds': getattr(session, 'duration_seconds', None),
+        'credits_used': getattr(session, 'credits_used', 0),
+        'websocket_url': f"/ws/interviews/live/{session.id}",
+    }
+
+
+@app.post("/api/interviews/live/{session_id}/end", response_model=LiveInterviewSessionResponse)
+def end_live_interview_session(
+    session_id: int,
+    payload: LiveInterviewEndRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """End a live session and persist transcript snapshots."""
+    from .db import InterviewLiveSession
+
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found")
+
+    session = db.query(InterviewLiveSession).filter(
+        InterviewLiveSession.id == session_id,
+        InterviewLiveSession.applicant_id == applicant.id,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Live interview session not found")
+
+    now = dt.datetime.utcnow()
+    if getattr(session, 'status', '') not in ('completed', 'failed'):
+        session.status = 'completed'  # type: ignore
+        session.completed_at = now  # type: ignore
+        session.user_transcript = payload.user_transcript  # type: ignore
+        session.model_transcript = payload.model_transcript  # type: ignore
+        session.notes = payload.notes  # type: ignore
+        db.commit()
+        db.refresh(session)
+
+    return {
+        'id': session.id,
+        'applicant_id': getattr(session, 'applicant_id', 0),
+        'session_type': getattr(session, 'session_type', 'technical'),
+        'session_mode': resolve_live_session_mode(session),
+        'difficulty_level': getattr(session, 'difficulty_level', 'medium'),
+        'status': getattr(session, 'status', 'completed'),
+        'started_at': getattr(session, 'started_at', now),
+        'ends_at': getattr(session, 'ends_at', None),
+        'completed_at': getattr(session, 'completed_at', now),
+        'duration_seconds': getattr(session, 'duration_seconds', None),
+        'credits_used': getattr(session, 'credits_used', 0),
+        'websocket_url': f"/ws/interviews/live/{session.id}",
+    }
+
+
+@app.get("/api/interviews/live/history")
+def get_live_interview_history(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Return recent live interview sessions for the authenticated applicant."""
+    from .db import InterviewLiveSession
+
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found")
+
+    sessions = db.query(InterviewLiveSession).filter(
+        InterviewLiveSession.applicant_id == applicant.id
+    ).order_by(desc(InterviewLiveSession.started_at)).limit(30).all()
+
+    completed = [s for s in sessions if getattr(s, 'status', None) == 'completed']
+    average_duration = 0
+    if completed:
+        durations = [getattr(s, 'duration_seconds', 0) or 0 for s in completed]
+        if durations:
+            average_duration = sum(durations) / len(durations)
+
+    now = dt.datetime.utcnow()
+    sessions_today = [s for s in sessions if getattr(s, 'started_at', now).date() == now.date()]
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "session_type": getattr(s, 'session_type', 'technical'),
+                "session_mode": resolve_live_session_mode(s),
+                "difficulty_level": getattr(s, 'difficulty_level', 'medium'),
+                "status": getattr(s, 'status', 'created'),
+                "started_at": getattr(s, 'started_at', dt.datetime.utcnow()),
+                "completed_at": getattr(s, 'completed_at', None),
+                "duration_seconds": getattr(s, 'duration_seconds', None),
+                "credits_used": getattr(s, 'credits_used', 0),
+            }
+            for s in sessions
+        ],
+        "total_sessions": len(sessions),
+        "completed_sessions": len(completed),
+        "average_duration_seconds": average_duration,
+        "average_score": 0,
+        "latest_score": 0,
+        "sessions_today": len(sessions_today),
+        "can_start_new": True,
+    }
+
+
+@app.websocket("/ws/interviews/live/{session_id}")
+async def live_interview_ws(
+    websocket: WebSocket,
+    session_id: int,
+    token: str = Query(...)
+):
+    """Proxy browser events through Groq speech and chat services and stream responses back."""
+    from .db import SessionLocal, User, Applicant, InterviewLiveSession
+    from .live_interview.groq_bridge import bridge_groq_live_stream
+    from .live_interview.groq_live_client import GroqLiveClient
+
+    db = SessionLocal()
+    try:
+        try:
+            payload = decode_access_token(token)
+        except HTTPException as exc:
+            await websocket.close(code=1008, reason=str(exc.detail or 'Unauthorized'))
+            return
+
+        subject = payload.get('sub')
+        if subject is None:
+            await websocket.close(code=1008, reason="Invalid token subject")
+            return
+
+        try:
+            user_id = int(subject)
+        except (TypeError, ValueError):
+            await websocket.close(code=1008, reason="Invalid token subject")
+            return
+
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            await websocket.close(code=1008, reason="Unauthorized")
+            return
+
+        applicant = db.query(Applicant).filter(Applicant.user_id == user.id).first()
+        if not applicant:
+            await websocket.close(code=1008, reason="Applicant profile not found")
+            return
+
+        session = db.query(InterviewLiveSession).filter(
+            InterviewLiveSession.id == session_id,
+            InterviewLiveSession.applicant_id == applicant.id,
+        ).first()
+        if not session:
+            await websocket.close(code=1008, reason="Invalid session")
+            return
+
+        await websocket.accept()
+        session.status = 'active'  # type: ignore
+        db.commit()
+
+        if not settings.GROQ_API_KEY:
+            await websocket.send_json({
+                "type": "error",
+                "message": "GROQ_API_KEY is not configured"
+            })
+            await websocket.close(code=1011, reason="Missing Groq key")
+            return
+
+        groq_client = GroqLiveClient(
+            api_key=settings.GROQ_API_KEY,
+            base_url=settings.GROQ_API_BASE_URL,
+            chat_model=settings.GROQ_CHAT_MODEL,
+            stt_model=settings.GROQ_STT_MODEL,
+            tts_model=settings.GROQ_TTS_MODEL,
+            tts_voice=settings.GROQ_TTS_VOICE,
+        )
+
+        await websocket.send_json({
+            "type": "control",
+            "action": "connected"
+        })
+
+        try:
+            await bridge_groq_live_stream(websocket, groq_client)
+        except WebSocketDisconnect:
+            raise
+        except Exception as e:
+            logger.error(f"Groq bridge stream error: {e}", exc_info=True)
+            raise
+
+    except WebSocketDisconnect:
+        logger.info("Live interview websocket disconnected for session %s", session_id)
+    except Exception as exc:
+        logger.exception("Live interview websocket failed: %s", exc)
+        try:
+            await websocket.send_json({"type": "error", "message": str(exc)})
+            await websocket.close(code=1011, reason="Live interview bridge failed")
+        except Exception:
+            pass
+    finally:
+        try:
+            session = db.query(InterviewLiveSession).filter(InterviewLiveSession.id == session_id).first()
+            if session and getattr(session, 'status', '') == 'active':
+                session.status = 'paused'  # type: ignore
+                db.commit()
+        except Exception:
+            pass
+
+        db.close()
+
+
+# ============================================================
 # CREDIT SYSTEM ENDPOINTS
 # ============================================================
 
@@ -3361,7 +3834,12 @@ def get_credit_balance(
     """
     from .core.credit_service import CreditService
     
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    applicant = (
+        db.query(Applicant)
+        .filter(Applicant.user_id == current_user.id)
+        .order_by(desc(Applicant.id))
+        .first()
+    )
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant profile not found")
     
@@ -3383,7 +3861,12 @@ def get_credit_transactions(
     """
     from .db import CreditAccount, CreditTransaction
     
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    applicant = (
+        db.query(Applicant)
+        .filter(Applicant.user_id == current_user.id)
+        .order_by(desc(Applicant.id))
+        .first()
+    )
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant profile not found")
     
@@ -3434,8 +3917,22 @@ def admin_adjust_credits(
     credit_service = CreditService(db)
     
     try:
+        # If a user has multiple applicant rows, always adjust the latest profile account
+        # to stay consistent with student dashboard credit reads.
+        target_applicant = db.query(Applicant).filter(Applicant.id == adjustment.applicant_id).first()
+        if not target_applicant:
+            raise HTTPException(status_code=404, detail="Applicant not found")
+
+        latest_applicant = (
+            db.query(Applicant)
+            .filter(Applicant.user_id == target_applicant.user_id)
+            .order_by(desc(Applicant.id))
+            .first()
+        )
+        effective_applicant_id = int(getattr(latest_applicant, 'id', adjustment.applicant_id))
+
         transaction = credit_service.add_bonus_credits(
-            applicant_id=adjustment.applicant_id,
+            applicant_id=effective_applicant_id,
             amount=adjustment.amount,
             admin_email=current_user.email,
             reason=adjustment.reason
@@ -3450,6 +3947,34 @@ def admin_adjust_credits(
     except Exception as e:
         logger.error(f"Error adjusting credits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/credits/applicant/{applicant_id}")
+def admin_get_applicant_credit_balance(
+    applicant_id: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to fetch credit balance/usage for a specific applicant."""
+    from .core.credit_service import CreditService
+
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+
+    latest_applicant = (
+        db.query(Applicant)
+        .filter(Applicant.user_id == applicant.user_id)
+        .order_by(desc(Applicant.id))
+        .first()
+    )
+    effective_applicant_id = int(getattr(latest_applicant, 'id', applicant_id))
+
+    credit_service = CreditService(db)
+    return credit_service.get_account_summary(effective_applicant_id)
 
 
 @app.post("/api/credits/award-bonus")

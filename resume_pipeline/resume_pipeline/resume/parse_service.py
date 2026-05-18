@@ -243,18 +243,26 @@ class ResumeParserService(ParserService):
                         from ..db import SessionLocal, CanonicalSkill
                         db_session = SessionLocal()
                         try:
+                            demand_to_score = {
+                                'high': 1.0,
+                                'medium': 0.6,
+                                'low': 0.3,
+                                'unknown': 0.0,
+                            }
                             for skill_key, metadata in added.items():
+                                display_name = metadata.get('display_name', skill_key)
+                                demand_level = str(metadata.get('market_demand', 'unknown')).lower()
+                                aliases = [skill_key] if skill_key.lower() != str(display_name).lower() else []
                                 existing = db_session.query(CanonicalSkill).filter(
-                                    CanonicalSkill.skill_id == metadata['skill_id']
+                                    CanonicalSkill.name == display_name
                                 ).first()
                                 if not existing:
                                     canonical_skill = CanonicalSkill(
-                                        skill_id=metadata['skill_id'],
-                                        name=metadata.get('display_name', skill_key),
+                                        name=display_name,
                                         category=metadata.get('category', 'other'),
-                                        aliases=[skill_key] if skill_key != metadata.get('display_name', '').lower() else [],
-                                        market_demand=metadata.get('market_demand', 'unknown'),
-                                        related_skills=metadata.get('related_skills', [])
+                                        aliases=aliases,
+                                        demand_level=demand_level,
+                                        market_score=demand_to_score.get(demand_level, 0.0),
                                     )
                                     db_session.add(canonical_skill)
                             db_session.commit()

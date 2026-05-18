@@ -190,7 +190,7 @@ docker run -d --name career-postgres `
 
 **Option B: Docker Compose (full stack)**
 ```powershell
-docker-compose up -d
+docker compose -f deploy/docker/docker-compose.yml up -d
 ```
 
 ---
@@ -533,11 +533,11 @@ For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ```powershell
 # From project root
-docker-compose up -d
+docker compose -f deploy/docker/docker-compose.yml up -d
 
 # Initialize database
-docker-compose exec backend python scripts/init_db.py
-docker-compose exec backend python scripts/seed_database.py
+docker compose -f deploy/docker/docker-compose.yml exec backend python scripts/init_db.py
+docker compose -f deploy/docker/docker-compose.yml exec backend python scripts/seed_database.py
 ```
 
 ### Pre-Deployment Checklist

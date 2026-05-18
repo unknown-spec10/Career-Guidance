@@ -17,6 +17,17 @@ Core workflow: Upload resume → Parse via Google Gemini → Store in PostgreSQL
 
 ```
 Career Guidence/
+├── deploy/                # Deployment + Docker orchestration
+│   ├── docker/
+│   │   ├── docker-compose.yml
+│   │   ├── docker-compose.aws-dev.yml
+│   │   ├── docker-help.sh
+│   │   └── docker-help.bat
+│   ├── scripts/
+│   │   ├── redeploy.ps1
+│   │   └── setup_dual_db.sh
+│   └── aws/
+│       └── .env.aws.example
 ├── frontend/              # React 18 + Vite 5 + Tailwind CSS (JavaScript/JSX)
 ├── resume_pipeline/       # FastAPI backend (Python 3.11)
 │   ├── resume_pipeline/   # Main package
@@ -37,7 +48,7 @@ Career Guidence/
 │   └── scripts/           # DB init/seed/verify helpers
 ├── data/raw_files/        # Per-applicant file storage (app_<uuid>/)
 ├── docs/                  # Architecture, database, deployment docs
-└── docker-compose.yml     # Full-stack Docker orchestration
+└── README.md
 ```
 
 ---

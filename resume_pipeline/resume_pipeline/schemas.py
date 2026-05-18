@@ -44,6 +44,7 @@ class UserResponse(BaseModel):
     id: int
     email: str
     name: Optional[str]
+    phone: Optional[str] = None
     role: str
     is_active: bool
     is_verified: bool
@@ -322,6 +323,39 @@ class InterviewHistoryResponse(BaseModel):
     sessions_today: int
     can_start_new: bool  # Based on credit & rate limits
     needs_retake: bool  # If latest > 6 months old
+
+
+class LiveInterviewStartRequest(BaseModel):
+    """Request payload to start a live interview session."""
+    session_type: str = Field("technical", pattern="^(technical|hr|behavioral|mixed)$")
+    difficulty_level: str = Field("medium", pattern="^(easy|medium|hard)$")
+    session_mode: str = Field("full", pattern="^(full|micro)$")
+
+
+class LiveInterviewSessionResponse(BaseModel):
+    """Live session metadata returned when creating or fetching a session."""
+    id: int
+    applicant_id: int
+    session_type: str
+    session_mode: Optional[str] = None
+    difficulty_level: str
+    status: str
+    started_at: datetime
+    ends_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    duration_seconds: Optional[int]
+    credits_used: int
+    websocket_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class LiveInterviewEndRequest(BaseModel):
+    """Payload used to close a live interview session and persist optional notes."""
+    user_transcript: Optional[str] = None
+    model_transcript: Optional[str] = None
+    notes: Optional[Dict[str, Any]] = None
 
 
 # ============================================================

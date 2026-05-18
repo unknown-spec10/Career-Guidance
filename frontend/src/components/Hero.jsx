@@ -108,9 +108,6 @@ export default function Hero() {
               >
                 Start Interview Practice
               </Link>
-              <Link to="/jobs" className="text-primary-700 font-semibold hover:text-primary-800 transition-colors">
-                Browse Jobs
-              </Link>
             </div>
 
             <p className="mt-4 text-sm text-gray-500">Free to start • No credit card required</p>

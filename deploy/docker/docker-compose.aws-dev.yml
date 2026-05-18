@@ -1,15 +1,19 @@
 services:
+  # AWS demo profile: start only core services by default (db + backend + frontend).
+  redis:
+    profiles: ["full"]
+
+  worker:
+    profiles: ["full"]
+
   backend:
-    build:
-      context: ./resume_pipeline
-      dockerfile: Dockerfile
-    container_name: career-guidance-backend
     environment:
-      PG_HOST: ${PG_HOST}
+      PORT: ${PORT:-8000}
+      PG_HOST: ${PG_HOST:-db}
       PG_PORT: ${PG_PORT:-5432}
-      PG_USER: ${PG_USER}
-      PG_PASSWORD: ${PG_PASSWORD}
-      PG_DB: ${PG_DB}
+      PG_USER: ${PG_USER:-app_user}
+      PG_PASSWORD: ${PG_PASSWORD:-root_password}
+      PG_DB: ${PG_DB:-resumes}
       SECRET_KEY: ${SECRET_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-true}
@@ -28,32 +32,12 @@ services:
       CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-true}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://localhost:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}
-    ports:
-      - "8000:8080"
-    volumes:
-      - ./data/raw_files:/app/data/raw_files
-      - ./resume_pipeline/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/api/stats', timeout=5)"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/stats', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    restart: unless-stopped
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: career-guidance-frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-    restart: unless-stopped

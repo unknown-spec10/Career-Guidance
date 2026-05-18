@@ -106,21 +106,28 @@ def sync_skills_to_db_async():
             metadata = json.load(f)
         
         synced_count = 0
+        demand_to_score = {
+            'high': 1.0,
+            'medium': 0.6,
+            'low': 0.3,
+            'unknown': 0.0,
+        }
         for skill_key, skill_id in taxonomy.items():
             meta = metadata.get(skill_key, {})
+            display_name = meta.get('display_name', skill_key)
+            demand_level = str(meta.get('market_demand', 'unknown')).lower()
             
             existing = db.query(CanonicalSkill).filter(
-                CanonicalSkill.skill_id == skill_id
+                CanonicalSkill.name == display_name
             ).first()
             
             if not existing:
                 canonical_skill = CanonicalSkill(
-                    skill_id=skill_id,
-                    name=meta.get('display_name', skill_key),
+                    name=display_name,
                     category=meta.get('category', 'other'),
-                    aliases=[skill_key] if skill_key != meta.get('display_name', '').lower() else [],
-                    market_demand=meta.get('market_demand', 'unknown'),
-                    related_skills=meta.get('related_skills', [])
+                    aliases=[skill_key] if skill_key.lower() != str(display_name).lower() else [],
+                    demand_level=demand_level,
+                    market_score=demand_to_score.get(demand_level, 0.0),
                 )
                 db.add(canonical_skill)
                 synced_count += 1

@@ -1,9 +1,16 @@
 #!/bin/bash
 
 # Docker helper script for Career Guidance AI System
-# Usage: ./docker-help.sh [command]
+# Usage: ./deploy/docker/docker-help.sh [command]
 
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE_BASE="$SCRIPT_DIR/docker-compose.yml"
+
+compose() {
+    docker compose -f "$COMPOSE_BASE" "$@"
+}
 
 # Colors for output
 RED='\033[0;31m'
@@ -15,7 +22,7 @@ print_help() {
     cat << EOF
 ${BLUE}Career Guidance AI - Docker Helper${NC}
 
-${GREEN}Usage:${NC} ./docker-help.sh [command]
+${GREEN}Usage:${NC} ./deploy/docker/docker-help.sh [command]
 
 ${GREEN}Available commands:${NC}
   build          - Build all Docker images
@@ -35,10 +42,10 @@ ${GREEN}Available commands:${NC}
   help           - Show this help message
 
 ${GREEN}Examples:${NC}
-  ./docker-help.sh build
-  ./docker-help.sh up
-  ./docker-help.sh logs-backend
-  ./docker-help.sh seed
+  ./deploy/docker/docker-help.sh build
+  ./deploy/docker/docker-help.sh up
+  ./deploy/docker/docker-help.sh logs-backend
+  ./deploy/docker/docker-help.sh seed
 EOF
 }
 
@@ -50,11 +57,11 @@ fi
 case "$1" in
     build)
         echo -e "${BLUE}Building Docker images...${NC}"
-        docker-compose build
+        compose build
         ;;
     up)
         echo -e "${BLUE}Starting services...${NC}"
-        docker-compose up -d
+        compose up -d
         echo ""
         echo -e "${GREEN}Services started! Access at:${NC}"
         echo "  Frontend: http://localhost"
@@ -63,51 +70,51 @@ case "$1" in
         ;;
     down)
         echo -e "${BLUE}Stopping services...${NC}"
-        docker-compose down
+        compose down
         echo -e "${GREEN}Services stopped.${NC}"
         ;;
     logs)
-        docker-compose logs -f
+        compose logs -f
         ;;
     logs-backend)
-        docker-compose logs -f backend
+        compose logs -f backend
         ;;
     logs-frontend)
-        docker-compose logs -f frontend
+        compose logs -f frontend
         ;;
     logs-db)
-        docker-compose logs -f db
+        compose logs -f db
         ;;
     ps)
-        docker-compose ps
+        compose ps
         ;;
     shell-backend)
         echo -e "${BLUE}Connecting to backend shell...${NC}"
-        docker-compose exec backend bash
+        compose exec backend bash
         ;;
     shell-db)
-        echo -e "${BLUE}Connecting to MySQL...${NC}"
-        docker-compose exec db mysql -u root -p
+        echo -e "${BLUE}Connecting to PostgreSQL...${NC}"
+        compose exec db psql -U ${PG_USER:-app_user} -d ${PG_DB:-resumes}
         ;;
     seed)
         echo -e "${BLUE}Seeding database with sample data...${NC}"
-        docker-compose exec backend python scripts/seed_database.py
+        compose exec backend python scripts/seed_database.py
         echo -e "${GREEN}Database seeded.${NC}"
         ;;
     verify)
         echo -e "${BLUE}Verifying database integrity...${NC}"
-        docker-compose exec backend python scripts/verify_data.py
+        compose exec backend python scripts/verify_data.py
         ;;
     clean)
         echo -e "${BLUE}Stopping and removing containers...${NC}"
-        docker-compose down
+        compose down
         echo -e "${GREEN}Containers removed.${NC}"
         ;;
     clean-all)
         echo -e "${RED}WARNING: This will delete all data including database!${NC}"
         read -p "Continue? (yes/no): " confirm
         if [ "$confirm" = "yes" ]; then
-            docker-compose down -v
+            compose down -v
             echo -e "${GREEN}All containers, volumes, and data removed.${NC}"
         else
             echo "Cancelled."
@@ -118,7 +125,7 @@ case "$1" in
         ;;
     *)
         echo -e "${RED}Unknown command: $1${NC}"
-        echo "Run './docker-help.sh help' for available commands"
+        echo "Run './deploy/docker/docker-help.sh help' for available commands"
         exit 1
         ;;
 esac

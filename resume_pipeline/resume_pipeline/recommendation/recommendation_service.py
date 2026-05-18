@@ -1,6 +1,9 @@
 """Job recommendation service with semantic skill matching support."""
 from typing import List, Dict, Optional, Tuple, Any
 import datetime as dt
+import re
+import socket
+from urllib.parse import urlparse
 import numpy as np
 from sqlalchemy.orm import Session, joinedload
 from ..config import settings
@@ -17,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 class RecommendationService:
     """Generate personalized job recommendations for an applicant."""
-    
+
+    _QUEUE_DISABLED = False
+
     def __init__(self, db: Session):
         self.db = db
         # Initialize semantic matcher (singleton, lazy loads embeddings)
@@ -30,6 +35,39 @@ class RecommendationService:
         except Exception as e:
             logger.error(f"Failed to initialize semantic matcher: {e}")
             self.semantic_matcher = None
+
+    def _is_celery_broker_reachable(self, timeout_seconds: float = 0.35) -> bool:
+        if settings.CELERY_TASK_ALWAYS_EAGER:
+            return True
+
+        broker_url = (settings.CELERY_BROKER_URL or '').strip().lower()
+        if not (broker_url.startswith('redis://') or broker_url.startswith('rediss://')):
+            return True
+
+        parsed = urlparse(settings.CELERY_BROKER_URL)
+        host = parsed.hostname or 'localhost'
+        port = parsed.port or 6379
+
+        try:
+            with socket.create_connection((host, port), timeout=timeout_seconds):
+                return True
+        except OSError:
+            return False
+
+    def _enqueue_embedding_task_safe(self, task_fn, *args) -> None:
+        if RecommendationService._QUEUE_DISABLED:
+            return
+
+        if not self._is_celery_broker_reachable():
+            RecommendationService._QUEUE_DISABLED = True
+            logger.info("Skipping embedding task enqueue because broker is unavailable")
+            return
+
+        try:
+            task_fn.delay(*args)
+        except Exception as exc:
+            RecommendationService._QUEUE_DISABLED = True
+            logger.info("Skipping embedding task enqueue after queue error: %s", exc)
         
     def get_recommendations(self, applicant_id: int) -> Dict:
         """Get job recommendations for an applicant."""
@@ -213,7 +251,7 @@ class RecommendationService:
             logger.info("Vector retrieval fallback: missing applicant embedding for %s", applicant_id)
             try:
                 from ..embedding_tasks import generate_resume_embedding_task
-                generate_resume_embedding_task.delay(applicant_id)
+                self._enqueue_embedding_task_safe(generate_resume_embedding_task, applicant_id)
             except Exception as exc:
                 logger.warning("Could not enqueue cold-start applicant embedding task for %s: %s", applicant_id, exc)
             return base_query.all()
@@ -234,7 +272,7 @@ class RecommendationService:
                 from ..embedding_tasks import generate_job_embedding_task
                 missing_jobs = base_query.limit(max(settings.VECTOR_RETRIEVAL_MIN_CANDIDATES, 50)).all()
                 for job in missing_jobs:
-                    generate_job_embedding_task.delay(job.id)
+                    self._enqueue_embedding_task_safe(generate_job_embedding_task, job.id)
             except Exception as exc:
                 logger.warning("Could not enqueue cold-start job embedding tasks: %s", exc)
             return base_query.all()
@@ -484,6 +522,12 @@ class RecommendationService:
     def _calculate_job_skills_match_semantic(self, applicant_skills: List, job: Job) -> Tuple[float, Dict]:
         """Semantic skill matching using Google embeddings with MiniLM fallback."""
         try:
+            def _normalize_skill_text(value: str) -> str:
+                return " ".join((value or "").strip().lower().split())
+
+            def _tokenize(value: str) -> List[str]:
+                return [t for t in re.split(r"[^a-z0-9#+.-]+", _normalize_skill_text(value)) if t]
+
             applicant_skill_list = []
             for skill in applicant_skills:
                 skill_name = skill.get('name', '') if isinstance(skill, dict) else str(skill)
@@ -498,6 +542,12 @@ class RecommendationService:
 
             if not required_skill_list:
                 return 0.5, {"skills_score": 0.5, "matched_skills": [], "missing_skills": []}
+
+            applicant_norm_set = {
+                _normalize_skill_text(skill_name)
+                for skill_name in applicant_skill_list
+                if _normalize_skill_text(skill_name)
+            }
 
             applicant_payload = self._build_applicant_embedding_payload(applicant_skills)
             job_payload = self._build_job_embedding_payload(job)
@@ -516,15 +566,42 @@ class RecommendationService:
             per_required_scores: Dict[str, float] = {}
 
             threshold = settings.SEMANTIC_SIMILARITY_THRESHOLD
-            partial_threshold = max(0.0, threshold - 0.1)
+            canonical_threshold = max(0.85, threshold)
+            strict_threshold = max(0.92, threshold + 0.12)
+            partial_threshold = max(0.87, strict_threshold - 0.03)
 
-            applicant_skill_vectors: List[Tuple[str, Any]] = []
+            applicant_skill_vectors: List[Tuple[str, Any, List[str]]] = []
             for skill in applicant_skill_list:
                 vec, _provider = self.semantic_matcher.embed_text(skill)
                 if vec is not None:
-                    applicant_skill_vectors.append((skill, vec))
+                    applicant_skill_vectors.append((skill, vec, _tokenize(skill)))
+
+            applicant_canonical_set = set()
+            for skill in applicant_skill_list:
+                canonical, confidence = self.semantic_matcher.find_canonical_skill(skill, threshold=canonical_threshold)
+                if canonical and confidence >= canonical_threshold:
+                    applicant_canonical_set.add(_normalize_skill_text(canonical))
 
             for req in required_skill_list:
+                req_norm = _normalize_skill_text(req)
+
+                # Deterministic lexical match first to avoid semantic false positives.
+                if req_norm in applicant_norm_set:
+                    matched_skills.append(req)
+                    per_required_scores[req] = 1.0
+                    continue
+
+                # Canonical taxonomy match next (strict confidence).
+                req_canonical, req_confidence = self.semantic_matcher.find_canonical_skill(req, threshold=canonical_threshold)
+                if (
+                    req_canonical
+                    and req_confidence >= canonical_threshold
+                    and _normalize_skill_text(req_canonical) in applicant_canonical_set
+                ):
+                    matched_skills.append(req)
+                    per_required_scores[req] = round(float(req_confidence), 3)
+                    continue
+
                 req_vec, _req_provider = self.semantic_matcher.embed_text(req)
                 if req_vec is None or not applicant_skill_vectors:
                     missing_skills.append(req)
@@ -532,16 +609,24 @@ class RecommendationService:
                     continue
 
                 best_sim = -1.0
-                for _skill, app_vec in applicant_skill_vectors:
+                best_tokens: List[str] = []
+                for _skill, app_vec, skill_tokens in applicant_skill_vectors:
                     sim = self.semantic_matcher.cosine_similarity(req_vec, app_vec)
-                    best_sim = max(best_sim, sim)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_tokens = skill_tokens
 
                 sim_01 = (best_sim + 1.0) / 2.0
                 per_required_scores[req] = round(sim_01, 3)
+                req_tokens = _tokenize(req)
+                token_overlap = 0.0
+                if req_tokens and best_tokens:
+                    overlap_count = len(set(req_tokens) & set(best_tokens))
+                    token_overlap = overlap_count / max(1, len(set(req_tokens)))
 
-                if sim_01 >= threshold:
+                if sim_01 >= strict_threshold:
                     matched_skills.append(req)
-                elif sim_01 >= partial_threshold:
+                elif sim_01 >= partial_threshold and token_overlap >= 0.34:
                     partial_matches.append(req)
                 else:
                     missing_skills.append(req)

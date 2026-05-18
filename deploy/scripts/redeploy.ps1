@@ -1,12 +1,12 @@
 # ============================================================
 # Career Guidance AI - Redeploy Script
 # ============================================================
-# Usage: .\redeploy.ps1 [backend|frontend|all]
+# Usage: .\deploy\scripts\redeploy.ps1 [backend|frontend|all]
 # Examples:
-#   .\redeploy.ps1 backend    # Redeploy only backend
-#   .\redeploy.ps1 frontend   # Redeploy only frontend
-#   .\redeploy.ps1 all        # Redeploy both
-#   .\redeploy.ps1             # Default: redeploy both
+#   .\deploy\scripts\redeploy.ps1 backend    # Redeploy only backend
+#   .\deploy\scripts\redeploy.ps1 frontend   # Redeploy only frontend
+#   .\deploy\scripts\redeploy.ps1 all        # Redeploy both
+#   .\deploy\scripts\redeploy.ps1            # Default: redeploy both
 # ============================================================
 
 param(
@@ -17,8 +17,10 @@ param(
 $PROJECT_ID = "resume-app-10864"
 $REGION = "asia-south1"
 $BACKEND_SERVICE = "career-guidance-backend"
-$BACKEND_PATH = "D:\Career Guidence\resume_pipeline"
-$FRONTEND_PATH = "D:\Career Guidence\frontend"
+$SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$REPO_ROOT = [string](Resolve-Path (Join-Path $SCRIPT_DIR "..\.."))
+$BACKEND_PATH = Join-Path $REPO_ROOT "resume_pipeline"
+$FRONTEND_PATH = Join-Path $REPO_ROOT "frontend"
 
 # Colors for output
 $GREEN = "`e[32m"
@@ -53,7 +55,7 @@ function Redeploy-All {
     if ($Service -eq "backend" -or $Service -eq "all") {
         Redeploy-Backend
     }
-    
+
     if ($Service -eq "frontend" -or $Service -eq "all") {
         Redeploy-Frontend
     }
@@ -62,13 +64,13 @@ function Redeploy-All {
 # Backend redeploy
 function Redeploy-Backend {
     Log-Header "🔄 Redeploying Backend to Cloud Run"
-    
+
     try {
         Push-Location $BACKEND_PATH
-        
+
         Log-Info "Starting backend deployment..."
         Log-Warn "This may take 5-10 minutes"
-        
+
         gcloud run deploy $BACKEND_SERVICE `
             --source . `
             --region $REGION `
@@ -78,17 +80,17 @@ function Redeploy-Backend {
             --cpu 1 `
             --allow-unauthenticated `
             --quiet
-        
+
         if ($LASTEXITCODE -eq 0) {
             Log-Info "Backend deployed successfully!"
             Log-Info "Fetching service URL..."
-            
+
             $serviceUrl = gcloud run services describe $BACKEND_SERVICE `
                 --region $REGION `
                 --format="value(status.url)"
-            
+
             Log-Info "Backend URL: $serviceUrl"
-            
+
             # Update frontend .env.production if needed
             if (Test-Path "$FRONTEND_PATH\.env.production") {
                 Log-Info "Updating frontend backend URL..."
@@ -99,7 +101,7 @@ function Redeploy-Backend {
             Log-Error "Backend deployment failed"
             exit 1
         }
-        
+
         Pop-Location
     }
     catch {
@@ -112,18 +114,18 @@ function Redeploy-Backend {
 # Frontend redeploy
 function Redeploy-Frontend {
     Log-Header "🔄 Redeploying Frontend to Firebase Hosting"
-    
+
     try {
         Push-Location $FRONTEND_PATH
-        
+
         # Check if .env.production exists and has backend URL
         if (-not (Test-Path ".env.production")) {
             Log-Error ".env.production not found!"
-            Log-Warn "Run redeploy.ps1 backend first to generate backend URL"
+            Log-Warn "Run .\deploy\scripts\redeploy.ps1 backend first to generate backend URL"
             Pop-Location
             return
         }
-        
+
         Log-Info "Reading backend URL from .env.production..."
         $envContent = Get-Content ".env.production"
         if ($envContent -match "VITE_API_URL=") {
@@ -134,30 +136,30 @@ function Redeploy-Frontend {
             Pop-Location
             return
         }
-        
+
         Log-Info "Installing dependencies (if needed)..."
         npm install 2>&1 | Out-Null
-        
+
         Log-Info "Building frontend with production configuration..."
         npm run build
-        
+
         if ($LASTEXITCODE -ne 0) {
             Log-Error "Frontend build failed"
             Pop-Location
             exit 1
         }
-        
+
         Log-Info "Deploying to Firebase Hosting..."
         Log-Warn "This may take 2-5 minutes"
-        
+
         firebase deploy --only hosting --project $PROJECT_ID
-        
+
         if ($LASTEXITCODE -eq 0) {
             Log-Info "Frontend deployed successfully!"
             Log-Info "Fetching hosting URL..."
-            
+
             $hostingUrl = firebase hosting:sites:list --project $PROJECT_ID --format "table[no-heading](defaultUrl)" 2>&1 | Select-Object -First 1
-            
+
             if ($hostingUrl) {
                 Log-Info "Frontend URL: $hostingUrl"
             }
@@ -167,7 +169,7 @@ function Redeploy-Frontend {
             Pop-Location
             exit 1
         }
-        
+
         Pop-Location
     }
     catch {
@@ -189,14 +191,14 @@ function Validate-Service {
 # Pre-flight checks
 function Pre-Flight-Checks {
     Log-Header "🔍 Running Pre-Flight Checks"
-    
+
     # Check gcloud
     if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
         Log-Error "gcloud CLI not found. Please install Google Cloud SDK."
         exit 1
     }
     Log-Info "gcloud CLI found"
-    
+
     # Check firebase (if frontend deploy)
     if ($Service -eq "frontend" -or $Service -eq "all") {
         if (-not (Get-Command firebase -ErrorAction SilentlyContinue)) {
@@ -205,7 +207,7 @@ function Pre-Flight-Checks {
         }
         Log-Info "Firebase CLI found"
     }
-    
+
     # Check npm (if frontend deploy)
     if ($Service -eq "frontend" -or $Service -eq "all") {
         if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
@@ -214,7 +216,7 @@ function Pre-Flight-Checks {
         }
         Log-Info "npm found"
     }
-    
+
     # Check backend path
     if ($Service -eq "backend" -or $Service -eq "all") {
         if (-not (Test-Path "$BACKEND_PATH\requirements.txt")) {
@@ -223,7 +225,7 @@ function Pre-Flight-Checks {
         }
         Log-Info "Backend path verified"
     }
-    
+
     # Check frontend path
     if ($Service -eq "frontend" -or $Service -eq "all") {
         if (-not (Test-Path "$FRONTEND_PATH\package.json")) {
@@ -232,20 +234,20 @@ function Pre-Flight-Checks {
         }
         Log-Info "Frontend path verified"
     }
-    
+
     Log-Info "All checks passed`n"
 }
 
 # Display summary
 function Show-Summary {
     Log-Header "📋 Deployment Summary"
-    
+
     Log-Info "Project ID: $PROJECT_ID"
     Log-Info "Region: $REGION"
     Log-Info "Service: $Service"
     Log-Info "Backend path: $BACKEND_PATH"
     Log-Info "Frontend path: $FRONTEND_PATH"
-    
+
     Write-Host "`nDeploying..." -ForegroundColor Cyan
 }
 
@@ -253,19 +255,19 @@ function Show-Summary {
 function Main {
     # Validate input
     Validate-Service
-    
+
     # Show welcome
     Log-Header "🚀 Career Guidance AI - Redeploy Script"
-    
+
     # Pre-flight checks
     Pre-Flight-Checks
-    
+
     # Show summary
     Show-Summary
-    
+
     # Execute redeployment
     Redeploy-All
-    
+
     # Final summary
     Log-Header "✅ Deployment Complete"
     Log-Info "Frontend: https://resume-app-10864.web.app"

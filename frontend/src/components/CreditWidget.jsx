@@ -9,6 +9,31 @@ const CreditWidget = () => {
   const [showModal, setShowModal] = useState(false)
   const [showUsageDetails, setShowUsageDetails] = useState(false)
 
+  const closeModal = () => {
+    setShowModal(false)
+    setShowUsageDetails(false)
+  }
+
+  useEffect(() => {
+    if (!showModal) return undefined
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeModal()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [showModal])
+
   useEffect(() => {
     fetchCredits()
     // Refresh every 30 seconds
@@ -100,12 +125,14 @@ const CreditWidget = () => {
       {/* Details Modal */}
       <AnimatePresence>
         {showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowModal(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={closeModal}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
               className="flex w-full max-w-xl max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
             >
               {/* Modal Header */}
@@ -117,7 +144,7 @@ const CreditWidget = () => {
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">Manage your interview practice quota</p>
                 </div>
-                <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded-lg text-gray-600 hover:text-gray-900 transition-colors">
+                <button onClick={closeModal} className="p-1 hover:bg-gray-100 rounded-lg text-gray-600 hover:text-gray-900 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>

@@ -97,10 +97,17 @@ INTERVIEW_CONFIG = {
     'MAX_SESSIONS_PER_DAY': 10,  # Max any interview sessions per day
 }
 
+LIVE_INTERVIEW_CONFIG = {
+    'SESSION_DURATION_SECONDS': 1800,  # 30 minutes
+    'HEARTBEAT_SECONDS': 20,
+    'START_ACTIVITY_TYPE': 'full_interview',  # Reuse existing credit policy
+}
+
 # Credit-Based Quota System
 CREDIT_CONFIG = {
     # Credit costs
     'FULL_MOCK_INTERVIEW_COST': 10,  # 1 full interview = 10 credits
+    'LIVE_INTERVIEW_COST': 10,  # 1 live interview = 10 credits
     'MICRO_SESSION_COST': 1,  # 1 micro-session (1 question) = 1 credit
     'CODING_QUESTION_COST': 1,  # 1 Gemini coding question = 1 credit
     'PROJECT_IDEA_COST': 2,  # 1 project idea generation = 2 credits
@@ -108,7 +115,7 @@ CREDIT_CONFIG = {
     
     # Credit limits (free tier)
     'DEFAULT_WEEKLY_CREDITS': 60,  # 60 credits per week (4 full + 20 micro)
-    'MAX_DAILY_CREDITS_USAGE': 30,  # Max 30 credits per day to prevent abuse
+    'MAX_DAILY_CREDITS_USAGE': 0,  # <= 0 disables daily credit cap (temporary)
     'CREDITS_REFILL_DAYS': 7,  # Refill every 7 days from last refill
     
     # Session limits

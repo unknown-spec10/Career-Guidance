@@ -273,7 +273,7 @@ OUTPUT FORMAT - Return ONLY this JSON structure, nothing else:
 
 Generate {mcq_count} unique, challenging MCQ questions about {focus_str}. Return ONLY valid JSON."""
 
-        url = f"{self.base_url}/models/{settings.GEMINI_LARGE_MODEL}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/models/{settings.GEMINI_INTERVIEW_MODEL}:generateContent?key={self.api_key}"
         headers = {"Content-Type": "application/json"}
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -291,8 +291,38 @@ Generate {mcq_count} unique, challenging MCQ questions about {focus_str}. Return
             r = requests.post(url, headers=headers, json=body, timeout=90)
             
             if r.status_code != 200:
-                print(f"❌ Gemini API error: {r.status_code} - {r.text[:500]}")
-                return {"error": f"Gemini API error: {r.status_code}", "questions": []}
+                error_text = r.text[:500]
+                error_status = None
+                error_reason = None
+                error_message = None
+                try:
+                    error_payload = r.json()
+                    error_obj = error_payload.get("error", {}) if isinstance(error_payload, dict) else {}
+                    error_status = error_obj.get("status")
+                    error_message = error_obj.get("message")
+                    details = error_obj.get("details")
+                    if isinstance(details, list):
+                        for detail in details:
+                            if isinstance(detail, dict) and detail.get("reason"):
+                                error_reason = detail.get("reason")
+                                break
+                except Exception:
+                    pass
+
+                print(f"❌ Gemini API error: {r.status_code} - {error_text}")
+
+                detail_parts = [f"http={r.status_code}"]
+                if error_status:
+                    detail_parts.append(f"status={error_status}")
+                if error_reason:
+                    detail_parts.append(f"reason={error_reason}")
+                if error_message:
+                    detail_parts.append(f"message={error_message}")
+
+                return {
+                    "error": "Gemini API error: " + " | ".join(detail_parts),
+                    "questions": []
+                }
             
             result = r.json()
             if 'candidates' in result and len(result['candidates']) > 0:
@@ -379,7 +409,7 @@ Provide evaluation in JSON format:
 
 Be fair but strict. Award partial credit for partially correct answers."""
 
-        url = f"{self.base_url}/models/{settings.GEMINI_LARGE_MODEL}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/models/{settings.GEMINI_INTERVIEW_MODEL}:generateContent?key={self.api_key}"
         headers = {"Content-Type": "application/json"}
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -479,7 +509,7 @@ Provide analysis in JSON format:
 
 Focus on the 3 weakest skills. Be specific and actionable."""
 
-        url = f"{self.base_url}/models/{settings.GEMINI_LARGE_MODEL}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/models/{settings.GEMINI_INTERVIEW_MODEL}:generateContent?key={self.api_key}"
         headers = {"Content-Type": "application/json"}
         body = {
             "contents": [{"parts": [{"text": prompt}]}],

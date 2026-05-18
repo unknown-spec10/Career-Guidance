@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { 
-  ArrowLeft, User, MapPin, GraduationCap, Briefcase, Target, TrendingUp 
+  ArrowLeft, User, MapPin, GraduationCap, Briefcase, Target 
 } from 'lucide-react'
 import api from '../config/api'
 
@@ -253,15 +253,6 @@ export default function ApplicantDetailsPage() {
                         <p className="text-sm text-gray-500">
                           {rec.job.location_city} • {rec.job.work_type}
                         </p>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center space-x-1">
-                          <TrendingUp className="w-4 h-4 text-green-400" />
-                          <span className="text-xl font-bold text-green-400">
-                            {(rec.match_score ?? rec.score ?? 0).toFixed(1)}%
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500">Match Score</p>
                       </div>
                     </div>
                     {rec.explain && (

@@ -8,7 +8,9 @@ import os
 # In local dev, .env is not present in the container so this only runs locally.
 _env_file = Path(__file__).resolve().parents[2] / ".env"
 if not os.environ.get("RENDER"):
-    load_dotenv(dotenv_path=_env_file, override=False)
+    # Local development should always pick fresh values from .env instead of stale
+    # process/user environment variables that may linger across sessions.
+    load_dotenv(dotenv_path=_env_file, override=True)
 
 class Settings(BaseSettings):
     # Pydantic-settings: only read from OS environment, never from .env files.
@@ -27,7 +29,15 @@ class Settings(BaseSettings):
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_SMALL_MODEL: str = "gemini-3-flash-preview"
     GEMINI_LARGE_MODEL: str = "gemini-3-pro-preview"
+    GEMINI_INTERVIEW_MODEL: str = "gemini-2.5-flash"
+    GEMINI_LIVE_MODEL: str = "gemini-3.1-flash-live-preview"
+    GEMINI_LIVE_WS_ENDPOINT: str = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
     GEMINI_MOCK_MODE: bool = False
+    GROQ_API_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_CHAT_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_STT_MODEL: str = "whisper-large-v3"
+    GROQ_TTS_MODEL: str = "canopylabs/orpheus-v1-english"
+    GROQ_TTS_VOICE: str = "troy"
     EMBEDDING_MODEL: str = "gemini-embedding-2-preview"
     MAX_PARSE_TOKENS: int = 12000
     

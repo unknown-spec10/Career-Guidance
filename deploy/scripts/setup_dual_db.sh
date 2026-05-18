@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Quick setup script for dual-database architecture
+# Legacy quick setup script for dual-database architecture
 
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$REPO_ROOT"
 
 echo "=================================="
 echo "Dual-Database Setup (MySQL + Firestore)"
@@ -10,27 +14,27 @@ echo ""
 
 # Check Python
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 not found"
+    echo "Python 3 not found"
     exit 1
 fi
 
-echo "✅ Python found: $(python3 --version)"
+echo "Python found: $(python3 --version)"
 
 # Install firebase-admin
 echo ""
-echo "📦 Installing firebase-admin..."
+echo "Installing firebase-admin..."
 pip install firebase-admin
 
 # Check .env
 if [ -f ".env" ]; then
     if grep -q "APP_ENV" .env; then
-        echo "✅ APP_ENV already in .env"
+        echo "APP_ENV already in .env"
     else
-        echo "📝 Adding APP_ENV=local to .env"
+        echo "Adding APP_ENV=local to .env"
         echo "APP_ENV=local" >> .env
     fi
 else
-    echo "⚠️  .env not found, creating..."
+    echo ".env not found, creating..."
     cat > .env << EOF
 APP_ENV=local
 MYSQL_HOST=localhost
@@ -39,18 +43,18 @@ MYSQL_USER=root
 MYSQL_PASSWORD=Deep@123
 MYSQL_DB=resumes
 EOF
-    echo "📝 Created .env (update with your values)"
+    echo "Created .env (update with your values)"
 fi
 
 # Seed MySQL
 echo ""
-echo "🌱 Seeding MySQL..."
-python3 scripts/seed_mysql.py 2>/dev/null && echo "✅ MySQL seeded" || echo "⚠️  MySQL seeding failed (ensure MySQL is running)"
+echo "Seeding MySQL..."
+python3 scripts/seed_mysql.py 2>/dev/null && echo "MySQL seeded" || echo "MySQL seeding failed (ensure MySQL is running)"
 
 # Summary
 echo ""
 echo "=================================="
-echo "✅ Setup complete!"
+echo "Setup complete!"
 echo "=================================="
 echo ""
 echo "Next steps:"
@@ -66,4 +70,3 @@ echo "3. For cloud deployment:"
 echo "   - Set APP_ENV=cloud in Cloud Run env vars"
 echo "   - Run: python scripts/seed_firestore.py"
 echo "   - Deploy: gcloud run deploy career-guidance-backend --source ."
-echo ""
