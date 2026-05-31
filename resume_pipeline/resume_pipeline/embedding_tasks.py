@@ -7,9 +7,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
-from celery import chain
-
-from .celery_app import celery_app
 from .config import settings
 from .core.semantic_matching import SemanticMatcher
 from .db import Applicant, Job, LLMParsedRecord, SessionLocal
@@ -17,16 +14,7 @@ from .db import Applicant, Job, LLMParsedRecord, SessionLocal
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_jitter=True,
-    max_retries=settings.EMBEDDING_TASK_MAX_RETRIES,
-    name="pipeline.parse_resume",
-    queue=settings.CELERY_DEFAULT_QUEUE,
-)
-def parse_resume_task(self, applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
+def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
     """Parse resume, persist normalized output, and chain embedding->recommendation tasks."""
     from .resume.parse_service import ResumeParserService
 
@@ -71,19 +59,17 @@ def parse_resume_task(self, applicant_id: str, applicant_dir: str) -> Dict[str, 
 
         db.commit()
 
-        workflow = chain(
-            generate_resume_embedding_task.s(applicant.id),
-            generate_recommendations_task.s(applicant.id),
-        ).apply_async()
+        # Call resume embedding and recommendation sequential tasks synchronously in the background thread
+        logger.info("Generating embedding for applicant (db_id=%s) in background...", applicant.id)
+        embedding_res = generate_resume_embedding_task(applicant.id)
+        
+        logger.info("Generating recommendations for applicant (db_id=%s) in background...", applicant.id)
+        generate_recommendations_task(embedding_res, applicant.id)
 
-        workflow_id = getattr(workflow, "id", None)
-        workflow_parent = getattr(workflow, "parent", None)
-        embedding_task_id = getattr(workflow_parent, "id", None)
         logger.info(
-            "Parsed applicant %s (db_id=%s) and queued embedding/recommendation workflow %s",
+            "Parsed applicant %s (db_id=%s) and generated embedding & recommendations in background",
             applicant_id,
             applicant.id,
-            workflow_id,
         )
 
         return {
@@ -91,24 +77,14 @@ def parse_resume_task(self, applicant_id: str, applicant_dir: str) -> Dict[str, 
             "applicant_id": applicant_id,
             "db_applicant_id": applicant.id,
             "status": "parsed",
-            "embedding_task_id": embedding_task_id,
-            "recommendation_task_id": workflow_id,
+            "embedding_task_id": applicant_id,
+            "recommendation_task_id": applicant_id,
         }
     finally:
         db.close()
 
 
-@celery_app.task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_jitter=True,
-    max_retries=settings.EMBEDDING_TASK_MAX_RETRIES,
-    name="pipeline.generate_recommendations",
-    queue=settings.CELERY_DEFAULT_QUEUE,
-)
 def generate_recommendations_task(
-    self,
     embedding_result: Optional[Dict[str, Any]],
     applicant_db_id: int,
 ) -> Dict[str, Any]:
@@ -193,16 +169,7 @@ def _build_applicant_payload(applicant: Applicant, normalized: Dict[str, Any]) -
     )
 
 
-@celery_app.task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_jitter=True,
-    max_retries=settings.EMBEDDING_TASK_MAX_RETRIES,
-    name="embedding.generate_job_embedding",
-    queue=settings.CELERY_EMBEDDINGS_QUEUE,
-)
-def generate_job_embedding_task(self, job_id: int) -> Dict[str, Any]:
+def generate_job_embedding_task(job_id: int) -> Dict[str, Any]:
     """Generate and persist a job embedding asynchronously."""
     from .db import JobEmbedding
 
@@ -247,16 +214,7 @@ def generate_job_embedding_task(self, job_id: int) -> Dict[str, Any]:
         db.close()
 
 
-@celery_app.task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_jitter=True,
-    max_retries=settings.EMBEDDING_TASK_MAX_RETRIES,
-    name="embedding.generate_resume_embedding",
-    queue=settings.CELERY_EMBEDDINGS_QUEUE,
-)
-def generate_resume_embedding_task(self, applicant_db_id: int) -> Dict[str, Any]:
+def generate_resume_embedding_task(applicant_db_id: int) -> Dict[str, Any]:
     """Generate and persist an applicant resume embedding asynchronously."""
     from .db import ApplicantEmbedding
 

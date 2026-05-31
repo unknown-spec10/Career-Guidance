@@ -97,48 +97,65 @@ export default function EmployerPostJob() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-4xl">
+    <div className="min-h-screen bg-slate-50/50 pt-24 pb-12 relative overflow-hidden">
+      {/* Ambient background glows */}
+      <div className="pointer-events-none absolute left-1/4 top-10 h-96 w-96 rounded-full bg-gradient-to-br from-primary-400/10 to-indigo-300/10 blur-[100px]" />
+      <div className="pointer-events-none absolute right-1/4 top-40 h-96 w-96 rounded-full bg-gradient-to-br from-sky-400/10 to-emerald-300/10 blur-[100px]" />
+
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-4xl relative z-10">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8 flex items-center justify-between"
+          className="relative mb-8 overflow-hidden rounded-3xl border border-white/80 bg-white/70 p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.04)] backdrop-blur-md"
         >
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold mb-2 flex items-center gap-2"><Briefcase className="w-8 h-8 text-primary-400" /> Post a New Job</h1>
-            <p className="text-gray-400">Fill out the details below. Job will be pending admin approval.</p>
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/40 via-white/50 to-white/40 opacity-70" />
+          <div className="relative flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary-700 mb-3">
+                <Briefcase className="w-3.5 h-3.5" />
+                Postings
+              </div>
+              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2">
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-slate-800 to-primary-950">
+                  Post a New Job
+                </span>
+              </h1>
+              <p className="text-gray-600">Fill out the details below. Job will be pending admin approval.</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl hover:bg-rose-100 transition-all text-xs font-bold active:scale-95 duration-200 shadow-sm"
+            >
+              <LogOut className="w-4 h-4 text-rose-500" />
+              <span>Logout</span>
+            </button>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center space-x-2 px-4 py-2 bg-red-900/20 border border-red-500/30 rounded-lg hover:bg-red-900/30 transition-colors text-red-400"
-          >
-            <LogOut className="w-5 h-5" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
         </motion.div>
 
         <motion.form
           onSubmit={handleSubmit}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="card space-y-6"
+          className="relative overflow-hidden rounded-3xl border border-slate-100 bg-white/90 backdrop-blur-sm p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.02)] space-y-6"
         >
           {error && (
-            <div className="p-3 bg-red-900/20 border border-red-500/30 rounded flex items-center gap-2 text-red-400 text-sm">
-              <AlertTriangle className="w-5 h-5" /> {error}
+            <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-2 text-rose-700 text-sm font-medium">
+              <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0" /> 
+              <span>{error}</span>
             </div>
           )}
           {success && (
-            <div className="p-3 bg-green-900/20 border border-green-500/30 rounded flex items-center gap-2 text-green-400 text-sm">
-              <CheckCircle className="w-5 h-5" /> Job created! Redirecting...
+            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-2 text-emerald-700 text-sm font-medium">
+              <CheckCircle className="w-5 h-5 text-emerald-500 flex-shrink-0" /> 
+              <span>Job created! Redirecting...</span>
             </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium mb-2">Job Title *</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Job Title *</label>
               <input
-                className="input"
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Frontend Developer"
@@ -146,9 +163,9 @@ export default function EmployerPostJob() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Work Type *</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Work Type *</label>
               <select
-                className="input"
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-semibold text-slate-700"
                 value={workType}
                 onChange={(e) => setWorkType(e.target.value)}
                 required
@@ -161,9 +178,9 @@ export default function EmployerPostJob() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Description *</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Description *</label>
             <textarea
-              className="input"
+              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
               rows={5}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -172,58 +189,58 @@ export default function EmployerPostJob() {
             />
           </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium mb-2">City *</label>
-                <input
-                  className="input"
-                  value={locationCity}
-                  onChange={(e) => setLocationCity(e.target.value)}
-                  placeholder="e.g. Bengaluru"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">State</label>
-                <input
-                  className="input"
-                  value={locationState}
-                  onChange={(e) => setLocationState(e.target.value)}
-                  placeholder="e.g. Karnataka"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Expires At</label>
-                <input
-                  type="date"
-                  className="input"
-                  value={expiresAt}
-                  onChange={(e) => setExpiresAt(e.target.value)}
-                />
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">City *</label>
+              <input
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
+                value={locationCity}
+                onChange={(e) => setLocationCity(e.target.value)}
+                placeholder="e.g. Bengaluru"
+                required
+              />
             </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">State</label>
+              <input
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
+                value={locationState}
+                onChange={(e) => setLocationState(e.target.value)}
+                placeholder="e.g. Karnataka"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Expires At</label>
+              <input
+                type="date"
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
+                value={expiresAt}
+                onChange={(e) => setExpiresAt(e.target.value)}
+              />
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium mb-2">Minimum Experience (years)</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Minimum Experience (years)</label>
               <input
                 type="number"
                 min={0}
                 step={0.5}
-                className="input"
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
                 value={minExperienceYears}
                 onChange={(e) => setMinExperienceYears(e.target.value)}
                 placeholder="0"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Minimum CGPA</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Minimum CGPA</label>
               <input
                 type="number"
                 min={0}
                 max={10}
                 step={0.1}
-                className="input"
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
                 value={minCgpa}
                 onChange={(e) => setMinCgpa(e.target.value)}
                 placeholder="e.g. 7.5"
@@ -232,20 +249,20 @@ export default function EmployerPostJob() {
           </div>
 
           {/* Required Skills */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium">Required Skills</label>
-              <div className="text-xs text-gray-500">Add core skills with level</div>
+          <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Required Skills</label>
+              <div className="text-[10px] font-bold text-slate-400">Add core skills with level</div>
             </div>
-            <div className="flex gap-2 mb-3">
+            <div className="flex flex-wrap md:flex-nowrap gap-2 mb-4">
               <input
-                className="input flex-1"
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400 flex-1"
                 placeholder="Skill name"
                 value={reqSkillDraft.name}
                 onChange={(e) => setReqSkillDraft(s => ({ ...s, name: e.target.value }))}
               />
               <select
-                className="input w-32"
+                className="w-32 bg-white border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-semibold text-slate-700"
                 value={reqSkillDraft.level}
                 onChange={(e) => setReqSkillDraft(s => ({ ...s, level: e.target.value }))}
               >
@@ -254,17 +271,23 @@ export default function EmployerPostJob() {
                 <option value="intermediate">Intermediate</option>
                 <option value="advanced">Advanced</option>
               </select>
-              <button type="button" onClick={addRequiredSkill} className="px-3 py-2 rounded bg-primary-600 hover:bg-primary-500 text-sm flex items-center gap-1">
-                <PlusCircle className="w-4 h-4" /> Add
+              <button
+                type="button"
+                onClick={addRequiredSkill}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl shadow-md transition-all active:scale-95 duration-200 text-xs font-bold"
+              >
+                <PlusCircle className="w-4 h-4 text-white" />
+                <span>Add</span>
               </button>
             </div>
             {requiredSkills.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 pt-1">
                 {requiredSkills.map((sk, idx) => (
-                  <span key={idx} className="group px-2 py-1 text-xs rounded border border-primary-500/40 bg-primary-900/20 flex items-center gap-1">
-                    {sk.name} <em className="text-primary-300 not-italic">({sk.level})</em>
-                    <button type="button" onClick={() => removeRequiredSkill(idx)} className="opacity-0 group-hover:opacity-100 transition">
-                      <Trash2 className="w-3 h-3 text-red-400" />
+                  <span key={idx} className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary-50 border border-primary-100 text-primary-750 text-xs font-bold shadow-sm">
+                    <span>{sk.name}</span>
+                    <span className="text-[10px] text-primary-500 font-medium">({sk.level})</span>
+                    <button type="button" onClick={() => removeRequiredSkill(idx)} className="text-slate-400 hover:text-red-500 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </span>
                 ))}
@@ -273,20 +296,20 @@ export default function EmployerPostJob() {
           </div>
 
           {/* Optional Skills */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium">Optional Skills</label>
-              <div className="text-xs text-gray-500">Nice-to-have skills</div>
+          <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Optional Skills</label>
+              <div className="text-[10px] font-bold text-slate-400">Nice-to-have skills</div>
             </div>
-            <div className="flex gap-2 mb-3">
+            <div className="flex flex-wrap md:flex-nowrap gap-2 mb-4">
               <input
-                className="input flex-1"
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400 flex-1"
                 placeholder="Skill name"
                 value={optSkillDraft.name}
                 onChange={(e) => setOptSkillDraft(s => ({ ...s, name: e.target.value }))}
               />
               <select
-                className="input w-32"
+                className="w-32 bg-white border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-semibold text-slate-700"
                 value={optSkillDraft.level}
                 onChange={(e) => setOptSkillDraft(s => ({ ...s, level: e.target.value }))}
               >
@@ -295,17 +318,23 @@ export default function EmployerPostJob() {
                 <option value="intermediate">Intermediate</option>
                 <option value="advanced">Advanced</option>
               </select>
-              <button type="button" onClick={addOptionalSkill} className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 text-sm flex items-center gap-1 border border-gray-300 text-gray-900">
-                <PlusCircle className="w-4 h-4" /> Add
+              <button
+                type="button"
+                onClick={addOptionalSkill}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 text-slate-700 transition-all active:scale-95 duration-200 text-xs font-bold"
+              >
+                <PlusCircle className="w-4 h-4 text-slate-450" />
+                <span>Add</span>
               </button>
             </div>
             {optionalSkills.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 pt-1">
                 {optionalSkills.map((sk, idx) => (
-                  <span key={idx} className="group px-2 py-1 text-xs rounded border border-gray-300 bg-gray-100 flex items-center gap-1 text-gray-900">
-                    {sk.name} <em className="text-gray-400 not-italic">({sk.level})</em>
-                    <button type="button" onClick={() => removeOptionalSkill(idx)} className="opacity-0 group-hover:opacity-100 transition">
-                      <Trash2 className="w-3 h-3 text-red-400" />
+                  <span key={idx} className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold shadow-sm">
+                    <span>{sk.name}</span>
+                    <span className="text-[10px] text-slate-500 font-medium">({sk.level})</span>
+                    <button type="button" onClick={() => removeOptionalSkill(idx)} className="text-slate-400 hover:text-red-500 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </span>
                 ))}
@@ -313,20 +342,20 @@ export default function EmployerPostJob() {
             )}
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="btn-primary flex-1"
-            >
-              {submitting ? 'Submitting...' : 'Create Job'}
-            </button>
+          <div className="flex gap-3 pt-4 border-t border-slate-100">
             <button
               type="button"
               onClick={() => navigate('/employer/dashboard')}
-              className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors text-gray-900"
+              className="flex-1 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-bold text-slate-750 active:scale-95 duration-200 text-sm"
             >
               Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 duration-200 text-sm"
+            >
+              {submitting ? 'Submitting...' : 'Create Job'}
             </button>
           </div>
         </motion.form>

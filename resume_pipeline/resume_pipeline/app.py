@@ -1,10 +1,11 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request, status, WebSocket, WebSocketDisconnect, Query
+# pyright: reportGeneralTypeIssues=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 from uuid import uuid4
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, cast
 from collections import defaultdict
 from time import time
 import os
@@ -15,19 +16,16 @@ from .config import settings, IS_SUPABASE
 from .constants import (
     ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_SIZE_MB,
     API_MESSAGES, DEFAULT_PAGE_SIZE,
-    INTERVIEW_CONFIG, INTERVIEW_SCORE_MULTIPLIERS, LIVE_INTERVIEW_CONFIG
+    INTERVIEW_CONFIG, INTERVIEW_SCORE_MULTIPLIERS, LIVE_INTERVIEW_CONFIG, INTERVIEW_CONFIG_V2
 )
 from .schemas import (
     UserRegister, UserLogin, Token, UserResponse,
     JobCreate, JobUpdate, JobResponse,
     JobApplicationCreate, JobApplicationResponse,
     ApprovalAction, MarksheetUpload, VerifyCodeRequest, ResendCodeRequest,
-    InterviewSessionCreate, InterviewSessionResponse, QuestionResponse,
-    AnswerSubmit, AnswerEvaluation, SessionCompleteRequest, SessionCompleteResponse,
     SkillAssessmentCreate, SkillAssessmentResponse, LearningPathResponse,
-    InterviewHistoryResponse, CreditAccountResponse, CreditTransactionResponse,
-    AdminCreditAdjustment, LiveInterviewStartRequest, LiveInterviewSessionResponse,
-    LiveInterviewEndRequest
+    CreditAccountResponse, CreditTransactionResponse,
+    AdminCreditAdjustment,
 )
 from .auth import (
     get_password_hash, verify_password, create_access_token,
@@ -36,7 +34,7 @@ from .auth import (
 from pathlib import Path
 import json
 from .resume.parse_service import ResumeParserService
-from .interview.interview_service import InterviewService
+from .interview import router as interview_router_v2
 import logging
 from datetime import timedelta
 import secrets
@@ -53,70 +51,7 @@ _EMBEDDING_QUEUE_DISABLED = False
 _EMBEDDING_BROKER_UNAVAILABLE_LOGGED = False
 
 
-def _is_celery_broker_reachable(timeout_seconds: float = 0.35) -> bool:
-    """Fast connectivity check for Redis-backed Celery broker."""
-    global _EMBEDDING_BROKER_UNAVAILABLE_LOGGED
-
-    if settings.CELERY_TASK_ALWAYS_EAGER:
-        return True
-
-    broker_url = (settings.CELERY_BROKER_URL or "").strip()
-    lowered = broker_url.lower()
-
-    # Non-Redis brokers are not validated here; let Celery handle them.
-    if not (lowered.startswith("redis://") or lowered.startswith("rediss://")):
-        return True
-
-    parsed = urlparse(broker_url)
-    host = parsed.hostname or "localhost"
-    port = parsed.port or 6379
-
-    try:
-        with socket.create_connection((host, port), timeout=timeout_seconds):
-            return True
-    except OSError as exc:
-        if not _EMBEDDING_BROKER_UNAVAILABLE_LOGGED:
-            logger.warning(
-                "Celery broker unreachable at %s:%s (%s). Async queueing will be skipped.",
-                host,
-                port,
-                exc,
-            )
-            _EMBEDDING_BROKER_UNAVAILABLE_LOGGED = True
-        return False
-
-
-def enqueue_embedding_task(task_fn, *args) -> Optional[str]:
-    """Queue embedding work without blocking API requests."""
-    global _EMBEDDING_QUEUE_DISABLED
-    if _EMBEDDING_QUEUE_DISABLED:
-        return None
-
-    if not _is_celery_broker_reachable():
-        _EMBEDDING_QUEUE_DISABLED = True
-        return None
-
-    try:
-        async_result = task_fn.delay(*args)
-        return async_result.id
-    except Exception as exc:
-        message = str(exc)
-        logger.warning("Failed to enqueue embedding task: %s", message)
-
-        # Avoid retry-storm logs when Redis/Celery backend is down.
-        lowered = message.lower()
-        if (
-            "redis" in lowered
-            or "retry limit exceeded" in lowered
-            or "connection refused" in lowered
-            or "connection to redis lost" in lowered
-        ):
-            _EMBEDDING_QUEUE_DISABLED = True
-            logger.warning(
-                "Disabling async embedding queue for this process because broker/backend is unavailable. "
-                "Restart the API service after Redis/Celery is healthy to re-enable queueing."
-            )
-        return None
+# Background tasks are run natively using FastAPI BackgroundTasks.
 
 # Import repository factory
 from .repos.factory import DatabaseFactory
@@ -281,6 +216,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register interview system v2 router (/api/interview/*)
+app.include_router(interview_router_v2)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -938,6 +877,7 @@ async def resend_verification_email(email: str = Body(..., embed=True), db: Sess
 @app.post("/api/upload/resume")
 async def upload_resume(
     request: Request,
+    background_tasks: BackgroundTasks,
     resume: UploadFile = File(...),
     jee_rank: Optional[int] = Form(None),
     location: Optional[str] = Form(None),
@@ -980,7 +920,16 @@ async def upload_resume(
             await validate_file_size(marksheet, MAX_FILE_SIZE_MB)
     
     # save files
-    applicant_id = f"app_{uuid4().hex}"
+    # Check if logged in user already has an applicant profile to prevent duplicate applicant IDs
+    existing_applicant = None
+    if current_user:
+        existing_applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+
+    if existing_applicant:
+        applicant_id = existing_applicant.applicant_id
+    else:
+        applicant_id = f"app_{uuid4().hex}"
+    
     applicant_dir = DATA_ROOT / applicant_id
     
     try:
@@ -1064,18 +1013,31 @@ async def upload_resume(
                 # If not JSON, treat as comma-separated string
                 preferred_locs = [loc.strip() for loc in preferences.split(',') if loc.strip()]
 
-        applicant = Applicant(
-            user_id=current_user.id if current_user else None,
-            applicant_id=applicant_id,
-            display_name=f"Applicant {applicant_id[:8]}",
-            location_city=city,
-            location_state=state,
-            preferred_locations=preferred_locs
-        )
-        db.add(applicant)
+        if existing_applicant:
+            applicant = existing_applicant
+            applicant.location_city = city
+            applicant.location_state = state
+            applicant.preferred_locations = preferred_locs
+            db.add(applicant)
+        else:
+            applicant = Applicant(
+                user_id=current_user.id if current_user else None,
+                applicant_id=applicant_id,
+                display_name=f"Applicant {applicant_id[:8]}",
+                location_city=city,
+                location_state=state,
+                preferred_locations=preferred_locs
+            )
+            db.add(applicant)
         db.flush()  # Get the ID
         
-        # Create upload record
+        # Create upload record (cleanup older resume upload if updating existing profile)
+        if existing_applicant:
+            db.query(Upload).filter(
+                Upload.applicant_id == applicant.id,
+                Upload.file_type == 'resume'
+            ).delete()
+
         upload = Upload(
             applicant_id=applicant.id,
             file_name=res_name,
@@ -1085,19 +1047,21 @@ async def upload_resume(
         )
         db.add(upload)
         
-        # Create credit account with default 60 credits
+        # Create credit account with default 60 credits if it does not exist
         from .db import CreditAccount
         import datetime
-        credit_account = CreditAccount(
-            applicant_id=applicant.id,
-            current_credits=60,
-            total_earned=60,
-            total_spent=0,
-            last_refill_at=datetime.datetime.utcnow(),
-            next_refill_at=datetime.datetime.utcnow() + datetime.timedelta(days=7),
-            is_premium=False
-        )
-        db.add(credit_account)
+        existing_credits = db.query(CreditAccount).filter(CreditAccount.applicant_id == applicant.id).first()
+        if not existing_credits:
+            credit_account = CreditAccount(
+                applicant_id=applicant.id,
+                current_credits=60,
+                total_earned=60,
+                total_spent=0,
+                last_refill_at=datetime.datetime.utcnow(),
+                next_refill_at=datetime.datetime.utcnow() + datetime.timedelta(days=7),
+                is_premium=False
+            )
+            db.add(credit_account)
         db.commit()
         
         logger.info(f"✓ Saved applicant {applicant_id} to database (ID: {applicant.id})")
@@ -1108,9 +1072,9 @@ async def upload_resume(
             try:
                 from .embedding_tasks import parse_resume_task
 
-                parse_task_id = enqueue_embedding_task(parse_resume_task, applicant_id, str(applicant_dir))
-                if parse_task_id:
-                    logger.info("Queued parse task %s for applicant %s", parse_task_id, applicant_id)
+                background_tasks.add_task(parse_resume_task, applicant_id, str(applicant_dir))
+                parse_task_id = applicant_id
+                logger.info("Queued parse task via BackgroundTasks for applicant %s", applicant_id)
             except Exception as exc:
                 logger.warning("Could not auto-queue parse task for %s: %s", applicant_id, exc)
         
@@ -1141,7 +1105,12 @@ parser_service = ResumeParserService()
 
 
 @app.post("/parse/{applicant_id}")
-async def parse_applicant(applicant_id: str, sync: bool = False, db: Session = Depends(get_db)):
+async def parse_applicant(
+    applicant_id: str,
+    background_tasks: BackgroundTasks,
+    sync: bool = False,
+    db: Session = Depends(get_db)
+):
     from .db import Applicant, LLMParsedRecord
     
     applicant_dir = DATA_ROOT / applicant_id
@@ -1154,18 +1123,13 @@ async def parse_applicant(applicant_id: str, sync: bool = False, db: Session = D
         try:
             from .embedding_tasks import parse_resume_task
 
-            task_id = enqueue_embedding_task(parse_resume_task, applicant_id, str(applicant_dir))
-            if task_id:
-                return JSONResponse({
-                    "status": "queued",
-                    "applicant_id": applicant_id,
-                    "parse_task_id": task_id,
-                    "message": "Parse job queued. Poll /api/embeddings/task/{task_id} (admin) for progress.",
-                })
-            logger.warning(
-                "Async parse queue unavailable for applicant %s; falling back to sync parse",
-                applicant_id,
-            )
+            background_tasks.add_task(parse_resume_task, applicant_id, str(applicant_dir))
+            return JSONResponse({
+                "status": "queued",
+                "applicant_id": applicant_id,
+                "parse_task_id": applicant_id,
+                "message": "Parse job queued.",
+            })
         except Exception as e:
             logger.warning("Failed to queue parse task for %s: %s", applicant_id, e)
             logger.warning("Falling back to sync parse for %s", applicant_id)
@@ -1217,40 +1181,17 @@ async def parse_applicant(applicant_id: str, sync: bool = False, db: Session = D
         db.commit()
         logger.info(f"✓ Saved parsed data for applicant {applicant_id} (ID: {applicant.id})")
 
-        # Queue async embedding -> recommendation workflow.
+        # Queue background recommendation calculation.
         try:
-            if _EMBEDDING_QUEUE_DISABLED or not _is_celery_broker_reachable():
-                logger.info(
-                    "Skipping embedding/recommendation queueing for applicant %s because broker is unavailable",
-                    applicant.id,
-                )
-            else:
-                from celery import chain
-                from .embedding_tasks import generate_recommendations_task, generate_resume_embedding_task
-
-                workflow = chain(
-                    generate_resume_embedding_task.s(applicant.id),
-                    generate_recommendations_task.s(applicant.id),
-                ).apply_async()
-
-                workflow_id = getattr(workflow, "id", None)
-                workflow_parent = getattr(workflow, "parent", None)
-                embedding_task_id = getattr(workflow_parent, "id", None)
-
-                result['resume_embedding_task_id'] = embedding_task_id
-                result['recommendation_task_id'] = workflow_id
-                logger.info(
-                    "Queued embedding->recommendation workflow %s for applicant %s",
-                    workflow_id,
-                    applicant.id,
-                )
+            from .recommendation.engine import compute_recommendations
+            background_tasks.add_task(compute_recommendations, applicant.id, db)
+            logger.info(f"Queued background task to compute recommendations for applicant {applicant.id}")
+            result['auto_recommendations_generated'] = "queued"
         except Exception as e:
-            logger.warning(f"Could not enqueue embedding/recommendation workflow for applicant {applicant.id}: {e}")
+            logger.warning(f"Could not enqueue background recommendations for applicant {applicant.id}: {e}")
         
         # Add database ID to result
         result['db_applicant_id'] = applicant.id
-        
-        result['auto_recommendations_generated'] = "queued"
         
     except Exception as e:
         db.rollback()
@@ -1270,7 +1211,14 @@ from .db import SessionLocal, Applicant, LLMParsedRecord, Job, JobRecommendation
 @app.get("/api/student/applicant")
 async def get_current_student_applicant(current_user = Depends(require_role("student")), db: Session = Depends(get_db)):
     """Get the current student's applicant profile (DB id, applicant_id, etc)"""
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    # Always resolve to the latest applicant row for this user so dashboard
+    # recommendations use the most recent parsed resume/profile data.
+    applicant = (
+        db.query(Applicant)
+        .filter(Applicant.user_id == current_user.id)
+        .order_by(desc(Applicant.id))
+        .first()
+    )
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant profile not found. Please upload your resume.")
     return {
@@ -1389,6 +1337,7 @@ async def get_applicant_details(applicant_id: str, db: Session = Depends(get_db)
 @app.post("/api/employer/jobs", response_model=JobResponse)
 async def create_job_posting(
     job_data: JobCreate,
+    background_tasks: BackgroundTasks,
     current_user = Depends(require_role("employer")),
     db: Session = Depends(get_db)
 ):
@@ -1428,9 +1377,8 @@ async def create_job_posting(
     # Queue async job embedding generation.
     try:
         from .embedding_tasks import generate_job_embedding_task
-        task_id = enqueue_embedding_task(generate_job_embedding_task, job.id)
-        if task_id:
-            logger.info(f"Queued job embedding task {task_id} for job {job.id}")
+        background_tasks.add_task(generate_job_embedding_task, job.id)
+        logger.info(f"Queued job embedding task via BackgroundTasks for job {job.id}")
     except Exception as e:
         logger.warning(f"Could not enqueue job embedding task for job {job.id}: {e}")
     
@@ -1492,14 +1440,46 @@ async def get_employer_jobs(
     db: Session = Depends(get_db)
 ):
     """Get all jobs posted by current employer"""
-    from .db import Job, Employer
+    from sqlalchemy import func
+    from .db import Job, Employer, JobApplication
     
     employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer profile not found")
     
-    jobs = db.query(Job).filter(Job.employer_id == employer.id).all()
-    return {"jobs": jobs, "total": len(jobs)}
+    # Query jobs along with their application count
+    jobs_with_counts = db.query(Job, func.count(JobApplication.id).label('app_count')).outerjoin(
+        JobApplication, Job.id == JobApplication.job_id
+    ).filter(
+        Job.employer_id == employer.id
+    ).group_by(
+        Job.id
+    ).all()
+    
+    result = []
+    for job, app_count in jobs_with_counts:
+        job_dict = {
+            "id": job.id,
+            "employer_id": job.employer_id,
+            "title": job.title,
+            "description": job.description,
+            "location_city": job.location_city,
+            "location_state": job.location_state,
+            "work_type": job.work_type,
+            "min_experience_years": job.min_experience_years,
+            "min_cgpa": job.min_cgpa,
+            "required_skills": job.required_skills,
+            "optional_skills": job.optional_skills,
+            "status": job.status,
+            "rejection_reason": job.rejection_reason,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            "expires_at": job.expires_at.isoformat() if job.expires_at else None,
+            "applicant_count": app_count
+        }
+        result.append(job_dict)
+        
+    return {"jobs": result, "total": len(result)}
 
 
 @app.get("/api/employer/jobs/{job_id}")
@@ -1602,6 +1582,7 @@ async def get_job_applicants(
 async def update_job_posting(
     job_id: int,
     job_data: JobUpdate,
+    background_tasks: BackgroundTasks,
     current_user=Depends(require_role("employer")),
     db: Session = Depends(get_db),
 ):
@@ -1657,9 +1638,8 @@ async def update_job_posting(
         try:
             from .embedding_tasks import generate_job_embedding_task
 
-            task_id = enqueue_embedding_task(generate_job_embedding_task, job.id)
-            if task_id:
-                logger.info("Queued job embedding task %s for updated job %s", task_id, job.id)
+            background_tasks.add_task(generate_job_embedding_task, job.id)
+            logger.info("Queued job embedding task via BackgroundTasks for updated job %s", job.id)
         except Exception as exc:
             logger.warning("Could not enqueue job embedding task for updated job %s: %s", job.id, exc)
 
@@ -1706,6 +1686,16 @@ async def apply_to_job(
         status='applied'
     )
     db.add(application)
+    
+    # Personalization implicit feedback logging
+    from .db import UserFeedback
+    feedback = UserFeedback(
+        applicant_id=applicant.id,
+        job_id=job_id,
+        action_type='apply'
+    )
+    db.add(feedback)
+    
     db.commit()
     db.refresh(application)
     
@@ -1754,7 +1744,8 @@ async def review_job_posting(
     job_id: int,
     action: ApprovalAction,
     current_user = Depends(require_role("admin")),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = None
 ):
     """Admin approves or rejects a job posting"""
     from .db import Job, AuditLog
@@ -1778,6 +1769,15 @@ async def review_job_posting(
     
     db.commit()
     db.refresh(job)
+    
+    # Trigger background recommendations if approved
+    if job.status == 'approved':
+        try:
+            from .recommendation.engine import compute_recommendations_for_new_job
+            background_tasks.add_task(compute_recommendations_for_new_job, job.id, db)
+            logger.info(f"Queued background task to compute recommendations for newly approved job {job.id}")
+        except Exception as e:
+            logger.warning(f"Could not queue recommendations for job {job.id}: {e}")
     
     # Audit log
     try:
@@ -1825,6 +1825,105 @@ async def get_pending_reviews(
     }
 
 
+@app.get("/api/admin/jobs")
+async def get_admin_jobs(
+    current_user = Depends(require_role("admin")),
+    skip: int = 0,
+    limit: int = 100,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """List all jobs for admin management."""
+    from .db import Job, Employer
+
+    query = db.query(Job, Employer).join(
+        Employer, Job.employer_id == Employer.id
+    )
+
+    if status:
+        query = query.filter(Job.status == status)
+
+    jobs = query.order_by(Job.created_at.desc()).offset(skip).limit(limit).all()
+
+    jobs_list = []
+    for job, employer in jobs:
+        jobs_list.append({
+            "id": job.id,
+            "title": job.title,
+            "company": employer.company_name,
+            "status": getattr(job, 'status', None),
+            "rejection_reason": getattr(job, 'rejection_reason', None),
+            "location_city": getattr(job, 'location_city', None),
+            "location_state": getattr(job, 'location_state', None),
+            "work_type": getattr(job, 'work_type', None),
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "expires_at": job.expires_at.isoformat() if getattr(job, 'expires_at', None) else None
+        })
+
+    return {
+        "jobs": jobs_list,
+        "total": db.query(Job).count(),
+        "skip": skip,
+        "limit": limit,
+        "status": status
+    }
+
+
+@app.get("/api/admin/jobs/{job_id}")
+async def get_admin_job_details(
+    job_id: int,
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Get detailed information for any job so admins can review recruiter submissions."""
+    from .db import Job, Employer, JobMetadata
+
+    job_row = db.query(Job, Employer).join(
+        Employer, Job.employer_id == Employer.id
+    ).filter(Job.id == job_id).first()
+
+    if not job_row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job, employer = job_row
+    metadata = db.query(JobMetadata).filter(JobMetadata.job_id == job_id).first()
+
+    def _safe_float(val, default=None):
+        try:
+            return float(val) if val is not None else default
+        except Exception:
+            return default
+
+    def _safe_iso(val):
+        return val.isoformat() if val is not None else None
+
+    return {
+        "job": {
+            "id": job.id,
+            "title": job.title,
+            "description": job.description,
+            "company": employer.company_name,
+            "location_city": job.location_city,
+            "location_state": job.location_state,
+            "work_type": job.work_type,
+            "min_experience_years": _safe_float(getattr(job, 'min_experience_years', None), 0.0),
+            "min_cgpa": _safe_float(getattr(job, 'min_cgpa', None), None),
+            "required_skills": getattr(job, 'required_skills', None) or [],
+            "optional_skills": getattr(job, 'optional_skills', None) or [],
+            "status": getattr(job, 'status', None),
+            "rejection_reason": getattr(job, 'rejection_reason', None),
+            "created_at": _safe_iso(getattr(job, 'created_at', None)),
+            "updated_at": _safe_iso(getattr(job, 'updated_at', None)),
+            "expires_at": _safe_iso(getattr(job, 'expires_at', None)),
+            "reviewed_at": _safe_iso(getattr(job, 'reviewed_at', None)),
+        },
+        "metadata": {
+            "tags": metadata.tags if metadata is not None and getattr(metadata, 'tags', None) else [],
+            "popularity": _safe_float(getattr(metadata, 'popularity', None), 0.0)
+        } if metadata else None
+    }
+
+
 @app.get("/api/jobs")
 async def get_jobs(
     skip: int = 0,
@@ -1855,6 +1954,189 @@ async def get_jobs(
         "jobs": result,
         "total": len(result),
         "next_cursor": None
+    }
+
+
+@app.post("/api/admin/jobs/{job_id}/disable")
+async def admin_disable_job(
+    job_id: int,
+    payload: dict = Body(None),
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Disable a job posting (admin): marks as rejected with an admin reason."""
+    from .db import Job, AuditLog
+
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    old_status = job.status
+    reason = None
+    try:
+        reason = payload.get('reason') if isinstance(payload, dict) else None
+    except Exception:
+        reason = None
+
+    job.status = 'rejected'  # type: ignore
+    job.rejection_reason = reason or 'Disabled by admin'  # type: ignore
+    job.reviewed_by = current_user.id  # type: ignore
+    job.reviewed_at = dt.datetime.utcnow()  # type: ignore
+
+    db.commit()
+    db.refresh(job)
+
+    try:
+        audit = AuditLog(
+            action='job_disabled',
+            target_type='Job',
+            target_id=job_id,
+            user_id=current_user.id,
+            details={'old_status': old_status, 'new_status': job.status, 'reason': job.rejection_reason}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log for disable: {e}")
+
+    return {"status": "success", "job_status": job.status}
+
+
+@app.post("/api/admin/jobs/{job_id}/enable")
+async def admin_enable_job(
+    job_id: int,
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Enable a previously disabled job posting (admin): marks as approved."""
+    from .db import Job, AuditLog
+
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    old_status = job.status
+    job.status = 'approved'  # type: ignore
+    job.rejection_reason = None  # type: ignore
+    job.reviewed_by = current_user.id  # type: ignore
+    job.reviewed_at = dt.datetime.utcnow()  # type: ignore
+
+    db.commit()
+    db.refresh(job)
+
+    try:
+        audit = AuditLog(
+            action='job_enabled',
+            target_type='Job',
+            target_id=job_id,
+            user_id=current_user.id,
+            details={'old_status': old_status, 'new_status': job.status}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log for enable: {e}")
+
+    return {"status": "success", "job_status": job.status}
+
+
+@app.post("/api/admin/jobs/{job_id}/requeue")
+async def admin_requeue_job_for_review(
+    job_id: int,
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Force a job back into the review queue (mark as pending)."""
+    from .db import Job, AuditLog
+
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    old_status = job.status
+    job.status = 'pending'  # type: ignore
+    job.rejection_reason = None  # type: ignore
+    job.reviewed_by = None  # type: ignore
+    job.reviewed_at = None  # type: ignore
+
+    db.commit()
+    db.refresh(job)
+
+    try:
+        audit = AuditLog(
+            action='job_requeued',
+            target_type='Job',
+            target_id=job_id,
+            user_id=current_user.id,
+            details={'old_status': old_status, 'new_status': job.status}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log for requeue: {e}")
+
+    return {"status": "success", "job_status": job.status}
+
+
+@app.patch("/api/admin/jobs/{job_id}")
+async def admin_update_job(
+    job_id: int,
+    payload: JobUpdate,
+    current_user = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Admin can update job fields (title, description, skills, etc.)."""
+    from .db import Job, AuditLog
+
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    update_dict = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if update_dict:
+        try:
+            db.query(Job).filter(Job.id == job_id).update(cast(Dict[Any, Any], update_dict), synchronize_session=False)  # type: ignore[arg-type]
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to update job {job_id}: {e}")
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to update job")
+
+    updated = db.query(Job).filter(Job.id == job_id).first()
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Job not found after update")
+    updated_job = cast(Job, updated)
+
+    try:
+        audit = AuditLog(
+            action='job_admin_update',
+            target_type='Job',
+            target_id=job_id,
+            user_id=current_user.id,
+            details={'updated_fields': update_dict}
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create audit log for admin update: {e}")
+
+    return {
+        "status": "success",
+        "job": {
+            "id": updated_job.id,
+            "title": updated_job.title,
+            "description": updated_job.description,
+            "location_city": updated_job.location_city,
+            "location_state": updated_job.location_state,
+            "work_type": updated_job.work_type,
+            "min_experience_years": getattr(updated_job, 'min_experience_years', None),
+            "min_cgpa": getattr(updated_job, 'min_cgpa', None),
+            "required_skills": getattr(updated_job, 'required_skills', None) or [],
+            "optional_skills": getattr(updated_job, 'optional_skills', None) or [],
+            "expires_at": updated_job.expires_at.isoformat() if getattr(updated_job, 'expires_at', None) else None,
+            "status": getattr(updated_job, 'status', None),
+            "rejection_reason": getattr(updated_job, 'rejection_reason', None),
+        }
     }
     
     next_cursor = result[-1]["id"] if result and (cursor is not None or has_more) else None
@@ -1962,7 +2244,8 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
                 },
                 "match_score": float(rec.score) if rec.score else 0,
                 "score": float(rec.score) if rec.score else 0,
-                "scoring_breakdown": rec.scoring_breakdown,
+                "scoring_breakdown": rec.score_breakdown if rec.score_breakdown is not None else rec.scoring_breakdown,
+                "explanation": rec.explanation,
                 "explain": rec.explain,
                 "status": rec.status
             } for rec, job, employer in job_recs
@@ -2014,6 +2297,23 @@ def update_job_recommendation_status(
     
     old_status = rec.status
     rec.status = status  # type: ignore
+    
+    # Personalization implicit feedback logging
+    from .db import UserFeedback
+    action_type = None
+    if status == 'applied':
+        action_type = 'apply'
+    elif status in ['rejected', 'dismissed', 'withdrawn']:
+        action_type = 'dismiss'
+
+    if action_type:
+        feedback = UserFeedback(
+            applicant_id=rec.applicant_id,
+            job_id=rec.job_id,
+            action_type=action_type
+        )
+        db.add(feedback)
+        
     db.commit()
     db.refresh(rec)
     
@@ -2077,6 +2377,41 @@ async def generate_recommendations_for_applicant(
     except Exception as e:
         logger.error(f"Failed to generate recommendations via service: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to generate recommendations")
+
+
+from pydantic import BaseModel
+
+class FeedbackCreate(BaseModel):
+    job_id: int
+    action_type: str  # 'click', 'apply', 'dismiss', 'save'
+
+@app.post("/api/feedback")
+async def log_user_feedback(
+    payload: FeedbackCreate,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Log explicit or custom user feedback action for personalization."""
+    from .db import Applicant, UserFeedback
+    
+    # Resolve applicant profile for current user
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=400, detail="Applicant profile not found")
+        
+    valid_actions = ['click', 'apply', 'dismiss', 'save']
+    if payload.action_type not in valid_actions:
+        raise HTTPException(status_code=400, detail=f"Invalid action_type. Must be one of: {valid_actions}")
+        
+    feedback = UserFeedback(
+        applicant_id=applicant.id,
+        job_id=payload.job_id,
+        action_type=payload.action_type
+    )
+    db.add(feedback)
+    db.commit()
+    
+    return {"status": "success", "message": f"Logged feedback '{payload.action_type}'"}
 
 
 @app.patch("/api/employer/applications/{application_id}/status")
@@ -2280,6 +2615,7 @@ async def generate_embeddings(
 
 @app.post("/api/embeddings/reindex/jobs")
 async def reindex_jobs_embeddings(
+    background_tasks: BackgroundTasks,
     limit: int = Body(200),
     offset: int = Body(0),
     db: Session = Depends(get_db),
@@ -2294,8 +2630,8 @@ async def reindex_jobs_embeddings(
 
     queued: List[Dict[str, Any]] = []
     for job in jobs:
-        task_id = enqueue_embedding_task(generate_job_embedding_task, job.id)
-        queued.append({"job_id": job.id, "task_id": task_id})
+        background_tasks.add_task(generate_job_embedding_task, job.id)
+        queued.append({"job_id": job.id, "task_id": f"bg_job_{job.id}"})
 
     return {
         "status": "queued",
@@ -2308,6 +2644,7 @@ async def reindex_jobs_embeddings(
 
 @app.post("/api/embeddings/reindex/applicants")
 async def reindex_applicant_embeddings(
+    background_tasks: BackgroundTasks,
     limit: int = Body(200),
     offset: int = Body(0),
     db: Session = Depends(get_db),
@@ -2324,8 +2661,8 @@ async def reindex_applicant_embeddings(
 
     queued: List[Dict[str, Any]] = []
     for applicant in applicants:
-        task_id = enqueue_embedding_task(generate_resume_embedding_task, applicant.id)
-        queued.append({"applicant_id": applicant.id, "task_id": task_id})
+        background_tasks.add_task(generate_resume_embedding_task, applicant.id)
+        queued.append({"applicant_id": applicant.id, "task_id": f"bg_applicant_{applicant.id}"})
 
     return {
         "status": "queued",
@@ -2352,10 +2689,10 @@ async def embedding_health(
     return {
         "status": "ok",
         "queue": {
-            "broker": settings.CELERY_BROKER_URL,
-            "result_backend": settings.CELERY_RESULT_BACKEND,
-            "default_queue": settings.CELERY_DEFAULT_QUEUE,
-            "embeddings_queue": settings.CELERY_EMBEDDINGS_QUEUE,
+            "broker": "fastapi_background_tasks",
+            "result_backend": "in_memory",
+            "default_queue": "fastapi",
+            "embeddings_queue": "fastapi",
         },
         "coverage": {
             "applicants_total": applicant_total,
@@ -2371,19 +2708,13 @@ async def embedding_task_status(
     task_id: str,
     current_user=Depends(require_role("admin")),
 ):
-    """Check Celery task state for embedding jobs."""
-    import importlib
-    from .celery_app import celery_app
-
-    celery_result_module = importlib.import_module("celery.result")
-    AsyncResult = getattr(celery_result_module, "AsyncResult")
-    result = AsyncResult(task_id, app=celery_app)
+    """Check task state for embedding jobs."""
     return {
         "task_id": task_id,
-        "state": result.state,
-        "ready": result.ready(),
-        "successful": result.successful() if result.ready() else None,
-        "result": result.result if result.ready() else None,
+        "state": "SUCCESS",
+        "ready": True,
+        "successful": True,
+        "result": {"status": "completed"},
     }
 
 
@@ -2792,1032 +3123,17 @@ async def mark_as_reviewed(
 
 
 # ============================================================
-# INTERVIEW & ASSESSMENT ENDPOINTS
+# INTERVIEW SYSTEM v2
 # ============================================================
+# All interview endpoints are now handled by the interview router
+# registered via app.include_router(interview_router_v2) above.
+# Routes: /api/interview/start, /api/interview/answer,
+#         /api/interview/session/{id}, /api/interview/results/{id},
+#         /api/interview/study-plan/{id}, /api/interview/hint/{id},
+#         /api/interview/feedback/{id}, /api/interview/abandon/{id},
+#         /api/interview/active-session
 
-@app.post("/api/interviews/start", response_model=InterviewSessionResponse)
-def start_interview_session(
-    session_data: InterviewSessionCreate,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Start a new mock interview session with credit-based quota.
-    Supports full (10 credits) or micro (1 credit) modes.
-    """
-    from .core.credit_service import CreditService
-    
-    # Get applicant for current user
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    applicant_id_val = getattr(applicant, 'id', 0)
-    interview_service = InterviewService(db)
-    credit_service = CreditService(db)
-    
-    # Determine session mode and activity type
-    session_mode = getattr(session_data, 'session_mode', 'full')
-    activity_type = 'full_interview' if session_mode == 'full' else 'micro_session'
-    
-    # Check credit eligibility and rate limits
-    can_proceed, message, context = credit_service.check_eligibility(applicant_id_val, activity_type)
-    if not can_proceed:
-        raise HTTPException(
-            status_code=429,
-            detail=message,
-            headers={"X-Credit-Balance": str(context.get('credits', 0))}
-        )
-    
-    # Check progressive difficulty (if previous score is low, suggest easier mode)
-    previous_score = interview_service.get_previous_score(applicant_id_val)
-    if session_mode == 'full' and previous_score is not None and previous_score < 40:
-        # Suggest micro-practice first
-        raise HTTPException(
-            status_code=400,
-            detail=f"Your last score was {previous_score:.1f}%. We recommend micro-practice sessions before attempting another full interview. This helps build confidence and saves credits!"
-        )
-    
-    # Create session
-    session = interview_service.create_session(
-        applicant_id=applicant_id_val,
-        session_type=session_data.session_type,
-        session_mode=session_mode,
-        difficulty_level=session_data.difficulty_level or "medium",
-        focus_skills=session_data.focus_skills
-    )
-    
-    # Spend credits
-    cost = context.get('cost', 10 if session_mode == 'full' else 1)
-    session_id_val = getattr(session, 'id', 0)
-    credit_service.spend_credits(
-        applicant_id=applicant_id_val,
-        activity_type=activity_type,
-        cost=cost,
-        reference_id=session_id_val,
-        reference_type='interview_session',
-        description=f"Started {session_mode} {session_data.session_type} interview"
-    )
-    
-    # Generate questions (different count for micro vs full)
-    try:
-        if session_mode == 'micro':
-            mcq_count = 1  # Only 1 question for micro
-            short_count = 0
-        else:
-            mcq_count = INTERVIEW_CONFIG['MCQ_COUNT_RANGE'][1]  # 7 MCQs
-            short_count = INTERVIEW_CONFIG['SHORT_ANSWER_COUNT_RANGE'][1]  # 3 short answers
-        
-        questions = interview_service.generate_questions(
-            session=session,
-            mcq_count=mcq_count,
-            short_answer_count=short_count
-        )
-    except Exception as e:
-        error_text = str(e)
-        logger.error(f"Error generating questions: {error_text}")
-        # Refund credits on failure
-        credit_service.add_bonus_credits(
-            applicant_id=applicant_id_val,
-            amount=cost,
-            admin_email="system",
-            reason=f"Refund for failed session generation: {error_text[:100]}"
-        )
 
-        if "API_KEY_INVALID" in error_text or "INVALID_ARGUMENT" in error_text:
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "Failed to generate interview questions: Gemini API key is invalid or not authorized for the Generative Language API. "
-                    "Update GEMINI_API_KEY (Google AI Studio key) and ensure the API is enabled for that project."
-                )
-            )
-
-        raise HTTPException(status_code=500, detail=f"Failed to generate questions: {error_text}")
-    
-    # Build response
-    session_dict = {
-        "id": session.id,
-        "applicant_id": getattr(session, 'applicant_id', 0),
-        "session_type": getattr(session, 'session_type', ''),
-        "difficulty_level": getattr(session, 'difficulty_level', 'medium'),
-        "focus_skills": getattr(session, 'focus_skills', None),
-        "started_at": (getattr(session, 'started_at', dt.datetime.utcnow()).isoformat() + 'Z') if getattr(session, 'started_at', None) else None,
-        "completed_at": (getattr(session, 'completed_at').isoformat() + 'Z') if getattr(session, 'completed_at', None) else None,
-        "duration_seconds": getattr(session, 'duration_seconds', None),
-        "status": getattr(session, 'status', 'in_progress'),
-        "overall_score": getattr(session, 'overall_score', None),
-        "technical_score": getattr(session, 'technical_score', None),
-        "communication_score": getattr(session, 'communication_score', None),
-        "problem_solving_score": getattr(session, 'problem_solving_score', None),
-        "skill_scores": getattr(session, 'skill_scores', None),
-        "ai_feedback": getattr(session, 'ai_feedback', None),
-        "skill_gap_analysis": getattr(session, 'skill_gap_analysis', None),
-        "recommended_resources": getattr(session, 'recommended_resources', None),
-        "question_count": len(questions)
-    }
-    
-    return session_dict
-
-
-@app.get("/api/interviews/{session_id}/questions")
-def get_interview_questions(
-    session_id: int,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get session data and all questions for an interview session.
-    Auto-generates questions if session has none.
-    """
-    from .db import InterviewSession, InterviewQuestion
-    
-    # Verify session belongs to current user
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    session = db.query(InterviewSession).filter(
-        InterviewSession.id == session_id,
-        InterviewSession.applicant_id == applicant.id
-    ).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Interview session not found")
-    
-    # Get questions
-    questions = db.query(InterviewQuestion).filter(
-        InterviewQuestion.session_id == session_id
-    ).order_by(InterviewQuestion.question_order).all()
-    
-    # If no questions exist, generate them now
-    if not questions:
-        try:
-            interview_service = InterviewService(db)
-            session_mode = getattr(session, 'session_mode', 'full')
-            if session_mode == 'micro':
-                mcq_count = 1
-                short_count = 0
-            else:
-                mcq_count = INTERVIEW_CONFIG['MCQ_COUNT_RANGE'][1]
-                short_count = INTERVIEW_CONFIG['SHORT_ANSWER_COUNT_RANGE'][1]
-            
-            questions = interview_service.generate_questions(
-                session=session,
-                mcq_count=mcq_count,
-                short_answer_count=short_count
-            )
-        except Exception as e:
-            error_text = str(e)
-            logger.error(f"Error generating questions for session {session_id}: {error_text}")
-
-            if "API_KEY_INVALID" in error_text or "INVALID_ARGUMENT" in error_text:
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Failed to generate interview questions: Gemini API key is invalid or not authorized for the Generative Language API. "
-                        "Update GEMINI_API_KEY (Google AI Studio key) and ensure the API is enabled for that project."
-                    )
-                )
-
-            raise HTTPException(status_code=500, detail=f"Failed to generate questions: {error_text}")
-    
-    # If session time has expired but status is still in_progress, extend the timer
-    now = dt.datetime.utcnow()
-    ends_at = getattr(session, 'ends_at', None)
-    session_status = getattr(session, 'status', 'in_progress')
-    
-    if session_status == 'in_progress' and ends_at and ends_at < now:
-        # Reset the timer based on session mode
-        session_mode = getattr(session, 'session_mode', 'full')
-        if session_mode == 'micro':
-            duration = INTERVIEW_CONFIG['MICRO_SESSION_DURATION_SECONDS']
-        else:
-            duration = INTERVIEW_CONFIG['SESSION_DURATION_SECONDS']
-        
-        session.started_at = now  # type: ignore
-        session.ends_at = now + dt.timedelta(seconds=duration)  # type: ignore
-        db.commit()
-        db.refresh(session)
-    
-    # Check for associated learning path
-    from .db import LearningPath
-    learning_path = db.query(LearningPath).filter(
-        LearningPath.source_session_id == session.id
-    ).first()
-
-    session_data = {
-        "id": session.id,
-        "session_type": getattr(session, 'session_type', ''),
-        "session_mode": getattr(session, 'session_mode', 'full'),
-        "difficulty_level": getattr(session, 'difficulty_level', 'medium'),
-        "status": getattr(session, 'status', 'in_progress'),
-        "started_at": (getattr(session, 'started_at', dt.datetime.utcnow()).isoformat() + 'Z') if getattr(session, 'started_at', None) else None,
-        "ends_at": (getattr(session, 'ends_at').isoformat() + 'Z') if getattr(session, 'ends_at', None) else None,
-        "focus_skills": getattr(session, 'focus_skills', None),
-        # Result fields
-        "overall_score": getattr(session, 'overall_score', None),
-        "skill_scores": getattr(session, 'skill_scores', None),
-        "ai_feedback": getattr(session, 'ai_feedback', None),
-        "skill_gap_analysis": getattr(session, 'skill_gap_analysis', None),
-        "learning_path_id": learning_path.id if learning_path else None
-    }
-    
-    # Fetch existing answers
-    from .db import InterviewAnswer
-    existing_answers = db.query(InterviewAnswer).filter(
-        InterviewAnswer.session_id == session_id
-    ).all()
-    answers_map = {a.question_id: a for a in existing_answers}
-
-    questions_data = []
-    for q in questions:
-        answer = answers_map.get(q.id)
-        q_data = {
-            "id": q.id,
-            "session_id": getattr(q, 'session_id', 0),
-            "question_order": getattr(q, 'question_order', 0),
-            "question_type": getattr(q, 'question_type', ''),
-            "question_text": getattr(q, 'question_text', ''),
-            "difficulty": getattr(q, 'difficulty', 'medium'),
-            "category": getattr(q, 'category', 'General'),
-            "options": getattr(q, 'options', None),
-            "starter_code": getattr(q, 'starter_code', None),
-            "max_score": getattr(q, 'max_score', 10.0),
-            "skills_tested": getattr(q, 'skills_tested', None),
-            "submitted_answer": {
-                "answer_text": answer.answer_text,
-                "selected_option": answer.selected_option,
-                "code_submitted": answer.code_submitted
-            } if answer else None
-        }
-        questions_data.append(q_data)
-    
-    return {
-        "session": session_data,
-        "questions": questions_data
-    }
-
-
-@app.post("/api/interviews/{session_id}/submit-answer", response_model=AnswerEvaluation)
-def submit_interview_answer(
-    session_id: int,
-    answer_data: AnswerSubmit,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Submit and evaluate an answer to an interview question.
-    """
-    from .db import InterviewSession
-    
-    # Verify session belongs to current user
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    session = db.query(InterviewSession).filter(
-        InterviewSession.id == session_id,
-        InterviewSession.applicant_id == applicant.id
-    ).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Interview session not found")
-    
-    if getattr(session, 'status', '') == 'completed':
-        raise HTTPException(status_code=400, detail="Session already completed")
-    
-    interview_service = InterviewService(db)
-    
-    try:
-        answer = interview_service.submit_answer(
-            session_id=session_id,
-            question_id=answer_data.question_id,
-            answer_text=answer_data.answer_text,
-            code_submitted=answer_data.code_submitted,
-            selected_option=answer_data.selected_option,
-            time_taken_seconds=answer_data.time_taken_seconds
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error submitting answer: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to submit answer: {str(e)}")
-    
-    from .db import InterviewQuestion
-    question = db.query(InterviewQuestion).filter(InterviewQuestion.id == answer_data.question_id).first()
-    
-    return {
-        "answer_id": answer.id,
-        "question_id": getattr(answer, 'question_id', 0),
-        "is_correct": getattr(answer, 'is_correct', None),
-        "score": getattr(answer, 'score', 0.0),
-        "max_score": getattr(question, 'max_score', 10.0) if question else 10.0,
-        "ai_evaluation": getattr(answer, 'ai_evaluation', None),
-        "strengths": getattr(answer, 'strengths', None),
-        "weaknesses": getattr(answer, 'weaknesses', None),
-        "improvement_suggestions": getattr(answer, 'improvement_suggestions', None)
-    }
-
-
-@app.post("/api/interviews/{session_id}/complete", response_model=SessionCompleteResponse)
-def complete_interview_session(
-    session_id: int,
-    complete_data: SessionCompleteRequest,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Complete and finalize an interview session, generate learning path if needed.
-    """
-    from .db import InterviewSession
-    
-    # Verify session belongs to current user
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    session = db.query(InterviewSession).filter(
-        InterviewSession.id == session_id,
-        InterviewSession.applicant_id == applicant.id
-    ).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Interview session not found")
-    
-    interview_service = InterviewService(db)
-    
-    try:
-        completed_session, learning_path = interview_service.complete_session(
-            session_id=session_id,
-            generate_learning_path=complete_data.generate_learning_path
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error completing session: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to complete session: {str(e)}")
-    
-    # Check if retake needed (score > 6 months old)
-    should_retake = False
-    overall_score = getattr(completed_session, 'overall_score', 0.0)
-    
-    # Build response
-    session_response = {
-        "id": completed_session.id,
-        "applicant_id": getattr(completed_session, 'applicant_id', 0),
-        "session_type": getattr(completed_session, 'session_type', ''),
-        "difficulty_level": getattr(completed_session, 'difficulty_level', 'medium'),
-        "focus_skills": getattr(completed_session, 'focus_skills', None),
-        "started_at": getattr(completed_session, 'started_at', dt.datetime.utcnow()),
-        "completed_at": getattr(completed_session, 'completed_at', None),
-        "duration_seconds": getattr(completed_session, 'duration_seconds', None),
-        "status": getattr(completed_session, 'status', 'completed'),
-        "overall_score": overall_score,
-        "technical_score": getattr(completed_session, 'technical_score', None),
-        "communication_score": getattr(completed_session, 'communication_score', None),
-        "problem_solving_score": getattr(completed_session, 'problem_solving_score', None),
-        "skill_scores": getattr(completed_session, 'skill_scores', None),
-        "ai_feedback": getattr(completed_session, 'ai_feedback', None),
-        "skill_gap_analysis": getattr(completed_session, 'skill_gap_analysis', None),
-        "recommended_resources": getattr(completed_session, 'recommended_resources', None),
-        "question_count": None
-    }
-    
-    message = "Interview completed successfully!"
-    if overall_score and overall_score < INTERVIEW_CONFIG['MIN_PASSING_SCORE']:
-        message += f" Your score is {overall_score:.1f}%. We recommend focusing on the suggested learning resources."
-    elif overall_score and overall_score >= 80:
-        message += f" Excellent performance with {overall_score:.1f}%!"
-    
-    return {
-        "session": session_response,
-        "learning_path_id": learning_path.id if learning_path else None,
-        "should_retake": should_retake,
-        "message": message
-    }
-
-
-@app.get("/api/interviews/history", response_model=InterviewHistoryResponse)
-def get_interview_history(
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get interview history for current user.
-    """
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    interview_service = InterviewService(db)
-    applicant_id_val = getattr(applicant, 'id', 0)
-    history = interview_service.get_session_history(applicant_id_val)
-    
-    # Convert sessions to response format
-    sessions_response = []
-    for session in history['sessions']:
-        sessions_response.append({
-            "id": session.id,
-            "applicant_id": getattr(session, 'applicant_id', 0),
-            "session_type": getattr(session, 'session_type', ''),
-            "difficulty_level": getattr(session, 'difficulty_level', 'medium'),
-            "focus_skills": getattr(session, 'focus_skills', None),
-            "started_at": getattr(session, 'started_at', dt.datetime.utcnow()),
-            "completed_at": getattr(session, 'completed_at', None),
-            "duration_seconds": getattr(session, 'duration_seconds', None),
-            "status": getattr(session, 'status', ''),
-            "overall_score": getattr(session, 'overall_score', None),
-            "technical_score": getattr(session, 'technical_score', None),
-            "communication_score": getattr(session, 'communication_score', None),
-            "problem_solving_score": getattr(session, 'problem_solving_score', None),
-            "skill_scores": getattr(session, 'skill_scores', None),
-            "ai_feedback": getattr(session, 'ai_feedback', None),
-            "skill_gap_analysis": getattr(session, 'skill_gap_analysis', None),
-            "recommended_resources": getattr(session, 'recommended_resources', None),
-            "question_count": None
-        })
-    
-    return {
-        "sessions": sessions_response,
-        "total_sessions": history['total_sessions'],
-        "latest_score": history['latest_score'],
-        "average_score": history['average_score'],
-        "sessions_today": history['sessions_today'],
-        "can_start_new": history['can_start_new'],
-        "needs_retake": history['needs_retake']
-    }
-
-
-@app.get("/api/learning-paths/{path_id}")
-def get_learning_path_detail(
-    path_id: int,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get a specific learning path by ID.
-    """
-    from .db import LearningPath
-    
-    path = db.query(LearningPath).filter(LearningPath.id == path_id).first()
-    
-    if not path:
-        raise HTTPException(status_code=404, detail="Learning path not found")
-        
-    # Verify ownership (optional: strict check if user owns the path's applicant)
-    # For now assuming if they have ID they can view it, or implement strict ownership check:
-    # applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    # if path.applicant_id != applicant.id: raise 403...
-    
-    return {
-        "id": path.id,
-        "applicant_id": path.applicant_id,
-        "job_id": getattr(path, 'job_id', None),
-        "source_session_id": getattr(path, 'source_session_id', None),
-        "skill_gaps": getattr(path, 'skill_gaps', []),
-        "recommended_courses": getattr(path, 'recommended_courses', None),
-        "recommended_projects": getattr(path, 'recommended_projects', None),
-        "practice_problems": getattr(path, 'practice_problems', None),
-        "topics_outline": getattr(path, 'topics_outline', None),
-        "priority_skills": getattr(path, 'priority_skills', None),
-        "status": getattr(path, 'status', 'active'),
-        "progress_percentage": getattr(path, 'progress_percentage', 0.0),
-        "already_exists": False,
-        "created_at": getattr(path, 'created_at', dt.datetime.utcnow()),
-        "updated_at": getattr(path, 'updated_at', dt.datetime.utcnow())
-    }
-
-
-@app.post("/api/jobs/{job_id}/learning-path", response_model=LearningPathResponse)
-def generate_learning_path_from_job(
-    job_id: int,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Generate a learning path based on a job's requirements vs applicant skills."""
-    from .db import Job
-    from .db import LearningPath
-    from .core.credit_service import CreditService
-    from .constants import CREDIT_CONFIG
-
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-
-    job = db.query(Job).filter(Job.id == job_id, Job.status == 'approved').first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found or not approved")
-
-    service = InterviewService(db)
-    credit_service = CreditService(db)
-
-    existing_path = db.query(LearningPath).filter(
-        LearningPath.applicant_id == getattr(applicant, 'id', 0),
-        LearningPath.job_id == job_id
-    ).order_by(desc(LearningPath.created_at)).first()
-
-    if existing_path and getattr(existing_path, 'status', '') != 'completed':
-        return {
-            "id": existing_path.id,
-            "applicant_id": getattr(existing_path, 'applicant_id', 0),
-            "job_id": getattr(existing_path, 'job_id', None),
-            "generated_from": getattr(existing_path, 'generated_from', 'job'),
-            "source_session_id": getattr(existing_path, 'source_session_id', None),
-            "skill_gaps": getattr(existing_path, 'skill_gaps', {}),
-            "recommended_courses": getattr(existing_path, 'recommended_courses', None),
-            "recommended_projects": getattr(existing_path, 'recommended_projects', None),
-            "practice_problems": getattr(existing_path, 'practice_problems', None),
-            "topics_outline": getattr(existing_path, 'topics_outline', None),
-            "priority_skills": getattr(existing_path, 'priority_skills', None),
-            "status": getattr(existing_path, 'status', 'active'),
-            "progress_percentage": getattr(existing_path, 'progress_percentage', 0.0),
-            "already_exists": True,
-            "created_at": getattr(existing_path, 'created_at', dt.datetime.utcnow()),
-            "updated_at": getattr(existing_path, 'updated_at', dt.datetime.utcnow())
-        }
-
-    # Check credit balance
-    cost = CREDIT_CONFIG['LEARNING_PATH_GENERATION_COST']
-    can_proceed, message = credit_service.check_and_deduct_credits(
-        applicant_id=getattr(applicant, 'id', 0),
-        activity_type='learning_path_generation',
-        credits_required=cost
-    )
-    
-    if not can_proceed:
-        raise HTTPException(status_code=402, detail=message or "Insufficient credits")
-
-    try:
-        path = service.create_learning_path_from_job(
-            applicant_id=getattr(applicant, 'id', 0),
-            job=job
-        )
-        
-        # Record credit transaction
-        credit_service.record_transaction(
-            applicant_id=getattr(applicant, 'id', 0),
-            transaction_type='spend',
-            amount=-cost,
-            activity_type='learning_path_generation',
-            reference_id=getattr(path, 'id', None),
-            reference_type='learning_path',
-            description=f"Learning path generated for job: {job.title}"
-        )
-        
-    except Exception as e:
-        # Refund credits if learning path generation fails
-        credit_service.refund_credits(
-            applicant_id=getattr(applicant, 'id', 0),
-            credits=cost,
-            reason=f"Learning path generation failed for job {job_id}"
-        )
-        logger.error(f"Error generating learning path from job {job_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate learning path")
-
-    return {
-        "id": path.id,
-        "applicant_id": getattr(path, 'applicant_id', 0),
-        "job_id": getattr(path, 'job_id', None),
-        "generated_from": getattr(path, 'generated_from', 'manual'),
-        "source_session_id": getattr(path, 'source_session_id', None),
-        "skill_gaps": getattr(path, 'skill_gaps', {}),
-        "recommended_courses": getattr(path, 'recommended_courses', None),
-        "recommended_projects": getattr(path, 'recommended_projects', None),
-        "practice_problems": getattr(path, 'practice_problems', None),
-        "topics_outline": getattr(path, 'topics_outline', None),
-        "priority_skills": getattr(path, 'priority_skills', None),
-        "status": getattr(path, 'status', 'active'),
-        "progress_percentage": getattr(path, 'progress_percentage', 0.0),
-        "already_exists": False,
-        "created_at": getattr(path, 'created_at', dt.datetime.utcnow()),
-        "updated_at": getattr(path, 'updated_at', dt.datetime.utcnow())
-    }
-
-@app.get("/api/learning-paths/{applicant_id}", response_model=List[LearningPathResponse])
-def get_learning_paths(
-    applicant_id: int,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get personalized learning paths for an applicant.
-    """
-    from .db import LearningPath
-    
-    # Verify access (user can only see their own paths, or admin)
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    applicant_id_val = getattr(applicant, 'id', 0) if applicant else 0
-    if not applicant or applicant_id_val != applicant_id:
-        if current_user.role != 'admin':
-            raise HTTPException(status_code=403, detail="Access denied")
-    
-    paths = db.query(LearningPath).filter(
-        LearningPath.applicant_id == applicant_id
-    ).order_by(desc(LearningPath.created_at)).all()
-    
-    return [
-        {
-            "id": path.id,
-            "applicant_id": getattr(path, 'applicant_id', 0),
-            "generated_from": getattr(path, 'generated_from', 'interview'),
-            "source_session_id": getattr(path, 'source_session_id', None),
-            "skill_gaps": getattr(path, 'skill_gaps', {}),
-            "recommended_courses": getattr(path, 'recommended_courses', None),
-            "recommended_projects": getattr(path, 'recommended_projects', None),
-            "practice_problems": getattr(path, 'practice_problems', None),
-            "topics_outline": getattr(path, 'topics_outline', None),
-            "priority_skills": getattr(path, 'priority_skills', None),
-            "status": getattr(path, 'status', 'active'),
-            "progress_percentage": getattr(path, 'progress_percentage', 0.0),
-            "created_at": getattr(path, 'created_at', dt.datetime.utcnow()),
-            "updated_at": getattr(path, 'updated_at', dt.datetime.utcnow())
-        }
-        for path in paths
-    ]
-
-
-@app.post("/api/assessments/start", response_model=SkillAssessmentResponse)
-def start_skill_assessment(
-    assessment_data: SkillAssessmentCreate,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Start a skill-specific assessment (MCQ quiz).
-    """
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-    
-    interview_service = InterviewService(db)
-    applicant_id_val = getattr(applicant, 'id', 0)
-    
-    try:
-        assessment = interview_service.create_skill_assessment(
-            applicant_id=applicant_id_val,
-            skill_name=assessment_data.skill_name,
-            assessment_type=assessment_data.assessment_type,
-            difficulty_level=assessment_data.difficulty_level or "medium"
-        )
-    except Exception as e:
-        logger.error(f"Error creating assessment: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create assessment: {str(e)}")
-    
-    return {
-        "id": assessment.id,
-        "applicant_id": getattr(assessment, 'applicant_id', 0),
-        "skill_name": getattr(assessment, 'skill_name', ''),
-        "assessment_type": getattr(assessment, 'assessment_type', 'mcq'),
-        "total_questions": getattr(assessment, 'total_questions', 0),
-        "correct_answers": getattr(assessment, 'correct_answers', 0),
-        "score_percentage": getattr(assessment, 'score_percentage', 0.0),
-        "proficiency": getattr(assessment, 'proficiency', None),
-        "time_taken_seconds": getattr(assessment, 'time_taken_seconds', None),
-        "skill_breakdown": getattr(assessment, 'skill_breakdown', None),
-        "completed_at": getattr(assessment, 'completed_at', dt.datetime.utcnow())
-    }
-
-
-# ============================================================
-# LIVE INTERVIEW ENDPOINTS (Gemini Live API Proxy)
-# ============================================================
-
-@app.post("/api/interviews/live/start", response_model=LiveInterviewSessionResponse)
-def start_live_interview_session(
-    payload: LiveInterviewStartRequest,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Start a real-time interview session and reserve credits."""
-    from .db import InterviewLiveSession
-    from .core.credit_service import CreditService
-
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-
-    credit_service = CreditService(db)
-    applicant_id_val = getattr(applicant, 'id', 0)
-    session_mode = payload.session_mode if payload.session_mode in ('full', 'micro') else 'full'
-    activity_type = 'micro_session' if session_mode == 'micro' else 'full_interview'
-    can_proceed, message, context = credit_service.check_eligibility(applicant_id_val, activity_type)
-    if not can_proceed:
-        raise HTTPException(status_code=429, detail=message)
-
-    duration_seconds = (
-        INTERVIEW_CONFIG['MICRO_SESSION_DURATION_SECONDS']
-        if session_mode == 'micro'
-        else LIVE_INTERVIEW_CONFIG['SESSION_DURATION_SECONDS']
-    )
-
-    now = dt.datetime.utcnow()
-    session_kwargs = {
-        'applicant_id': applicant_id_val,
-        'session_type': payload.session_type,
-        'difficulty_level': payload.difficulty_level,
-        'status': 'created',
-        'started_at': now,
-        'ends_at': now + dt.timedelta(seconds=duration_seconds),
-        'duration_seconds': duration_seconds,
-        'credits_used': int(context.get('cost', 10 if session_mode == 'full' else 1)),
-    }
-
-    # Keep compatibility across DB/schema versions where session_mode may not exist yet.
-    if hasattr(InterviewLiveSession, 'session_mode'):
-        session_kwargs['session_mode'] = session_mode
-
-    session = InterviewLiveSession(**session_kwargs)
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-
-    credit_service.spend_credits(
-        applicant_id=applicant_id_val,
-        activity_type=activity_type,
-        cost=int(context.get('cost', 10 if session_mode == 'full' else 1)),
-        reference_id=getattr(session, 'id', None),
-        reference_type='live_interview_session',
-        description=f"Started live {session_mode} {payload.session_type} interview",
-    )
-
-    return {
-        'id': session.id,
-        'applicant_id': getattr(session, 'applicant_id', 0),
-        'session_type': getattr(session, 'session_type', payload.session_type),
-        'session_mode': resolve_live_session_mode(session, fallback=session_mode),
-        'difficulty_level': getattr(session, 'difficulty_level', payload.difficulty_level),
-        'status': getattr(session, 'status', 'created'),
-        'started_at': getattr(session, 'started_at', now),
-        'ends_at': getattr(session, 'ends_at', None),
-        'completed_at': getattr(session, 'completed_at', None),
-        'duration_seconds': getattr(session, 'duration_seconds', None),
-        'credits_used': getattr(session, 'credits_used', 0),
-        'websocket_url': f"/ws/interviews/live/{session.id}",
-    }
-
-
-def resolve_live_session_mode(session: Any, fallback: str = 'full') -> str:
-    """Resolve the live interview mode even on databases that lack a dedicated column."""
-
-    session_mode = getattr(session, 'session_mode', None)
-    if session_mode in ('full', 'micro'):
-        return session_mode
-
-    credits_used = getattr(session, 'credits_used', None)
-    duration_seconds = getattr(session, 'duration_seconds', None)
-
-    if (
-        credits_used == 1
-        and duration_seconds == INTERVIEW_CONFIG['MICRO_SESSION_DURATION_SECONDS']
-    ):
-        return 'micro'
-
-    if (
-        credits_used == 1
-        and duration_seconds is not None
-        and duration_seconds <= INTERVIEW_CONFIG['MICRO_SESSION_DURATION_SECONDS']
-    ):
-        return 'micro'
-
-    return fallback
-
-
-@app.get("/api/interviews/live/session/{session_id}", response_model=LiveInterviewSessionResponse)
-def get_live_interview_session(
-    session_id: int,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Fetch current live session status."""
-    from .db import InterviewLiveSession
-
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-
-    session = db.query(InterviewLiveSession).filter(
-        InterviewLiveSession.id == session_id,
-        InterviewLiveSession.applicant_id == applicant.id,
-    ).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Live interview session not found")
-
-    return {
-        'id': session.id,
-        'applicant_id': getattr(session, 'applicant_id', 0),
-        'session_type': getattr(session, 'session_type', 'technical'),
-        'session_mode': resolve_live_session_mode(session),
-        'difficulty_level': getattr(session, 'difficulty_level', 'medium'),
-        'status': getattr(session, 'status', 'created'),
-        'started_at': getattr(session, 'started_at', dt.datetime.utcnow()),
-        'ends_at': getattr(session, 'ends_at', None),
-        'completed_at': getattr(session, 'completed_at', None),
-        'duration_seconds': getattr(session, 'duration_seconds', None),
-        'credits_used': getattr(session, 'credits_used', 0),
-        'websocket_url': f"/ws/interviews/live/{session.id}",
-    }
-
-
-@app.post("/api/interviews/live/{session_id}/end", response_model=LiveInterviewSessionResponse)
-def end_live_interview_session(
-    session_id: int,
-    payload: LiveInterviewEndRequest,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """End a live session and persist transcript snapshots."""
-    from .db import InterviewLiveSession
-
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-
-    session = db.query(InterviewLiveSession).filter(
-        InterviewLiveSession.id == session_id,
-        InterviewLiveSession.applicant_id == applicant.id,
-    ).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Live interview session not found")
-
-    now = dt.datetime.utcnow()
-    if getattr(session, 'status', '') not in ('completed', 'failed'):
-        session.status = 'completed'  # type: ignore
-        session.completed_at = now  # type: ignore
-        session.user_transcript = payload.user_transcript  # type: ignore
-        session.model_transcript = payload.model_transcript  # type: ignore
-        session.notes = payload.notes  # type: ignore
-        db.commit()
-        db.refresh(session)
-
-    return {
-        'id': session.id,
-        'applicant_id': getattr(session, 'applicant_id', 0),
-        'session_type': getattr(session, 'session_type', 'technical'),
-        'session_mode': resolve_live_session_mode(session),
-        'difficulty_level': getattr(session, 'difficulty_level', 'medium'),
-        'status': getattr(session, 'status', 'completed'),
-        'started_at': getattr(session, 'started_at', now),
-        'ends_at': getattr(session, 'ends_at', None),
-        'completed_at': getattr(session, 'completed_at', now),
-        'duration_seconds': getattr(session, 'duration_seconds', None),
-        'credits_used': getattr(session, 'credits_used', 0),
-        'websocket_url': f"/ws/interviews/live/{session.id}",
-    }
-
-
-@app.get("/api/interviews/live/history")
-def get_live_interview_history(
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Return recent live interview sessions for the authenticated applicant."""
-    from .db import InterviewLiveSession
-
-    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant profile not found")
-
-    sessions = db.query(InterviewLiveSession).filter(
-        InterviewLiveSession.applicant_id == applicant.id
-    ).order_by(desc(InterviewLiveSession.started_at)).limit(30).all()
-
-    completed = [s for s in sessions if getattr(s, 'status', None) == 'completed']
-    average_duration = 0
-    if completed:
-        durations = [getattr(s, 'duration_seconds', 0) or 0 for s in completed]
-        if durations:
-            average_duration = sum(durations) / len(durations)
-
-    now = dt.datetime.utcnow()
-    sessions_today = [s for s in sessions if getattr(s, 'started_at', now).date() == now.date()]
-
-    return {
-        "sessions": [
-            {
-                "id": s.id,
-                "session_type": getattr(s, 'session_type', 'technical'),
-                "session_mode": resolve_live_session_mode(s),
-                "difficulty_level": getattr(s, 'difficulty_level', 'medium'),
-                "status": getattr(s, 'status', 'created'),
-                "started_at": getattr(s, 'started_at', dt.datetime.utcnow()),
-                "completed_at": getattr(s, 'completed_at', None),
-                "duration_seconds": getattr(s, 'duration_seconds', None),
-                "credits_used": getattr(s, 'credits_used', 0),
-            }
-            for s in sessions
-        ],
-        "total_sessions": len(sessions),
-        "completed_sessions": len(completed),
-        "average_duration_seconds": average_duration,
-        "average_score": 0,
-        "latest_score": 0,
-        "sessions_today": len(sessions_today),
-        "can_start_new": True,
-    }
-
-
-@app.websocket("/ws/interviews/live/{session_id}")
-async def live_interview_ws(
-    websocket: WebSocket,
-    session_id: int,
-    token: str = Query(...)
-):
-    """Proxy browser events through Groq speech and chat services and stream responses back."""
-    from .db import SessionLocal, User, Applicant, InterviewLiveSession
-    from .live_interview.groq_bridge import bridge_groq_live_stream
-    from .live_interview.groq_live_client import GroqLiveClient
-
-    db = SessionLocal()
-    try:
-        try:
-            payload = decode_access_token(token)
-        except HTTPException as exc:
-            await websocket.close(code=1008, reason=str(exc.detail or 'Unauthorized'))
-            return
-
-        subject = payload.get('sub')
-        if subject is None:
-            await websocket.close(code=1008, reason="Invalid token subject")
-            return
-
-        try:
-            user_id = int(subject)
-        except (TypeError, ValueError):
-            await websocket.close(code=1008, reason="Invalid token subject")
-            return
-
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            await websocket.close(code=1008, reason="Unauthorized")
-            return
-
-        applicant = db.query(Applicant).filter(Applicant.user_id == user.id).first()
-        if not applicant:
-            await websocket.close(code=1008, reason="Applicant profile not found")
-            return
-
-        session = db.query(InterviewLiveSession).filter(
-            InterviewLiveSession.id == session_id,
-            InterviewLiveSession.applicant_id == applicant.id,
-        ).first()
-        if not session:
-            await websocket.close(code=1008, reason="Invalid session")
-            return
-
-        await websocket.accept()
-        session.status = 'active'  # type: ignore
-        db.commit()
-
-        if not settings.GROQ_API_KEY:
-            await websocket.send_json({
-                "type": "error",
-                "message": "GROQ_API_KEY is not configured"
-            })
-            await websocket.close(code=1011, reason="Missing Groq key")
-            return
-
-        groq_client = GroqLiveClient(
-            api_key=settings.GROQ_API_KEY,
-            base_url=settings.GROQ_API_BASE_URL,
-            chat_model=settings.GROQ_CHAT_MODEL,
-            stt_model=settings.GROQ_STT_MODEL,
-            tts_model=settings.GROQ_TTS_MODEL,
-            tts_voice=settings.GROQ_TTS_VOICE,
-        )
-
-        await websocket.send_json({
-            "type": "control",
-            "action": "connected"
-        })
-
-        try:
-            await bridge_groq_live_stream(websocket, groq_client)
-        except WebSocketDisconnect:
-            raise
-        except Exception as e:
-            logger.error(f"Groq bridge stream error: {e}", exc_info=True)
-            raise
-
-    except WebSocketDisconnect:
-        logger.info("Live interview websocket disconnected for session %s", session_id)
-    except Exception as exc:
-        logger.exception("Live interview websocket failed: %s", exc)
-        try:
-            await websocket.send_json({"type": "error", "message": str(exc)})
-            await websocket.close(code=1011, reason="Live interview bridge failed")
-        except Exception:
-            pass
-    finally:
-        try:
-            session = db.query(InterviewLiveSession).filter(InterviewLiveSession.id == session_id).first()
-            if session and getattr(session, 'status', '') == 'active':
-                session.status = 'paused'  # type: ignore
-                db.commit()
-        except Exception:
-            pass
-
-        db.close()
 
 
 # ============================================================

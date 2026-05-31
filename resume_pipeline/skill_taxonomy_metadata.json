@@ -993,5 +993,21 @@
     "category": "uncategorized",
     "related_skills": [],
     "market_demand": "very_low"
+  },
+  "html": {
+    "skill_id": "skill_097",
+    "display_name": "HTML",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "css": {
+    "skill_id": "skill_098",
+    "display_name": "CSS",
+    "relevance_score": 0,
+    "category": "uncategorized",
+    "related_skills": [],
+    "market_demand": "very_low"
   }
 }

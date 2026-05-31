@@ -14,6 +14,7 @@ const LearningPathPage = () => {
   }, [pathId])
 
   const fetchLearningPath = async () => {
+    setLoading(true)
     try {
       const response = await api.get(`/api/learning-paths/${pathId}`)
       setLearningPath(response.data)
@@ -62,8 +63,40 @@ const LearningPathPage = () => {
       type: 'practice',
       title: problem.title,
       description: `${problem.platform} - ${problem.difficulty}`
-    }))
+    })),
+    ...(learningPath?.topics_outline || []).flatMap((topic) => {
+      const topicItems = []
+
+      if (topic?.topic) {
+        topicItems.push({
+          type: 'topic',
+          title: topic.topic,
+          description: topic.why_it_matters || 'Core area to strengthen'
+        })
+      }
+
+      ;(topic?.subtopics || []).forEach((subtopic) => {
+        if (!subtopic?.title) return
+        topicItems.push({
+          type: 'topic',
+          title: subtopic.title,
+          description: subtopic.details || topic.topic || 'Subtopic to review'
+        })
+      })
+
+      return topicItems
+    }),
   ].slice(0, 6) // Limit to 6 items for the circular layout
+
+  const fallbackItems = Object.entries(learningPath?.skill_gaps || {})
+    .slice(0, 6)
+    .map(([skill, level]) => ({
+      type: 'topic',
+      title: skill,
+      description: `${level} priority area`
+    }))
+
+  const displayItems = allItems.length > 0 ? allItems : fallbackItems
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-12 px-4">
@@ -123,63 +156,70 @@ const LearningPathPage = () => {
             </svg>
 
             {/* Items Grid */}
-            <div className="relative z-10 grid grid-cols-3 gap-12" style={{ minHeight: allItems.length > 3 ? '700px' : '300px' }}>
-              {allItems.map((item, idx) => {
-                const colorScheme = colors[idx % colors.length]
-                const isOdd = idx % 2 === 1
-                const row = Math.floor(idx / 3)
-                const col = idx % 3
-                
-                return (
-                  <div key={idx} className={`flex flex-col items-center ${row > 0 ? 'mt-32' : ''}`}>
-                    {/* Number Circle */}
-                    <div className={`${colorScheme.circle} text-white rounded-full w-20 h-20 flex items-center justify-center text-2xl font-bold mb-4 shadow-lg hover:shadow-xl transition-shadow`}>
-                      {String(idx + 1).padStart(2, '0')}
-                    </div>
+            {displayItems.length > 0 ? (
+              <div className="relative z-10 grid grid-cols-3 gap-12" style={{ minHeight: displayItems.length > 3 ? '700px' : '300px' }}>
+                {displayItems.map((item, idx) => {
+                  const colorScheme = colors[idx % colors.length]
+                  const row = Math.floor(idx / 3)
 
-                    {/* Content Card */}
-                    <div className={`${colorScheme.light} rounded-xl p-6 text-center max-w-xs w-full`}>
-                      <h3 className={`${colorScheme.text} font-bold text-sm mb-2 uppercase tracking-wide`}>
-                        {item.type === 'course' ? 'Learn' : item.type === 'project' ? 'Build' : 'Practice'}
-                      </h3>
-                      <h4 className="text-gray-900 font-bold text-lg mb-2 line-clamp-2">
-                        {item.title}
-                      </h4>
-                      <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                        {item.description}
-                      </p>
+                  return (
+                    <div key={idx} className={`flex flex-col items-center ${row > 0 ? 'mt-32' : ''}`}>
+                      <div className={`${colorScheme.circle} text-white rounded-full w-20 h-20 flex items-center justify-center text-2xl font-bold mb-4 shadow-lg hover:shadow-xl transition-shadow`}>
+                        {String(idx + 1).padStart(2, '0')}
+                      </div>
 
-                      {/* Action Button */}
-                      {(item.url || item.platform) && (
-                        <a
-                          href={item.url || '#'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`inline-flex items-center px-4 py-2 ${colorScheme.circle} text-white rounded-lg text-sm font-medium hover:shadow-lg transition-shadow`}
-                        >
-                          {item.type === 'course' ? 'Start Course' : item.type === 'project' ? 'View Project' : 'Solve Problem'}
-                          <ExternalLink size={14} className="ml-2" />
-                        </a>
-                      )}
+                      <div className={`${colorScheme.light} rounded-xl p-6 text-center max-w-xs w-full`}>
+                        <h3 className={`${colorScheme.text} font-bold text-sm mb-2 uppercase tracking-wide`}>
+                          {item.type === 'course' ? 'Learn' : item.type === 'project' ? 'Build' : item.type === 'practice' ? 'Practice' : 'Review'}
+                        </h3>
+                        <h4 className="text-gray-900 font-bold text-lg mb-2 line-clamp-2">
+                          {item.title}
+                        </h4>
+                        <p className="text-gray-600 text-sm mb-4 line-clamp-2">
+                          {item.description}
+                        </p>
+
+                        {(item.url || item.platform) && (
+                          <a
+                            href={item.url || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`inline-flex items-center px-4 py-2 ${colorScheme.circle} text-white rounded-lg text-sm font-medium hover:shadow-lg transition-shadow`}
+                          >
+                            {item.type === 'course' ? 'Start Course' : item.type === 'project' ? 'View Project' : 'Solve Problem'}
+                            <ExternalLink size={14} className="ml-2" />
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="relative z-10 rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-6 py-16 text-center">
+                <BookOpen className="mx-auto mb-4 text-indigo-500" size={32} />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">Your learning path is ready</h3>
+                <p className="mx-auto max-w-2xl text-gray-600">
+                  The path was generated, but no course, project, or practice items were returned yet.
+                  Try generating again, or use the focus areas below to continue manually.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Focus Areas */}
-        {learningPath?.skill_gaps && learningPath.skill_gaps.length > 0 && (
+        {learningPath?.skill_gaps && Object.keys(learningPath.skill_gaps).length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-8 mb-12">
             <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
               <Target size={28} className="mr-3 text-orange-600" />
               Key Focus Areas
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {learningPath.skill_gaps.map((skill, idx) => (
-                <div key={idx} className="bg-gradient-to-br from-orange-50 to-red-50 border border-orange-200 rounded-xl p-4 text-center">
-                  <p className="text-gray-900 font-semibold">{skill}</p>
+              {Object.entries(learningPath.skill_gaps).map(([skill, level]) => (
+                <div key={skill} className="bg-gradient-to-br from-orange-50 to-red-50 border border-orange-200 rounded-xl p-4 text-center">
+                  <p className="text-gray-900 font-semibold capitalize">{skill}</p>
+                  <p className="text-sm text-orange-700 mt-1 capitalize">{level}</p>
                 </div>
               ))}
             </div>

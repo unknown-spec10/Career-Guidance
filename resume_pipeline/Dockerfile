@@ -12,13 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements
 COPY requirements.txt .
 
-# Install Python dependencies with CPU-only PyTorch index
-RUN pip install --no-cache-dir --user \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    torch && \
-    pip install --no-cache-dir --user \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    -r requirements.txt
+# Install Python dependencies
+RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Stage 2: Runtime
 FROM python:3.11-slim

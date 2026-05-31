@@ -62,10 +62,10 @@ export default function ForgotPasswordPage() {
               >
                 <Mail className="w-8 h-8 text-primary-400" />
               </motion.div>
-              <h1 className="text-3xl font-bold text-white mb-2">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
                 Forgot Password?
               </h1>
-              <p className="text-gray-400">
+              <p className="text-gray-600">
                 Enter your email and we'll send you a reset code
               </p>
             </div>
@@ -74,7 +74,7 @@ export default function ForgotPasswordPage() {
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Email Input */}
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                     Email Address
                   </label>
                   <div className="relative">
@@ -136,12 +136,12 @@ export default function ForgotPasswordPage() {
                 <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <CheckCircle className="w-8 h-8 text-green-400" />
                 </div>
-                <h3 className="text-xl font-semibold text-white mb-2">
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
                   Check Your Email!
                 </h3>
-                <p className="text-gray-400 mb-6">
+                <p className="text-gray-600 mb-6">
                   We've sent a 6-digit reset code to<br />
-                  <span className="text-primary-400 font-medium">{email}</span>
+                  <span className="text-primary-600 font-semibold">{email}</span>
                 </p>
                 <p className="text-sm text-gray-500">
                   Redirecting to password reset page...

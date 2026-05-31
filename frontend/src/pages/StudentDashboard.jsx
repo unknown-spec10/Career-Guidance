@@ -3,19 +3,39 @@ import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Briefcase, Building2, TrendingUp, Clock,
-  CheckCircle, XCircle, AlertTriangle, LogOut, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2, RefreshCcw
+  CheckCircle, XCircle, AlertTriangle, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2, RefreshCcw, X
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
-import { ANIMATION_DELAYS } from '../config/constants'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
-import MatchScore from '../components/MatchScore'
 import { SkeletonStats, SkeletonCard } from '../components/SkeletonLoader'
 import useOptimistic from '../hooks/useOptimistic'
 import CreditWidget from '../components/CreditWidget'
 import ApplicationTracker from '../components/ApplicationTracker'
 import ProfileHealth from '../components/ProfileHealth'
+
+const normalizeMatchScore = (rawScore) => {
+  const numericScore = Number(rawScore)
+  if (!Number.isFinite(numericScore)) return 0
+  if (numericScore <= 1) return numericScore * 100
+  if (numericScore > 100) return numericScore / 100
+  return numericScore
+}
+
+const formatMatchLabel = (percentage) => {
+  if (percentage >= 85) return 'Good'
+  if (percentage >= 70) return 'Good'
+  if (percentage >= 55) return 'Avg'
+  return 'Weak'
+}
+
+const getMatchColor = (percentage) => {
+  if (percentage >= 85) return 'bg-green-600'
+  if (percentage >= 70) return 'bg-primary-600'
+  if (percentage >= 55) return 'bg-yellow-600'
+  return 'bg-gray-500'
+}
 
 export default function StudentDashboard() {
   const navigate = useNavigate()
@@ -23,6 +43,7 @@ export default function StudentDashboard() {
 
   // State
   const [applicantData, setApplicantData] = useState(null)
+  const [studentProfile, setStudentProfile] = useState(null)
   const [jobApplications, setJobApplications] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -52,7 +73,6 @@ export default function StudentDashboard() {
   const [easyApplyError, setEasyApplyError] = useState(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [detailsRec, setDetailsRec] = useState(null)
-  const [showPracticeModal, setShowPracticeModal] = useState(false)
 
   // Refs
   const uploadFormRef = React.useRef(null)
@@ -164,6 +184,14 @@ export default function StudentDashboard() {
       } catch (e) {
         // Profile probably not found
         if (!profileId) setNoApplicantProfile(true)
+      }
+
+      try {
+        const studentProfileRes = await api.get('/api/student/profile')
+        setStudentProfile(studentProfileRes.data || null)
+      } catch (profileErr) {
+        console.error('Failed to load student profile data:', profileErr)
+        setStudentProfile(null)
       }
 
       // Applications
@@ -315,64 +343,65 @@ export default function StudentDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-24 pb-12">
+    <div className="min-h-screen bg-slate-50/50 pt-24 pb-12 relative overflow-hidden">
+      {/* Ambient background glows */}
+      <div className="pointer-events-none absolute left-1/4 top-10 h-96 w-96 rounded-full bg-gradient-to-br from-primary-400/10 to-indigo-300/10 blur-[100px]" />
+      <div className="pointer-events-none absolute right-1/4 top-40 h-96 w-96 rounded-full bg-gradient-to-br from-sky-400/10 to-emerald-300/10 blur-[100px]" />
+
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl relative z-10">
 
         {/* --- HEADER ROW --- */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4"
+          className="relative mb-8 overflow-hidden rounded-3xl border border-white/80 bg-white/70 p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.04)] backdrop-blur-md"
         >
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-1">Student Dashboard</h1>
-            <p className="text-gray-600">Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Student'}</p>
-            <p className="text-sm text-gray-500 mt-1">
-              You have {interviewingCount} interview {interviewingCount === 1 ? 'invitation' : 'invitations'} and {newSuggestionCount} new path {newSuggestionCount === 1 ? 'suggestion' : 'suggestions'}.
-            </p>
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/40 via-white/50 to-sky-50/40 opacity-70" />
+          <div className="relative flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary-700 mb-4">
+                <Briefcase className="w-3.5 h-3.5" />
+                Student workspace
+              </div>
+              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2">
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-slate-800 to-primary-950">
+                  Student Dashboard
+                </span>
+              </h1>
+              <p className="text-gray-600">Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Student'}</p>
+              <p className="text-sm text-gray-500 mt-2 max-w-xl">
+                You have {interviewingCount} interview {interviewingCount === 1 ? 'invitation' : 'invitations'} and {newSuggestionCount} new path {newSuggestionCount === 1 ? 'suggestion' : 'suggestions'}.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-4 lg:items-end lg:justify-end lg:min-w-[360px]">
+              <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                <ProfileHealth profileData={studentProfile} />
+
+                <button
+                  onClick={() => navigate('/dashboard/interview')}
+                  className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-xl hover:from-primary-700 hover:to-indigo-700 transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 active:scale-95 duration-200"
+                >
+                  <Zap className="w-5 h-5 text-white animate-pulse" />
+                  <span className="font-bold text-white">Start Practice</span>
+                </button>
+
+                <button
+                  onClick={() => navigate('/dashboard/learning-paths')}
+                  className="inline-flex items-center gap-2 px-5 py-3 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all text-slate-700 shadow-sm active:scale-95 duration-200"
+                >
+                  <BookOpen className="w-5 h-5 text-slate-500" />
+                  <span className="font-bold">Learning Paths</span>
+                </button>
+              </div>
+
+              <div className="grid w-full gap-3 md:grid-cols-2">
+                <CreditWidget compact />
+                <ApplicationTracker jobApps={jobApplications} compact />
+              </div>
+            </div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Profile Health Badge */}
-            <ProfileHealth applicantData={applicantData} />
-
-            {/* Practice Button (Quick Action Dial) */}
-            <button
-              onClick={() => setShowPracticeModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 rounded-xl hover:bg-primary-700 transition-colors shadow-sm active:scale-95"
-            >
-              <Zap className="w-5 h-5 text-white" />
-              <span className="font-semibold text-white">Practice</span>
-            </button>
-
-            <button
-              onClick={() => navigate('/dashboard/learning-paths')}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-gray-700"
-            >
-              <BookOpen className="w-5 h-5" />
-              <span className="font-semibold">Paths</span>
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="p-2.5 bg-white border border-gray-200 rounded-xl hover:bg-red-50 hover:border-red-300 transition-colors text-gray-600 hover:text-red-600"
-              title="Logout"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-        </motion.div>
-
-        {/* --- QUICK ACTIONS ROW (Credit + Tracker) --- */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"
-        >
-          <CreditWidget />
-          <ApplicationTracker jobApps={jobApplications} />
         </motion.div>
 
         {/* --- NO PROFILE STATE --- */}
@@ -391,22 +420,29 @@ export default function StudentDashboard() {
 
         {/* --- RECOMMENDATIONS HEADER + ACTION --- */}
         {!noApplicantProfile && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3" ref={recommendationsRef}>
-            <h2 className="text-xl font-bold text-gray-900">Recommended for You</h2>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3" ref={recommendationsRef}>
+            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <Target className="w-6 h-6 text-primary-500" />
+              Recommended for You
+            </h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => navigate('/jobs')}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:border-primary-400 hover:text-primary-700 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm text-sm"
               >
-                View All
+                View All Jobs
               </button>
               <button
                 onClick={handleRecomputeRecommendations}
                 disabled={recalcLoading}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${recalcLoading ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-300 text-gray-700 hover:border-primary-400 hover:text-primary-700'}`}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border font-semibold transition-all text-sm shadow-sm ${
+                  recalcLoading
+                    ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                }`}
               >
-                <RefreshCcw className="w-4 h-4" />
-                <span>{recalcLoading ? 'Updating...' : 'Re-run'}</span>
+                <RefreshCcw className={`w-4 h-4 ${recalcLoading ? 'animate-spin' : ''}`} />
+                <span>{recalcLoading ? 'Updating...' : 'Re-run AI'}</span>
               </button>
             </div>
           </div>
@@ -420,54 +456,78 @@ export default function StudentDashboard() {
                 key={rec.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1 }}
-                className="p-5 bg-white rounded-2xl border border-gray-200 transition-all hover:shadow-md hover:border-primary-200 flex flex-col h-full"
+                transition={{ delay: idx * 0.08 }}
+                className="p-6 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-primary-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col h-full relative overflow-hidden group"
               >
+                {/* Visual hover accent line */}
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary-500/0 via-indigo-500/0 to-purple-500/0 group-hover:from-primary-500 group-hover:via-indigo-500 group-hover:to-purple-500 transition-all duration-300" />
+                
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex-1 mr-2">
-                    <h3 className="font-bold text-lg leading-tight mb-1 text-gray-900">{rec.job?.title || rec.title}</h3>
-                    <p className="text-sm text-gray-600">{rec.job?.company || rec.company}</p>
+                    <h3 className="font-bold text-lg leading-tight mb-1 text-slate-900 group-hover:text-primary-900 transition-colors">{rec.job?.title || rec.title}</h3>
+                    <p className="text-sm font-semibold text-slate-500">{rec.job?.company || rec.company}</p>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <MatchScore
-                      score={((rec.match_score ?? rec.match_percentage ?? rec.score ?? 0) / 100)}
-                      size="sm"
-                      showLabel={false}
-                    />
-                    <span className="text-xs text-primary-700 font-medium">AI Match</span>
-                  </div>
+                  {(() => {
+                    const rawScore = rec.match_score ?? rec.match_percentage ?? rec.score ?? null
+                    const score = normalizeMatchScore(rawScore)
+                    if (score === null || score === 0) return null
+                    const percentage = Math.round(score)
+                    
+                    let bgGradient = 'from-slate-400 to-slate-500'
+                    let label = 'Weak'
+                    if (percentage >= 85) {
+                      bgGradient = 'from-emerald-500 to-teal-500'
+                      label = 'Good'
+                    } else if (percentage >= 70) {
+                      bgGradient = 'from-primary-500 to-indigo-500'
+                      label = 'Good'
+                    } else if (percentage >= 55) {
+                      bgGradient = 'from-amber-500 to-orange-500'
+                      label = 'Avg'
+                    }
+                    
+                    return (
+                      <div className={`bg-gradient-to-r ${bgGradient} text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase shadow-sm flex-shrink-0`}>
+                        {label}
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  <span className="text-xs bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full text-gray-600 flex items-center gap-1">
-                    <MapPin className="w-3 h-3" />
+                  <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg text-slate-600 flex items-center gap-1.5 font-medium">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
                     {rec.job?.location_city || 'Remote'}
                   </span>
-                  <span className="text-xs bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full text-gray-600">
+                  <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg text-slate-600 capitalize font-medium">
                     {rec.job?.work_type || 'Full-time'}
                   </span>
                   {rec.status === 'applied' && (
-                    <span className="text-xs bg-green-50 border border-green-200 px-2.5 py-1 rounded-full text-green-700">
+                    <span className="text-xs bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg text-emerald-700 font-bold flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
                       Applied
                     </span>
                   )}
                 </div>
 
                 {(rec.job?.min_salary || rec.job?.max_salary) && (
-                  <div className="mb-4 text-xs text-gray-600">
-                    Salary: {rec.job?.min_salary ? `INR ${(rec.job.min_salary / 100000).toFixed(1)}L` : 'Competitive'}
-                    {rec.job?.max_salary ? ` - INR ${(rec.job.max_salary / 100000).toFixed(1)}L` : ''}
+                  <div className="mb-4 text-xs font-semibold text-slate-500 flex items-center gap-1">
+                    <span>Compensation:</span>
+                    <span className="text-slate-800">
+                      {rec.job?.min_salary ? `INR ${(rec.job.min_salary / 100000).toFixed(1)}L` : 'Competitive'}
+                      {rec.job?.max_salary ? ` - ${(rec.job.max_salary / 100000).toFixed(1)}L` : ''}
+                    </span>
                   </div>
                 )}
 
-                <div className="text-xs text-gray-500 mb-4">
-                  {rec.explain?.reasons?.[0] || 'Matched based on your profile strength and skill overlap.'}
+                <div className="text-xs text-slate-500 leading-relaxed mb-6 bg-slate-50/50 rounded-xl p-3 border border-slate-100">
+                  {rec.explanation || rec.explain?.reasons?.[0] || 'Matched based on your profile strength and skill overlap.'}
                 </div>
 
-                <div className="mt-auto pt-4 border-t border-gray-200 flex gap-2">
+                <div className="mt-auto pt-4 border-t border-slate-100 flex gap-2">
                   <button
                     onClick={() => openDetails(rec)}
-                    className="flex-1 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+                    className="flex-1 py-2 px-3 text-xs font-bold border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-700 active:scale-95 duration-200"
                   >
                     Details
                   </button>
@@ -477,41 +537,45 @@ export default function StudentDashboard() {
                       learningPathState.loadingId === (rec.job?.id || rec.job_id) ||
                       (learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.success?.alreadyExists)
                     }
-                    className="flex-1 py-2 text-sm font-medium rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="flex-1 py-2 px-3 text-xs font-bold rounded-xl border border-primary-200 text-primary-700 hover:bg-primary-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1 active:scale-95 duration-200"
                   >
                     {learningPathState.loadingId === (rec.job?.id || rec.job_id) ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="flex items-center justify-center gap-1">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         Generating...
                       </span>
                     ) : (
                       (learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.success?.alreadyExists)
-                        ? 'Already Generated'
-                        : 'Path 2c'
+                        ? 'Path Generated'
+                        : <>
+                            <BookOpen className="w-3.5 h-3.5 text-primary-600" />
+                            <span>Path (2c)</span>
+                          </>
                     )}
                   </button>
                   <button
                     onClick={() => openEasyApply(rec)}
                     disabled={rec.status === 'applied' || rec.status === 'accepted'}
-                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${rec.status === 'applied'
-                      ? 'bg-green-50 text-green-700 cursor-not-allowed border border-green-200'
-                      : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm'
-                      }`}
+                    className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-all active:scale-95 duration-200 ${
+                      rec.status === 'applied'
+                        ? 'bg-emerald-50 text-emerald-700 cursor-not-allowed border border-emerald-200 flex items-center justify-center gap-1'
+                        : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm shadow-primary-500/10'
+                    }`}
                   >
                     {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
                   </button>
                 </div>
 
                 {learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.loadingId === null && (
-                  <div className="mt-3 text-sm flex items-center gap-2 text-green-600">
-                    <CheckCircle className="w-4 h-4" />
-                    <Link to={`/dashboard/learning-path/${learningPathState.success.pathId || learningPathState.success.jobId}`} className="underline hover:text-green-700">
-                      {learningPathState.success?.alreadyExists ? 'Open existing learning path' : 'View learning path'}
+                  <div className="mt-3 text-xs flex items-center gap-1.5 text-emerald-600 font-semibold bg-emerald-50/50 p-2 rounded-xl border border-emerald-100 justify-center">
+                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    <Link to={`/dashboard/learning-path/${learningPathState.success.pathId || learningPathState.success.jobId}`} className="underline hover:text-emerald-700">
+                      {learningPathState.success?.alreadyExists ? 'Open existing learning path' : 'View generated learning path'}
                     </Link>
                   </div>
                 )}
                 {learningPathState.error && learningPathState.loadingId === null && (
-                  <p className="mt-2 text-sm text-red-500">{learningPathState.error}</p>
+                  <p className="mt-2.5 text-xs font-semibold text-rose-500 text-center">{learningPathState.error}</p>
                 )}
               </motion.div>
             ))}
@@ -519,7 +583,7 @@ export default function StudentDashboard() {
         )}
 
         {!noApplicantProfile && recommendations.length === 0 && (
-          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center shadow-sm">
             <h3 className="text-lg font-semibold text-gray-900">No recommendations yet</h3>
             <p className="text-gray-600 mt-2 max-w-xl mx-auto">
               Re-run recommendations after profile updates or continue practicing interviews to improve matching quality.
@@ -528,104 +592,57 @@ export default function StudentDashboard() {
               <button
                 onClick={handleRecomputeRecommendations}
                 disabled={recalcLoading}
-                className="px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-60"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-60 shadow-sm"
               >
                 {recalcLoading ? 'Updating...' : 'Re-run Recommendations'}
               </button>
               <button
-                onClick={() => setShowPracticeModal(true)}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50"
+                onClick={() => navigate('/dashboard/learning-paths')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 shadow-sm"
               >
-                Practice Interview
+                <BookOpen className="w-4 h-4" />
+                View Paths
               </button>
             </div>
           </div>
         )}
 
         {/* --- MODALS --- */}
-
-        {/* Practice Mode Selection Modal */}
-        <AnimatePresence>
-          {showPracticeModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowPracticeModal(false)}>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-xl"
-              >
-                <div className="p-6 text-center border-b border-gray-200">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Practice for Success</h3>
-                  <p className="text-gray-600 text-sm">Choose your interview mode</p>
-                </div>
-                <div className="p-6 grid gap-4">
-                  <button
-                    onClick={() => navigate('/dashboard/interview?mode=micro')}
-                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-all text-left group"
-                  >
-                    <div className="p-3 bg-primary-100 rounded-lg group-hover:bg-primary-200">
-                      <Zap className="w-6 h-6 text-primary-700" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-lg text-gray-900 group-hover:text-primary-700">Micro Practice</h4>
-                      <p className="text-xs text-gray-500">Quick 5-minute session. 1 question.</p>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => navigate('/dashboard/interview')}
-                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-all text-left group"
-                  >
-                    <div className="p-3 bg-primary-100 rounded-lg group-hover:bg-primary-200">
-                      <BookOpen className="w-6 h-6 text-primary-700" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-lg text-gray-900 group-hover:text-primary-700">Full Mock Interview</h4>
-                      <p className="text-xs text-gray-500">Deep dive ~30mins. Comprehensive feedback.</p>
-                    </div>
-                  </button>
-                </div>
-                <div className="p-4 bg-white text-center border border-gray-200 rounded-lg">
-                  <button onClick={() => setShowPracticeModal(false)} className="text-sm text-gray-600 hover:text-gray-900">Cancel</button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
+ 
         {/* Easy Apply Modal */}
         {easyApplyOpen && easyApplyRec && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-lg card border border-gray-200 bg-white shadow-xl">
-              <div className="flex justify-between items-center mb-6 border-b border-gray-200 pb-4">
-                <h3 className="font-bold text-lg">Apply to {easyApplyRec.job?.title}</h3>
-                <button onClick={() => setEasyApplyOpen(false)} className="text-gray-600 hover:text-gray-900"><XCircle className="w-6 h-6" /></button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="w-full max-w-lg rounded-3xl border border-slate-100 bg-white/95 backdrop-blur shadow-2xl p-6 relative overflow-hidden">
+              <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                <h3 className="font-extrabold text-lg text-slate-900">Apply to {easyApplyRec.job?.title}</h3>
+                <button onClick={() => setEasyApplyOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
               <form onSubmit={submitEasyApply} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-gray-600 mb-1 block">Full Name</label>
-                    <input name="full_name" className="input bg-white" placeholder="Name" required />
+                    <label className="text-xs font-semibold text-slate-500 mb-1 block">Full Name</label>
+                    <input name="full_name" className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm" placeholder="Your Name" required />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-600 mb-1 block">Email</label>
-                    <input name="email" type="email" className="input bg-white" placeholder="Email" required />
+                    <label className="text-xs font-semibold text-slate-500 mb-1 block">Email Address</label>
+                    <input name="email" type="email" className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm" placeholder="your.email@example.com" required />
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600 mb-1 block">Resume</label>
-                  <div className="p-2 border border-gray-300 rounded bg-gray-50 text-sm text-gray-700 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    <span>Using uploaded resume</span>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Resume</label>
+                  <div className="p-3 border border-slate-100 rounded-xl bg-slate-50/50 text-sm text-slate-700 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-slate-400" />
+                    <span className="font-medium">Using uploaded resume</span>
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600 mb-1 block">Cover Letter / Note</label>
-                  <textarea name="questions" className="input bg-white" rows="3" placeholder="Why are you a good fit?"></textarea>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Cover Letter / Note</label>
+                  <textarea name="questions" className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm" rows="3" placeholder="Why are you a good fit for this role?"></textarea>
                 </div>
                 <div className="pt-2">
-                  <button className="btn-primary w-full py-3" disabled={easyApplyLoading}>
+                  <button className="w-full py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 active:scale-95 duration-200" disabled={easyApplyLoading}>
                     {easyApplyLoading ? 'Submitting...' : 'Submit Application'}
                   </button>
                 </div>
@@ -633,91 +650,187 @@ export default function StudentDashboard() {
             </div>
           </div>
         )}
-
+ 
         {/* Details Modal */}
         {detailsOpen && detailsRec && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-2xl card border border-gray-200 bg-white max-h-[90vh] overflow-y-auto shadow-xl">
-              <div className="flex justify-between items-start mb-6 border-b border-gray-200 pb-4">
-                <div>
-                  <h3 className="font-bold text-xl">{detailsRec.job?.title}</h3>
-                  <p className="text-primary-600 text-sm">{detailsRec.job?.company}</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="w-full max-w-2xl rounded-3xl border border-slate-100 bg-white/95 backdrop-blur max-h-[90vh] overflow-y-auto shadow-2xl p-6 md:p-8">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-5 mb-6">
+                <div className="min-w-0">
+                  <div className="inline-flex items-center rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-700 mb-3">
+                    Recommended Role
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 leading-tight">
+                    {detailsRec.job?.title || 'Job Details'}
+                  </h3>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-800 shadow-sm">
+                      {detailsRec.job?.company_name || detailsRec.job?.company || 'Company'}
+                    </span>
+                    {detailsRec.job?.location_city && (
+                      <span className="inline-flex items-center rounded-full border border-slate-100 bg-slate-50/50 px-3 py-1 text-slate-600 text-xs">
+                        {detailsRec.job.location_city}{detailsRec.job.location_state ? `, ${detailsRec.job.location_state}` : ''}
+                      </span>
+                    )}
+                    {detailsRec.job?.work_type && (
+                      <span className="inline-flex items-center rounded-full border border-slate-100 bg-slate-50/50 px-3 py-1 text-slate-600 text-xs capitalize">
+                        {detailsRec.job.work_type}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <button onClick={() => setDetailsOpen(false)} className="text-gray-600 hover:text-gray-900"><XCircle className="w-6 h-6" /></button>
+                <button
+                  onClick={() => setDetailsOpen(false)}
+                  className="rounded-xl border border-slate-200 p-2 text-slate-400 hover:border-slate-300 hover:text-slate-700 hover:bg-slate-50 transition-colors flex-shrink-0"
+                  aria-label="Close job details"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
               <div className="space-y-6">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-xl">
+                {(detailsRec.explanation || detailsRec.explain?.summary) && (
+                  <div className="rounded-2xl border border-primary-100 bg-gradient-to-r from-primary-50/60 to-indigo-50/60 p-4 shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wider text-primary-700 mb-2">AI Matching Insights</p>
+                    <p className="text-sm text-slate-700 leading-relaxed">{detailsRec.explanation || detailsRec.explain.summary}</p>
+                  </div>
+                )}
+ 
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-slate-50/50 border border-slate-100 rounded-2xl">
                   {[
                     { label: 'Location', value: detailsRec.job?.location_city || 'Remote' },
                     { label: 'Type', value: detailsRec.job?.work_type || 'Full-time' },
-                    { label: 'Match', value: `${detailsRec.match_percentage || (detailsRec.score ? Math.round(detailsRec.score * 100) : 0)}%` },
-                    { label: 'Posted', value: '2d ago' },
+                    { label: 'Match Strength', value: `${formatMatchLabel(normalizeMatchScore(detailsRec.match_percentage ?? detailsRec.match_score ?? detailsRec.score ?? 0))}` },
+                    { label: 'Posted', value: 'Recent' },
                   ].map((item, i) => (
                     <div key={i}>
-                      <div className="text-xs text-gray-500 mb-1">{item.label}</div>
-                      <div className="font-medium text-sm">{item.value}</div>
+                      <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">{item.label}</div>
+                      <div className="font-semibold text-slate-800 text-sm">{item.value}</div>
                     </div>
                   ))}
                 </div>
-
+ 
+                {
+                  // Prefer explicit job.required_skills, but fall back to matched/partial skills
+                  (() => {
+                    const explicit = Array.isArray(detailsRec.job?.required_skills) && detailsRec.job.required_skills.length > 0
+                    const matched = detailsRec.scoring_breakdown?.skills_breakdown?.matched_skills || []
+                    const partial = detailsRec.scoring_breakdown?.skills_breakdown?.partial_matches || []
+                    const fallbackSkills = [...new Set([...matched, ...partial])]
+                    const skillsToRender = explicit ? detailsRec.job.required_skills.slice(0, 8) : fallbackSkills.slice(0, 8)
+ 
+                    if (!skillsToRender || skillsToRender.length === 0) {
+                      return (
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="flex-1 text-sm text-amber-800">
+                              <div className="font-bold">No role-specific skills found</div>
+                              <div className="text-xs text-amber-800/90 mt-1">We couldn't extract explicit skills for this job from the data available. Try re-running recommendations or update your profile to surface skill matches.</div>
+                              <div className="mt-3 flex gap-2">
+                                <button onClick={handleRecomputeRecommendations} className="px-3 py-1 bg-amber-100 border border-amber-200 rounded-xl text-amber-800 text-xs font-bold">Re-run Recommendations</button>
+                                <Link to="/student/profile" className="px-3 py-1 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50">Update Profile</Link>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    }
+ 
+                    return (
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm mb-2">Key Skills in this Role</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {skillsToRender.map((skill, idx) => {
+                            const skillName = typeof skill === 'string' ? skill : skill?.name || skill?.skill || `Skill ${idx + 1}`
+                            return (
+                              <span key={`${skillName}-${idx}`} className="px-3 py-1.5 rounded-xl bg-primary-50 border border-primary-100 text-primary-700 text-xs font-bold shadow-sm">
+                                {skillName}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()
+                }
+ 
                 <div>
-                  <h4 className="font-semibold text-gray-700 mb-2">About the Role</h4>
-                  <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-wrap">{detailsRec.job?.description || 'No description available.'}</p>
+                  <h4 className="font-bold text-slate-800 text-sm mb-2">About the Role</h4>
+                  <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">{detailsRec.job?.description || 'No description available.'}</p>
                 </div>
-
+ 
                 <div>
-                  <h4 className="font-semibold text-gray-700 mb-2">Why Recommended</h4>
-                  <ul className="space-y-2">
-                    {(detailsRec.explain?.reasons || []).map((r, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
-                        <span>{r}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <h4 className="font-bold text-slate-800 text-sm mb-2">Why Recommended</h4>
+                  {detailsRec.explanation ? (
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      {detailsRec.explanation}
+                    </p>
+                  ) : Array.isArray(detailsRec.explain?.reasons) && detailsRec.explain.reasons.length > 0 ? (
+                    <ul className="space-y-2">
+                      {detailsRec.explain.reasons.slice(0, 5).map((r, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
+                          <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          <span>{r}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-slate-600">
+                      This role is aligned with your profile, preferred location, and available skill overlap.
+                    </p>
+                  )}
                 </div>
-
-                <div className="flex gap-3 pt-4 border-t border-gray-200">
-                  <button onClick={() => setDetailsOpen(false)} className="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50">Close</button>
-                  <button onClick={() => { setDetailsOpen(false); openEasyApply(detailsRec) }} className="flex-1 py-3 btn-primary rounded-xl">Apply Now</button>
+ 
+                <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5">
+                  <h4 className="font-bold text-indigo-900 text-sm mb-1.5">Useful next steps</h4>
+                  <p className="text-xs text-slate-600 leading-normal">
+                    Review the skill chips above, open the application, and generate a learning path if you want a gap-focused plan before applying.
+                  </p>
+                </div>
+ 
+                <div className="flex gap-3 pt-4 border-t border-slate-100">
+                  <button onClick={() => setDetailsOpen(false)} className="flex-1 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-bold text-slate-700 active:scale-95 duration-200">Close</button>
+                  <button onClick={() => { setDetailsOpen(false); openEasyApply(detailsRec) }} className="flex-1 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 duration-200">Apply Now</button>
                 </div>
               </div>
             </div>
           </div>
         )}
-
+ 
         {/* Upload Modal */}
         {showUploadForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setShowUploadForm(false)}>
-            <div className="card w-full max-w-lg border border-gray-200 shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setShowUploadForm(false)}>
+            <div className="w-full max-w-lg rounded-3xl border border-slate-100 bg-white/95 backdrop-blur shadow-2xl p-6 relative overflow-hidden" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-xl">Upload Resume</h3>
-                <button onClick={() => setShowUploadForm(false)} className="text-gray-400"><XCircle className="w-6 h-6" /></button>
+                <h3 className="font-extrabold text-xl text-slate-900">Upload Resume</h3>
+                <button onClick={() => setShowUploadForm(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
               <form onSubmit={handleFileUpload} className="space-y-4">
                 <div>
-                  <label className="block text-sm mb-2 text-gray-700">Resume File (PDF/DOCX)</label>
-                  <input type="file" name="resume" required className="input w-full p-3 border-dashed"
+                  <label className="block text-xs font-semibold text-slate-500 mb-2">Resume File (PDF/DOCX)</label>
+                  <input type="file" name="resume" required className="w-full bg-slate-50/50 border border-slate-200 border-dashed rounded-2xl p-4 text-center focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 cursor-pointer text-sm font-medium text-slate-600"
                     onChange={(e) => setSelectedResume(e.target.files[0])}
                   />
                 </div>
                 {selectedResume && (
-                  <div className="text-xs text-green-400 flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" /> Selected: {selectedResume.name}
+                  <div className="text-xs text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50/50 p-2 border border-emerald-100 rounded-xl">
+                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    <span>Selected: {selectedResume.name}</span>
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
-                  <input name="location" placeholder="Preferred Location" className="input" />
-                  <input name="jee_rank" type="number" placeholder="JEE Rank (Optional)" className="input" />
+                  <input name="location" placeholder="Preferred Location" className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm" />
+                  <input name="jee_rank" type="number" placeholder="JEE Rank (Optional)" className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm" />
                 </div>
-                <button type="submit" className="btn-primary w-full py-3" disabled={uploadLoading}>
+                <button type="submit" className="w-full py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 active:scale-95 duration-200" disabled={uploadLoading}>
                   {uploadLoading ? 'Uploading & Analyzing...' : 'Upload & Process'}
                 </button>
               </form>
             </div>
           </div>
         )}
-
+ 
       </div>
     </div>
   )

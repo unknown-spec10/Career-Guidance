@@ -177,7 +177,11 @@ class PGJobRepository:
         """List active jobs"""
         from resume_pipeline.db import Job
 
-        query = self.session.query(Job).filter(Job.status == 'approved')
+        now = datetime.utcnow()
+        query = self.session.query(Job).filter(
+            Job.status == 'approved',
+            ((Job.expires_at.is_(None)) | (Job.expires_at > now))
+        )
         if location:
             query = query.filter(
                 or_(

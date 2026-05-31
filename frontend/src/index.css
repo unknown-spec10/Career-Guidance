@@ -36,6 +36,16 @@
   .btn-primary {
     @apply bg-primary-500 hover:bg-primary-600 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg;
   }
+
+  /* Smaller primary variant for navbars and compact controls */
+  .btn-primary-sm {
+    @apply bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200;
+  }
+
+  /* Neutral button used in nav (profile/logout, nav actions) */
+  .nav-button {
+    @apply flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 text-gray-700 bg-white border border-gray-300 hover:border-primary-500 hover:text-primary-600;
+  }
   
   .btn-secondary {
     @apply bg-white hover:bg-gray-50 text-primary-500 font-semibold py-3 px-6 rounded-lg transition-all duration-200 border border-gray-300 hover:border-primary-500;

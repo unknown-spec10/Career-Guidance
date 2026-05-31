@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowRight,
@@ -12,6 +12,7 @@ import {
   CheckCircle,
   Sparkles,
 } from 'lucide-react'
+import secureStorage from '../utils/secureStorage'
 
 const features = [
   {
@@ -72,6 +73,20 @@ const steps = [
 ]
 
 export default function Hero() {
+  const navigate = useNavigate()
+
+  const handleGetStarted = () => {
+    const token = secureStorage.getItem('token')
+    const user = secureStorage.getItem('user')
+
+    if (token && user?.role) {
+      navigate('/dashboard')
+      return
+    }
+
+    navigate('/register')
+  }
+
   return (
     <div className="bg-white">
       <section className="pt-28 pb-12 sm:pt-32 sm:pb-14 border-b border-gray-100">
@@ -95,13 +110,14 @@ export default function Hero() {
             </p>
 
             <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-3">
-              <Link
-                to="/register"
+              <button
+                type="button"
+                onClick={handleGetStarted}
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors"
               >
-                Upload Resume
+                Get Started
                 <ArrowRight className="w-4 h-4" />
-              </Link>
+              </button>
               <Link
                 to="/register"
                 className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:border-primary-500 hover:text-primary-700 transition-colors"
@@ -215,9 +231,17 @@ export default function Hero() {
           </p>
           <Link
             to="/register"
+            onClick={(event) => {
+              const token = secureStorage.getItem('token')
+              const user = secureStorage.getItem('user')
+              if (token && user?.role) {
+                event.preventDefault()
+                navigate('/dashboard')
+              }
+            }}
             className="mt-7 inline-flex items-center justify-center px-6 py-3 rounded-lg bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors"
           >
-            Get Started Now
+            Get Started
           </Link>
         </div>
       </section>

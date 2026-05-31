@@ -103,6 +103,19 @@ LIVE_INTERVIEW_CONFIG = {
     'START_ACTIVITY_TYPE': 'full_interview',  # Reuse existing credit policy
 }
 
+# Interview System v2 — Groq-powered configuration
+INTERVIEW_CONFIG_V2 = {
+    'GROQ_MODEL': 'llama-3.3-70b-versatile',
+    'RESERVE_POOL_SIZE': 3,           # Extra questions generated for adaptive difficulty
+    'ADAPTIVE_CHECK_EVERY': 3,        # Check running score every N answered questions
+    'ADAPTIVE_HIGH_THRESHOLD': 80,    # Swap in harder (reserve) question if score >= this %
+    'ADAPTIVE_LOW_THRESHOLD': 40,     # Show hint if answer score below this % (0.0-100 scale)
+    'WEAK_SKILL_THRESHOLD': 0.60,     # Skills with avg score below this go into study plan
+    'POLLING_MAX_WAIT_SECONDS': 30,   # Frontend max polling window
+    'SESSION_ACTIVE_HOURS': 24,       # Hours before an active session is considered stale
+}
+
+
 # Credit-Based Quota System
 CREDIT_CONFIG = {
     # Credit costs

@@ -1,0 +1,259 @@
+"""
+Interview System v2 — Background Evaluator
+Runs answer evaluation asynchronously via FastAPI BackgroundTasks.
+Also provides streaming generators for hints and per-question feedback.
+"""
+import datetime
+import json
+import logging
+from typing import AsyncGenerator, Optional, List
+
+from groq import Groq
+
+from ..config import settings
+from ..db import InterviewAnswer, InterviewQuestion
+from ..constants import INTERVIEW_CONFIG_V2
+from .prompts import GROQ_MODEL, EVALUATION_PROMPT, HINT_PROMPT
+from .service import build_conversation_history, get_running_score
+
+logger = logging.getLogger(__name__)
+
+
+def _get_groq_client() -> Groq:
+    return Groq(api_key=settings.GROQ_API_KEY)
+
+
+# ---------------------------------------------------------------------------
+# Core evaluation — called as a BackgroundTask
+# ---------------------------------------------------------------------------
+
+def run_evaluation(
+    session_id: str,
+    question_id: str,
+    answer_id: str,
+    db,
+) -> None:
+    """
+    Evaluates a single answer via Groq and persists the result.
+    Designed to run as a FastAPI BackgroundTask (runs after HTTP response is sent).
+    Uses a separate DB session to avoid conflicts with the request session.
+    """
+    try:
+        question: Optional[InterviewQuestion] = db.query(InterviewQuestion).filter_by(id=question_id).first()
+        answer: Optional[InterviewAnswer] = db.query(InterviewAnswer).filter_by(id=answer_id).first()
+
+        if not question or not answer:
+            logger.error("Evaluation aborted: question or answer not found (answer_id=%s)", answer_id)
+            return
+
+        history = build_conversation_history(session_id, db)
+        evaluation = _evaluate_with_groq(
+            question_text=question.question_text,
+            answer_text=answer.answer_text or "",
+            skill_tag=question.skill_tag,
+            expected_keywords=question.expected_keywords or [],
+            conversation_history=history,
+        )
+
+        answer.score = evaluation.get("score", 0.0)
+        answer.feedback = evaluation.get("feedback", "")
+        answer.strength = evaluation.get("strength", "")
+        answer.missing_concepts = evaluation.get("missing_concepts", [])
+        answer.status = "evaluated"
+        answer.evaluated_at = datetime.datetime.utcnow()
+
+        # Populate hint only for weak answers (score < LOW_THRESHOLD)
+        low_thresh = INTERVIEW_CONFIG_V2["ADAPTIVE_LOW_THRESHOLD"] / 100
+        hint_raw = evaluation.get("hint_for_next")
+        answer.hint_for_next = hint_raw if (answer.score < low_thresh and hint_raw) else None
+
+        db.commit()
+        logger.info("Evaluated answer %s: score=%.2f", answer_id, answer.score)
+
+    except Exception as e:
+        logger.error("Evaluation failed for answer %s: %s", answer_id, e)
+        try:
+            answer = db.query(InterviewAnswer).filter_by(id=answer_id).first()
+            if answer:
+                answer.status = "evaluation_failed"
+                db.commit()
+        except Exception as inner:
+            logger.error("Could not mark answer as failed: %s", inner)
+
+
+def _evaluate_with_groq(
+    question_text: str,
+    answer_text: str,
+    skill_tag: str,
+    expected_keywords: List[str],
+    conversation_history: List[dict],
+) -> dict:
+    """
+    Send question + answer + conversation history to Groq for evaluation.
+    Returns a dict: {score, feedback, strength, missing_concepts, hint_for_next}
+    """
+    groq_client = _get_groq_client()
+
+    eval_prompt = EVALUATION_PROMPT.format(
+        question_text=question_text,
+        skill_tag=skill_tag,
+        expected_keywords=", ".join(expected_keywords) if expected_keywords else "Not specified",
+        answer_text=answer_text,
+    )
+
+    # Include conversation history for context-aware evaluation
+    messages = conversation_history + [{"role": "user", "content": eval_prompt}]
+
+    response = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=messages,
+        temperature=0.3,  # Lower temp for more consistent scoring
+        max_tokens=1024,
+    )
+
+    raw = response.choices[0].message.content.strip()
+    # Strip accidental markdown fences
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    result = json.loads(raw)
+    # Ensure score is in [0.0, 1.0]
+    result["score"] = max(0.0, min(1.0, float(result.get("score", 0.0))))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Streaming hint — sent before showing next question on weak answer
+# ---------------------------------------------------------------------------
+
+async def stream_hint(
+    skill_tag: str,
+    missing_concepts: List[str],
+) -> AsyncGenerator[str, None]:
+    """
+    Yields Server-Sent Event tokens for a mid-interview nudge.
+    Used when the candidate gave a weak answer (score < LOW_THRESHOLD).
+    """
+    groq_client = _get_groq_client()
+
+    prompt = HINT_PROMPT.format(
+        skill_tag=skill_tag,
+        missing_concepts=", ".join(missing_concepts) if missing_concepts else skill_tag,
+    )
+
+    stream = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.6,
+        max_tokens=150,
+        stream=True,
+    )
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield f"data: {json.dumps({'token': delta})}\n\n"
+
+    yield "data: [DONE]\n\n"
+
+
+# ---------------------------------------------------------------------------
+# Streaming per-question feedback — on results page accordion expand
+# ---------------------------------------------------------------------------
+
+async def stream_feedback(
+    question_text: str,
+    answer_text: str,
+    skill_tag: str,
+    expected_keywords: List[str],
+) -> AsyncGenerator[str, None]:
+    """
+    Yields SSE tokens for per-question feedback on the results page.
+    Generates a longer, more narrative feedback than the evaluation JSON.
+    """
+    groq_client = _get_groq_client()
+
+    prompt = f"""You are giving post-interview feedback to a candidate.
+
+Question asked: {question_text}
+Skill tested: {skill_tag}
+Key concepts expected: {', '.join(expected_keywords) if expected_keywords else 'See question context'}
+Candidate's answer: {answer_text}
+
+Write detailed, constructive feedback (3-5 sentences) explaining:
+1. What they got right
+2. What was missing or could be improved
+3. One concrete tip for next time
+
+Be encouraging and specific. Address the candidate directly ("Your answer...").
+"""
+
+    stream = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5,
+        max_tokens=400,
+        stream=True,
+    )
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield f"data: {json.dumps({'token': delta})}\n\n"
+
+    yield "data: [DONE]\n\n"
+
+
+# ---------------------------------------------------------------------------
+# Streaming study plan — called on results page after all evaluations complete
+# ---------------------------------------------------------------------------
+
+async def stream_study_plan(
+    weak_skills: List[str],
+    missing_concepts_summary: str,
+    target_role: str,
+    experience_level: str,
+    past_weak_skills: Optional[List[str]] = None,
+) -> AsyncGenerator[str, None]:
+    """
+    Yields SSE tokens for a personalized 30-day study plan.
+    """
+    from .prompts import STUDY_PLAN_PROMPT
+
+    if not weak_skills:
+        yield f"data: {json.dumps({'token': 'Great news — no significant weak areas identified! Keep practicing consistently to maintain your strengths.'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    groq_client = _get_groq_client()
+
+    if past_weak_skills:
+        history_desc = f"Historical Growth Context:\n- Past weak areas (from previous mock sessions): {', '.join(past_weak_skills)}\nCompare these past weak areas with current weaknesses. If the candidate has improved in certain areas (e.g. is no longer weak in a skill they previously struggled with), briefly acknowledge and celebrate that progress at the very beginning of the plan to motivate them! If areas remain weak, highlight them as persistent gaps that need extra focus."
+    else:
+        history_desc = "Historical Growth Context:\nNone. (First mock session recorded or no prior weak skills)."
+
+    prompt = STUDY_PLAN_PROMPT.format(
+        experience_level=experience_level,
+        weak_skills=", ".join(weak_skills),
+        target_role=target_role,
+        missing_concepts_summary=missing_concepts_summary,
+        history_context=history_desc,
+    )
+
+    stream = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        max_tokens=2048,
+        stream=True,
+    )
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield f"data: {json.dumps({'token': delta})}\n\n"
+
+    yield "data: [DONE]\n\n"

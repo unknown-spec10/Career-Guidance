@@ -1,9 +1,8 @@
 import React, { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import ResultsPage from './pages/ResultsPage'
-import DashboardPage from './pages/DashboardPage'
 import DashboardRouter from './pages/DashboardRouter'
 import ApplicantsPage from './pages/ApplicantsPage'
 import ApplicantDetailsPage from './pages/ApplicantDetailsPage'
@@ -19,7 +18,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import StudentDashboard from './pages/StudentDashboard'
 import StudentProfile from './pages/StudentProfile'
 import InterviewPage from './pages/InterviewPage'
-import LiveInterviewPage from './pages/LiveInterviewPage'
+import InterviewSessionPage from './pages/InterviewSessionPage'
 import InterviewResultsPage from './pages/InterviewResultsPage'
 import LearningPathPage from './pages/LearningPathPage'
 import MyLearningPathsPage from './pages/MyLearningPathsPage'
@@ -28,6 +27,7 @@ import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerProfile from './pages/EmployerProfile'
 import EmployerPostJob from './pages/EmployerPostJob'
 import EmployerJobDetails from './pages/EmployerJobDetails'
+import JobApplicantsPage from './pages/JobApplicantsPage'
 import AdminReviewsPage from './pages/AdminDashboard'
 import AskPage from './pages/AskPage'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -106,15 +106,7 @@ function AppContent() {
             path="/dashboard/interview/:sessionId"
             element={
               <ProtectedRoute allowedRoles={['student']}>
-                <LiveInterviewPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/interview/live/:sessionId"
-            element={
-              <ProtectedRoute allowedRoles={['student']}>
-                <LiveInterviewPage />
+                <InterviewSessionPage />
               </ProtectedRoute>
             }
           />
@@ -184,18 +176,18 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/employer/jobs/:jobId/applicants"
+            element={
+              <ProtectedRoute allowedRoles={['employer']}>
+                <JobApplicantsPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Admin Routes */}
           <Route
             path="/admin/dashboard"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/reviews"
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <AdminReviewsPage />
@@ -203,12 +195,12 @@ function AppContent() {
             }
           />
           <Route
+            path="/admin/reviews"
+            element={<Navigate to="/admin/dashboard?tab=jobs" replace />}
+          />
+          <Route
             path="/applicants"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <ApplicantsPage />
-              </ProtectedRoute>
-            }
+            element={<Navigate to="/admin/dashboard?tab=applicants" replace />}
           />
           <Route
             path="/applicant/:applicantId"

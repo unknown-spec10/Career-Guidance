@@ -1,4 +1,6 @@
 """Interview module"""
-from .interview_service import InterviewService
+from .router import router
+
+__all__ = ["router"]
 
 __all__ = ['InterviewService']

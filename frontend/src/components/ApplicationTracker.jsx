@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, CheckCircle, Clock, XCircle, X, TrendingUp } from 'lucide-react'
 
-const ApplicationTracker = ({ jobApps = [] }) => {
+const ApplicationTracker = ({ jobApps = [], compact = false }) => {
     const [showModal, setShowModal] = useState(false)
     const totalApps = jobApps.length
     const interviewingCount = jobApps.filter((app) => app.status?.toLowerCase() === 'interviewing').length
@@ -39,20 +39,20 @@ const ApplicationTracker = ({ jobApps = [] }) => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => setShowModal(true)}
-                className="w-full text-left p-5 bg-white border border-gray-200 rounded-2xl hover:bg-gray-50 transition-all shadow-sm"
+                className={`w-full text-left bg-white border border-gray-200 rounded-2xl hover:bg-gray-50 transition-all shadow-sm ${compact ? 'p-4' : 'p-5'}`}
             >
-                <div className="flex items-start justify-between gap-4">
+                <div className={`flex items-start justify-between gap-4 ${compact ? 'items-center' : ''}`}>
                     <div>
                         <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Application Pipeline</p>
-                        <h3 className="text-2xl font-bold text-gray-900 mt-1">{totalApps} Active Applications</h3>
-                        <p className="text-sm text-gray-600 mt-1">Track your progress across all applied jobs.</p>
+                        <h3 className={`${compact ? 'text-lg' : 'text-2xl'} font-bold text-gray-900 mt-1`}>{totalApps} Active Applications</h3>
+                        {!compact && <p className="text-sm text-gray-600 mt-1">Track your progress across all applied jobs.</p>}
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700">
+                    <div className={`${compact ? 'w-9 h-9' : 'w-10 h-10'} rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700`}>
                         <Briefcase className="w-5 h-5" />
                     </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className={`mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 ${compact ? 'sm:grid-cols-4' : ''}`}>
                     <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
                         <p className="text-xs text-gray-500">Sent</p>
                         <p className="text-lg font-semibold text-gray-900">{totalApps}</p>
@@ -71,7 +71,7 @@ const ApplicationTracker = ({ jobApps = [] }) => {
                     </div>
                 </div>
 
-                <div className="mt-4 inline-flex items-center gap-2 text-sm text-blue-700 font-medium">
+                <div className={`mt-4 inline-flex items-center gap-2 text-sm text-blue-700 font-medium ${compact ? 'mt-3' : ''}`}>
                     <TrendingUp className="w-4 h-4" />
                     View full status board
                 </div>

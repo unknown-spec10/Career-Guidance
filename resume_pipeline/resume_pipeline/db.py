@@ -7,6 +7,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from .config import settings, IS_SUPABASE
 import datetime
 import os
+import uuid
 
 Base = declarative_base()
 
@@ -64,7 +65,6 @@ class Applicant(Base):
     job_applications = relationship('JobApplication', back_populates='applicant', cascade='all, delete-orphan')
     human_reviews = relationship('HumanReview', back_populates='applicant', cascade='all, delete-orphan')
     interview_sessions = relationship('InterviewSession', back_populates='applicant', cascade='all, delete-orphan')
-    live_interview_sessions = relationship('InterviewLiveSession', back_populates='applicant', cascade='all, delete-orphan')
     skill_assessments = relationship('SkillAssessment', back_populates='applicant', cascade='all, delete-orphan')
     learning_paths = relationship('LearningPath', back_populates='applicant', cascade='all, delete-orphan')
     credit_account = relationship('CreditAccount', uselist=False, cascade='all, delete-orphan')
@@ -149,6 +149,18 @@ class JobEmbedding(Base):
 
     job = relationship('Job')
 
+
+class JobEmbeddingsCache(Base):
+    """Cached job embeddings for the redesigned recommendation engine."""
+    __tablename__ = 'job_embeddings_cache'
+
+    job_id = Column(Integer, ForeignKey('jobs.id', ondelete='CASCADE'), primary_key=True)
+    embedding = Column(JSON, nullable=False)  # JSON list of floats
+    computed_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    job = relationship('Job')
+
+
 # ============================================================
 # JOB-SIDE TABLES
 # ============================================================
@@ -232,6 +244,11 @@ class JobRecommendation(Base):
     status = Column(Enum('recommended', 'viewed', 'dismissed', name='job_rec_status'), default='recommended')
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
+    score_breakdown = Column(JSON, nullable=True)
+    explanation = Column(Text, nullable=True)
+    computed_at = Column(DateTime, default=datetime.datetime.utcnow)
+    engine_version = Column(String(10), default='v2')
+    
     # Relationships
     applicant = relationship('Applicant', back_populates='job_recommendations')
     job = relationship('Job', back_populates='recommendations')
@@ -239,6 +256,20 @@ class JobRecommendation(Base):
     __table_args__ = (
         Index('idx_applicant_job', 'applicant_id', 'job_id'),
     )
+
+
+class UserFeedback(Base):
+    """User interactions (clicks, applies, saves, dismissals) for personalization."""
+    __tablename__ = 'user_feedback'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    job_id = Column(Integer, ForeignKey('jobs.id', ondelete='CASCADE'), nullable=False, index=True)
+    action_type = Column(String(20), nullable=False)  # 'click', 'apply', 'dismiss', 'save'
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+    applicant = relationship('Applicant')
+    job = relationship('Job')
 
 
 class JobApplication(Base):
@@ -324,160 +355,102 @@ class HumanReview(Base):
 
 
 # ============================================================
-# INTERVIEW & ASSESSMENT SYSTEM
+# INTERVIEW SYSTEM (v2 — Groq-powered, text-based, UUID PKs)
 # ============================================================
 
 class InterviewSession(Base):
-    """Mock interview sessions - full (30 min) or micro (1 question)"""
+    """Mock interview sessions — pre-generated questions, background evaluation."""
     __tablename__ = 'interview_sessions'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
-    session_type = Column(Enum('technical', 'hr', 'behavioral', 'mixed', name='interview_type'), nullable=False)
-    session_mode = Column(Enum('full', 'micro', name='session_mode'), default='full', index=True)  # NEW: full or micro
-    difficulty_level = Column(Enum('easy', 'medium', 'hard', name='difficulty_level'), default='medium')
-    focus_skills = Column(JSON, nullable=True)  # ["Python", "DSA", "DBMS"]
-    
-    # Credit tracking
-    credits_used = Column(Integer, default=10)  # 10 for full, 1 for micro
-    
-    # Session metadata
-    started_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
-    ends_at = Column(DateTime, nullable=True)  # Auto-calculated end time
-    completed_at = Column(DateTime, nullable=True)
-    duration_seconds = Column(Integer, nullable=True)  # 30 min = 1800 seconds
-    status = Column(Enum('in_progress', 'completed', 'abandoned', name='session_status'), default='in_progress', index=True)
-    
-    # Scoring (0-100 scale)
+
+    # Configuration
+    interview_type = Column(String(20), nullable=False)   # technical | hr | behavioral | mixed
+    difficulty = Column(String(10), nullable=False)        # easy | medium | hard
+    total_questions = Column(Integer, nullable=False)      # N configured + reserve pool
+    voice_mode = Column(Boolean, default=False)
+    topic_focus = Column(String(255), nullable=True)       # Optional user-specified focus
+
+    # Status
+    status = Column(
+        Enum('active', 'completed', 'abandoned', name='interview_session_status_v2'),
+        default='active',
+        index=True,
+    )
+
+    # Scoring — populated once all evaluations are complete
     overall_score = Column(Float, nullable=True)
-    technical_score = Column(Float, nullable=True)
-    communication_score = Column(Float, nullable=True)
-    problem_solving_score = Column(Float, nullable=True)
-    
-    # Skill breakdown scores
-    skill_scores = Column(JSON, nullable=True)  # {"python": 85, "dsa": 70, "dbms": 60}
-    
-    # AI feedback
-    ai_feedback = Column(JSON, nullable=True)  # Structured feedback from Gemini
-    skill_gap_analysis = Column(JSON, nullable=True)  # {"python": "strong", "dsa": "moderate", "dbms": "weak"}
-    recommended_resources = Column(JSON, nullable=True)  # Learning path suggestions
-    
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    
+    study_plan = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    completed_at = Column(DateTime, nullable=True)
+
     # Relationships
     applicant = relationship('Applicant', back_populates='interview_sessions')
     questions = relationship('InterviewQuestion', back_populates='session', cascade='all, delete-orphan')
     answers = relationship('InterviewAnswer', back_populates='session', cascade='all, delete-orphan')
-    learning_paths = relationship('LearningPath', back_populates='source_session', foreign_keys='LearningPath.source_session_id')
-
-
-class InterviewLiveSession(Base):
-    """Real-time interview sessions proxied through Gemini Live API."""
-    __tablename__ = 'interview_live_sessions'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
-    session_type = Column(String(64), default='technical', index=True)
-    difficulty_level = Column(String(32), default='medium', index=True)
-    status = Column(
-        Enum('created', 'active', 'paused', 'completed', 'failed', name='live_session_status'),
-        default='created',
-        index=True,
-    )
-
-    started_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
-    ends_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
-    duration_seconds = Column(Integer, nullable=True)
-    credits_used = Column(Integer, default=0)
-
-    # Optional transcript snapshots for post-session analysis
-    user_transcript = Column(Text, nullable=True)
-    model_transcript = Column(Text, nullable=True)
-    notes = Column(JSON, nullable=True)
-
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-
-    applicant = relationship('Applicant', back_populates='live_interview_sessions')
 
 
 class InterviewQuestion(Base):
-    """Questions asked during interview - MCQ and short descriptive"""
+    """Pre-generated interview questions — one Groq call per session."""
     __tablename__ = 'interview_questions'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(Integer, ForeignKey('interview_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
-    question_order = Column(Integer, nullable=False)
-    
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(String(36), ForeignKey('interview_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # Position in interview
+    order_index = Column(Integer, nullable=False)          # 0-based; reserve questions have high indices
+    is_reserve = Column(Boolean, default=False)            # True for adaptive pool questions
+    is_followup = Column(Boolean, default=False)
+
     # Question content
-    question_type = Column(Enum('mcq', 'short_answer', 'coding', 'theory', 'behavioral', name='question_type'), nullable=False)
     question_text = Column(Text, nullable=False)
-    difficulty = Column(String(20))  # easy/medium/hard
-    category = Column(String(100), index=True)  # DSA, DBMS, OS, Java, Python, etc.
-    
-    # For coding questions
-    starter_code = Column(Text, nullable=True)
-    test_cases = Column(JSON, nullable=True)  # [{"input": "...", "expected": "..."}]
-    
-    # For MCQ
-    options = Column(JSON, nullable=True)  # ["Option A", "Option B", "Option C", "Option D"]
-    correct_answer = Column(String(255), nullable=True)  # For MCQ: "A" or "Option A"
-    
-    # Expected answer (for short answer/theory)
-    expected_answer_points = Column(JSON, nullable=True)  # Key points to cover
-    max_score = Column(Float, default=10.0)  # Maximum points for this question
-    
-    # Skills being tested
-    skills_tested = Column(JSON, nullable=True)  # ["recursion", "dynamic_programming"]
-    
-    # Auto-generated metadata
-    generated_by = Column(String(50), default='gemini')  # gemini, google_search, manual
-    source_url = Column(String(1024), nullable=True)  # If fetched from Google
-    
+    skill_tag = Column(String(128), nullable=False, index=True)  # e.g. 'React', 'System Design'
+    difficulty_level = Column(String(10), nullable=False)  # may differ from session default (adaptive)
+    expected_keywords = Column(JSON, nullable=True)        # list of key concepts
+    question_type = Column(String(20), default='open_ended')  # conceptual | practical | scenario
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    
+
     # Relationships
     session = relationship('InterviewSession', back_populates='questions')
     answer = relationship('InterviewAnswer', back_populates='question', uselist=False, cascade='all, delete-orphan')
 
 
 class InterviewAnswer(Base):
-    """User answers to interview questions"""
+    """Candidate answers — evaluated asynchronously by Groq in background."""
     __tablename__ = 'interview_answers'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(Integer, ForeignKey('interview_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
-    question_id = Column(Integer, ForeignKey('interview_questions.id', ondelete='CASCADE'), nullable=False, index=True)
-    
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(String(36), ForeignKey('interview_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
+    question_id = Column(String(36), ForeignKey('interview_questions.id', ondelete='CASCADE'), nullable=False, index=True)
+
     # Answer content
     answer_text = Column(Text, nullable=True)
-    code_submitted = Column(Text, nullable=True)  # For coding questions
-    selected_option = Column(String(255), nullable=True)  # For MCQ
-    
-    # Timing
-    time_taken_seconds = Column(Integer, nullable=True)
-    answered_at = Column(DateTime, default=datetime.datetime.utcnow)
-    
-    # Scoring
-    is_correct = Column(Boolean, nullable=True)  # For MCQ/objective
-    score = Column(Float, nullable=True)  # Actual score received
-    
-    # AI Evaluation
-    ai_evaluation = Column(JSON, nullable=True)  # Detailed feedback from Gemini
-    strengths = Column(JSON, nullable=True)  # ["good logic", "clear explanation"]
-    weaknesses = Column(JSON, nullable=True)  # ["edge case missed", "incomplete answer"]
-    improvement_suggestions = Column(Text, nullable=True)
-    
-    # Code execution results (for coding questions - optional)
-    test_results = Column(JSON, nullable=True)  # [{"test": 1, "passed": true, "output": "..."}]
-    
+
+    # Evaluation — populated by background task
+    score = Column(Float, nullable=True)            # 0.0 to 1.0
+    feedback = Column(Text, nullable=True)          # AI narrative feedback
+    strength = Column(Text, nullable=True)          # What candidate did well
+    missing_concepts = Column(JSON, nullable=True)  # List of concepts not covered
+    hint_for_next = Column(Text, nullable=True)     # Optional nudge for next question
+    status = Column(
+        Enum('pending_evaluation', 'evaluated', 'evaluation_failed', name='answer_eval_status'),
+        default='pending_evaluation',
+        index=True,
+    )
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    evaluated_at = Column(DateTime, nullable=True)
+
     # Relationships
     session = relationship('InterviewSession', back_populates='answers')
     question = relationship('InterviewQuestion', back_populates='answer')
-    
+
     __table_args__ = (
-        UniqueConstraint('session_id', 'question_id', name='uq_session_question_answer'),
+        UniqueConstraint('session_id', 'question_id', name='uq_session_question_answer_v2'),
     )
 
 
@@ -526,28 +499,29 @@ class LearningPath(Base):
     
     # Source of learning path
     generated_from = Column(Enum('interview', 'assessment', 'manual', 'job', name='path_source'), default='interview')
-    source_session_id = Column(Integer, ForeignKey('interview_sessions.id', ondelete='SET NULL'), nullable=True)
-    
+    # source_session_id kept as nullable Integer for backward compatibility;
+    # new interview sessions use UUID strings so new learning paths set this to NULL.
+    source_session_id = Column(Integer, nullable=True)
+
     # Path details
     skill_gaps = Column(JSON, nullable=False)  # {"python": "weak", "dsa": "moderate", "dbms": "weak"}
     recommended_courses = Column(JSON, nullable=True)  # [{"title": "...", "url": "...", "provider": "Udemy"}]
     recommended_projects = Column(JSON, nullable=True)  # [{"title": "...", "description": "..."}]
     practice_problems = Column(JSON, nullable=True)  # Coding problems from Google Search
     topics_outline = Column(JSON, nullable=True)  # Structured topics tree with videos/resources
-    
+
     # Priority areas
     priority_skills = Column(JSON, nullable=True)  # ["DSA", "DBMS"] - top 3 skills to focus on
-    
+
     # Status tracking
     status = Column(Enum('active', 'in_progress', 'completed', name='path_status'), default='active')
     progress_percentage = Column(Float, default=0.0)
-    
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    
+
     # Relationships
     applicant = relationship('Applicant', back_populates='learning_paths')
-    source_session = relationship('InterviewSession', back_populates='learning_paths', foreign_keys=[source_session_id])
     job = relationship('Job', back_populates='learning_paths')
 
 

@@ -4,7 +4,7 @@ REM Usage: deploy\docker\docker-help.bat [command]
 
 setlocal enabledelayedexpansion
 set "SCRIPT_DIR=%~dp0"
-set "COMPOSE_BASE=%SCRIPT_DIR%docker-compose.yml"
+set "COMPOSE_BASE=%SCRIPT_DIR%..\..\docker-compose.yml"
 set "DB_USER=%PG_USER%"
 if "%DB_USER%"=="" set "DB_USER=app_user"
 set "DB_NAME=%PG_DB%"

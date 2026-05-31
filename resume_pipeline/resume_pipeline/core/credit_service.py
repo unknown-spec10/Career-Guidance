@@ -118,7 +118,8 @@ class CreditService:
     def check_eligibility(
         self, 
         applicant_id: int, 
-        activity_type: str
+        activity_type: str,
+        custom_cost: Optional[int] = None
     ) -> Tuple[bool, str, Dict]:
         """
         Check if user can perform activity based on credits and rate limits.
@@ -148,7 +149,7 @@ class CreditService:
         
         # Determine cost and limits
         if activity_type == 'full_interview':
-            cost = CREDIT_CONFIG['FULL_MOCK_INTERVIEW_COST']
+            cost = custom_cost if custom_cost is not None else CREDIT_CONFIG['FULL_MOCK_INTERVIEW_COST']
             weekly_limit = CREDIT_CONFIG['MAX_FULL_INTERVIEWS_PER_WEEK']
             current_count = stats.full_interviews_this_week
             limit_name = "full interviews this week"

@@ -96,11 +96,19 @@ export default function ResetPasswordPage() {
               >
                 <KeyRound className="w-8 h-8 text-primary-400" />
               </motion.div>
-              <h1 className="text-3xl font-bold text-white mb-2">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
                 Reset Password
               </h1>
-              <p className="text-gray-400">
-                Enter the code from your email and choose a new password
+              <p className="text-gray-600">
+                {emailFromState ? (
+                  <>
+                    Enter the code sent to{' '}
+                    <span className="text-primary-600 font-semibold">{emailFromState}</span>{' '}
+                    and choose a new password
+                  </>
+                ) : (
+                  'Enter the code from your email and choose a new password'
+                )}
               </p>
             </div>
 
@@ -108,7 +116,7 @@ export default function ResetPasswordPage() {
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Reset Code Input */}
                 <div>
-                  <label htmlFor="code" className="block text-sm font-medium text-gray-300 mb-2">
+                  <label htmlFor="code" className="block text-sm font-medium text-gray-700 mb-2">
                     6-Digit Reset Code
                   </label>
                   <div className="relative">
@@ -138,7 +146,7 @@ export default function ResetPasswordPage() {
 
                 {/* New Password Input */}
                 <div>
-                  <label htmlFor="newPassword" className="block text-sm font-medium text-gray-300 mb-2">
+                  <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 mb-2">
                     New Password
                   </label>
                   <div className="relative">
@@ -170,7 +178,7 @@ export default function ResetPasswordPage() {
 
                 {/* Confirm Password Input */}
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-300 mb-2">
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
                     Confirm New Password
                   </label>
                   <div className="relative">
@@ -240,10 +248,10 @@ export default function ResetPasswordPage() {
                 <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <CheckCircle className="w-8 h-8 text-green-400" />
                 </div>
-                <h3 className="text-xl font-semibold text-white mb-2">
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
                   Password Reset Successful!
                 </h3>
-                <p className="text-gray-400 mb-6">
+                <p className="text-gray-600 mb-6">
                   Your password has been updated successfully.
                 </p>
                 <p className="text-sm text-gray-500">

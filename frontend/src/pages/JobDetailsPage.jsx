@@ -2,15 +2,44 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useParams, useNavigate } from 'react-router-dom'
 import { 
-  ArrowLeft, Briefcase, MapPin, Clock, TrendingUp, Award, Building2, ExternalLink 
+  ArrowLeft, Briefcase, MapPin, Clock, TrendingUp, Award, Building2, ExternalLink,
+  Check, AlertCircle, Loader2, CheckCircle
 } from 'lucide-react'
 import api from '../config/api'
+import secureStorage from '../utils/secureStorage'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
+
+const checkSkillMatch = (candidateSkills, requiredSkillName) => {
+  if (!candidateSkills || !requiredSkillName) return false
+  const reqName = requiredSkillName.toLowerCase().trim()
+  return candidateSkills.some(cand => {
+    const candName = String(cand).toLowerCase().trim()
+    if (candName === reqName) return true
+    if (reqName.length >= 3 || candName.length >= 3) {
+      try {
+        const escapedReq = reqName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        const escapedCand = candName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        const regexReq = new RegExp(`\\b${escapedReq}\\b`, 'i')
+        const regexCand = new RegExp(`\\b${escapedCand}\\b`, 'i')
+        return regexReq.test(candName) || regexCand.test(reqName)
+      } catch (e) {
+        return candName.includes(reqName) || reqName.includes(candName)
+      }
+    }
+    return false
+  })
+}
 
 export default function JobDetailsPage() {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const toast = useToast()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [candidateSkills, setCandidateSkills] = useState([])
+  const [hasApplied, setHasApplied] = useState(false)
+  const [applying, setApplying] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -20,10 +49,57 @@ export default function JobDetailsPage() {
     try {
       const response = await api.get(`/api/job/${jobId}`)
       setData(response.data)
+
+      const user = secureStorage.getItem('user')
+      if (user?.role === 'student') {
+        const profileResponse = await api.get('/api/student/profile')
+        const skillsData = profileResponse.data?.skills || []
+        const skillNames = skillsData.map(s => {
+          if (typeof s === 'object' && s !== null) {
+            return (s.name || s.canonical_name || '').toLowerCase().trim()
+          }
+          return String(s).toLowerCase().trim()
+        })
+        setCandidateSkills(skillNames)
+
+        // Fetch applications to check if already applied
+        try {
+          const appResponse = await api.get('/api/student/applications/jobs')
+          const apps = appResponse.data?.applications || []
+          const alreadyApplied = apps.some(app => app.job_id === Number(jobId))
+          setHasApplied(alreadyApplied)
+        } catch (appErr) {
+          console.error('Error fetching applications for check:', appErr)
+        }
+      }
     } catch (error) {
       console.error('Error fetching job:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleApply = async () => {
+    const user = secureStorage.getItem('user')
+    if (!user) {
+      navigate('/login')
+      return
+    }
+    if (user.role !== 'student') {
+      toast.error('Only students can apply to jobs.')
+      return
+    }
+
+    setApplying(true)
+    try {
+      await api.post(`/api/jobs/${jobId}/apply`, { job_id: Number(jobId) })
+      toast.success('Successfully applied! Your profile has been shared with the recruiter and a confirmation email has been sent.')
+      setHasApplied(true)
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || 'Failed to apply'
+      toast.error(errorMsg)
+    } finally {
+      setApplying(false)
     }
   }
 
@@ -38,6 +114,18 @@ export default function JobDetailsPage() {
   const job = data?.job
   const employer = data?.employer
   const metadata = data?.metadata
+
+  const user = secureStorage.getItem('user')
+  const isStudent = user?.role === 'student'
+
+  const matchedCount = job?.required_skills?.filter(skill => {
+    const reqName = (typeof skill === 'object' && skill !== null)
+      ? (skill.name || '').toLowerCase().trim()
+      : String(skill).toLowerCase().trim()
+    return checkSkillMatch(candidateSkills, reqName)
+  }).length || 0
+  
+  const totalCount = job?.required_skills?.length || 0
 
   return (
     <div className="min-h-screen bg-gray-50 pt-24 pb-12">
@@ -179,19 +267,61 @@ export default function JobDetailsPage() {
                 transition={{ delay: 0.4 }}
                 className="card"
               >
-                <h2 className="text-xl font-semibold mb-4">Required Skills</h2>
-                <div className="flex flex-wrap gap-2">
-                  {job.required_skills.map((skill, idx) => (
-                    <span
-                      key={idx}
-                      className="px-3 py-2 bg-primary-900/30 border border-primary-500/30 rounded-lg text-sm"
-                    >
-                      {skill.name || skill}
-                      {skill.level && (
-                        <span className="ml-2 text-xs text-gray-400">({skill.level})</span>
-                      )}
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">Required Skills</h2>
+                  {isStudent && totalCount > 0 && (
+                    <span className="text-sm font-semibold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-200">
+                      {matchedCount} / {totalCount} Matched
                     </span>
-                  ))}
+                  )}
+                </div>
+
+                {isStudent && (
+                  <div className="flex items-center space-x-4 mb-4 text-xs">
+                    <span className="flex items-center text-emerald-600 font-medium">
+                      <Check className="w-4 h-4 mr-1 text-emerald-600 flex-shrink-0" /> Matched Skill
+                    </span>
+                    <span className="flex items-center text-gray-500 font-medium">
+                      <AlertCircle className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> Missing Skill
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2.5">
+                  {job.required_skills.map((skill, idx) => {
+                    const skillName = (typeof skill === 'object' && skill !== null)
+                      ? (skill.name || '')
+                      : String(skill)
+                    const skillLevel = (typeof skill === 'object' && skill !== null)
+                      ? skill.level
+                      : null
+                    
+                    const reqName = skillName.toLowerCase().trim()
+                    const matched = isStudent && checkSkillMatch(candidateSkills, reqName)
+                    
+                    return (
+                      <span
+                        key={idx}
+                        className={`inline-flex items-center px-3 py-2 border rounded-lg text-sm font-medium transition-all ${
+                          !isStudent 
+                            ? 'bg-primary-50 border-primary-100 text-primary-700' 
+                            : matched
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm'
+                              : 'bg-gray-50 border-gray-200 text-gray-500'
+                        }`}
+                      >
+                        {isStudent && (
+                          matched 
+                            ? <Check className="w-3.5 h-3.5 mr-1.5 text-emerald-600 flex-shrink-0" />
+                            : <AlertCircle className="w-3.5 h-3.5 mr-1.5 text-gray-400 flex-shrink-0" />
+                        )}
+                        <span>{skillName}</span>
+                        {skillLevel && (
+                          <span className="ml-1.5 text-xs opacity-80 font-normal">({skillLevel})</span>
+                        )}
+                      </span>
+                    )
+                  })}
                 </div>
               </motion.div>
             )}
@@ -246,13 +376,35 @@ export default function JobDetailsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.7 }}
             >
-              <button className="btn-primary w-full text-lg py-4">
-                Apply for this Position
-              </button>
+              {hasApplied ? (
+                <button
+                  disabled
+                  className="w-full text-lg py-4 bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold rounded-lg cursor-not-allowed text-center flex items-center justify-center gap-2"
+                >
+                  <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                  Applied for this Position
+                </button>
+              ) : (
+                <button
+                  onClick={handleApply}
+                  disabled={applying}
+                  className="btn-primary w-full text-lg py-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {applying ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Applying...
+                    </>
+                  ) : (
+                    'Apply for this Position'
+                  )}
+                </button>
+              )}
             </motion.div>
           </div>
         </div>
       </div>
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
 }

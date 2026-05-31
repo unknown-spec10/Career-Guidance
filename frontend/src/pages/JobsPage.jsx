@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Briefcase,
@@ -14,12 +14,61 @@ import {
   AlertTriangle,
   FilterX,
   ArrowRight,
+  Check,
 } from 'lucide-react'
 import { useDebounce } from '../hooks/useDebounce'
 import api from '../config/api'
 import { DEBOUNCE_DELAYS } from '../config/constants'
+import secureStorage from '../utils/secureStorage'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
+
+const normalizeMatchScore = (rawScore) => {
+  const numericScore = Number(rawScore)
+  if (!Number.isFinite(numericScore)) return null
+  if (numericScore <= 1) return numericScore * 100
+  if (numericScore > 100) return numericScore / 100
+  return numericScore
+}
+
+const formatMatchLabel = (percentage) => {
+  if (percentage >= 85) return 'Good'
+  if (percentage >= 70) return 'Good'
+  if (percentage >= 55) return 'Avg'
+  return 'Weak'
+}
+
+const formatBreakdownLabel = (key) =>
+  String(key)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+
+const checkSkillMatch = (candidateSkills, requiredSkillName) => {
+  if (!candidateSkills || !requiredSkillName) return false
+  const reqName = requiredSkillName.toLowerCase().trim()
+  return candidateSkills.some(cand => {
+    const candName = String(cand).toLowerCase().trim()
+    if (candName === reqName) return true
+    if (reqName.length >= 3 || candName.length >= 3) {
+      try {
+        const escapedReq = reqName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        const escapedCand = candName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        const regexReq = new RegExp(`\\b${escapedReq}\\b`, 'i')
+        const regexCand = new RegExp(`\\b${escapedCand}\\b`, 'i')
+        return regexReq.test(candName) || regexCand.test(reqName)
+      } catch (e) {
+        return candName.includes(reqName) || reqName.includes(candName)
+      }
+    }
+    return false
+  })
+}
 
 export default function JobsPage() {
+  const navigate = useNavigate()
+  const toast = useToast()
+  const currentUser = secureStorage.getItem('user')
+  const showApplicantFeatures = currentUser?.role === 'student'
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
@@ -27,6 +76,11 @@ export default function JobsPage() {
   const [total, setTotal] = useState(0)
   const [selectedJob, setSelectedJob] = useState(null)
   const [fetchError, setFetchError] = useState(null)
+  const [recommendationMatches, setRecommendationMatches] = useState({})
+  const [recommendationDetailsByJobId, setRecommendationDetailsByJobId] = useState({})
+  const [appliedJobIds, setAppliedJobIds] = useState(new Set())
+  const [applyingId, setApplyingId] = useState(null)
+  const [candidateSkills, setCandidateSkills] = useState([])
 
   const pageSize = 9
   const observerTarget = useRef(null)
@@ -64,6 +118,110 @@ export default function JobsPage() {
   useEffect(() => {
     fetchJobs()
   }, [page, debouncedFilters])
+
+  useEffect(() => {
+    const fetchRecommendationMatches = async () => {
+      if (!showApplicantFeatures) {
+        setRecommendationMatches({})
+        return
+      }
+
+      try {
+        let applicantId = secureStorage.getItem('db_applicant_id')
+        if (!applicantId) {
+          const applicantRes = await api.get('/api/student/applicant')
+          applicantId = applicantRes.data?.id
+          if (applicantId) {
+            secureStorage.setItem('db_applicant_id', String(applicantId))
+          }
+        }
+
+        if (!applicantId) {
+          setRecommendationMatches({})
+          return
+        }
+
+        const recRes = await api.get(`/api/recommendations/${applicantId}`)
+        const recs = Array.isArray(recRes.data?.job_recommendations) ? recRes.data.job_recommendations : []
+
+        const nextMatches = {}
+        const nextDetails = {}
+        recs.forEach((rec) => {
+          const jobId = rec?.job?.id
+          const score = normalizeMatchScore(rec?.match_score ?? rec?.score ?? null)
+          if (Number.isFinite(jobId) && score !== null) {
+            nextMatches[jobId] = score
+            nextDetails[jobId] = {
+              ...rec,
+              normalizedScore: score,
+            }
+          }
+        })
+
+        setRecommendationMatches(nextMatches)
+        setRecommendationDetailsByJobId(nextDetails)
+
+        // Fetch candidate skills
+        try {
+          const profileResponse = await api.get('/api/student/profile')
+          const skillsData = profileResponse.data?.skills || []
+          const skillNames = skillsData.map(s => {
+            if (typeof s === 'object' && s !== null) {
+              return (s.name || s.canonical_name || '').toLowerCase().trim()
+            }
+            return String(s).toLowerCase().trim()
+          })
+          setCandidateSkills(skillNames)
+        } catch (profileErr) {
+          console.error('Error fetching student profile skills in JobsPage:', profileErr)
+        }
+      } catch (error) {
+        console.error('Error fetching recommendation matches:', error)
+        setRecommendationMatches({})
+        setRecommendationDetailsByJobId({})
+      }
+    }
+
+    fetchRecommendationMatches()
+  }, [showApplicantFeatures])
+
+  useEffect(() => {
+    const fetchAppliedJobs = async () => {
+      if (currentUser?.role === 'student') {
+        try {
+          const response = await api.get('/api/student/applications/jobs')
+          const ids = (response.data?.applications || []).map(app => app.job_id)
+          setAppliedJobIds(new Set(ids))
+        } catch (error) {
+          console.error('Error fetching student applications:', error)
+        }
+      }
+    }
+    fetchAppliedJobs()
+  }, [currentUser?.email])
+
+  const handleApply = async (jobId) => {
+    if (!currentUser) {
+      navigate('/login')
+      return
+    }
+    if (currentUser.role !== 'student') {
+      toast.error('Only students can apply to jobs.')
+      return
+    }
+
+    setApplyingId(jobId)
+    try {
+      await api.post(`/api/jobs/${jobId}/apply`, { job_id: jobId })
+      toast.success('Successfully applied! Your profile has been shared with the recruiter and a confirmation email has been sent.')
+      setAppliedJobIds(prev => new Set([...prev, jobId]))
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || 'Failed to apply'
+      toast.error(errorMsg)
+    } finally {
+      setApplyingId(null)
+    }
+  }
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -163,20 +321,41 @@ export default function JobsPage() {
     })
   }
 
+  const updateFilter = (key, value) => {
+    setFilters((prev) => ({
+      ...prev,
+      [key]: value,
+    }))
+  }
+
+  const removeFilter = (key) => {
+    const defaults = {
+      q: '',
+      location: '',
+      work_type: '',
+      skills: '',
+      sort: 'popular',
+    }
+    setFilters((prev) => ({
+      ...prev,
+      [key]: defaults[key],
+    }))
+  }
+
   const activeFilterCount = [filters.q, filters.location, filters.work_type, filters.skills].filter(Boolean).length
 
   const JobCard = ({ job }) => {
-    const getStableMatchPercentage = (jobId) => {
-      const hash = jobId * 12345 % 100
-      return Math.max(60, (hash * 1.5) % 40 + 60)
-    }
+    const matchPercentage = showApplicantFeatures
+      ? recommendationMatches[job.id]
+      : null
 
-    const matchPercentage = job.match_score || Math.round(getStableMatchPercentage(job.id))
+    const hasMatchData = Number.isFinite(matchPercentage)
 
     const getMatchColor = (percentage) => {
-      if (percentage >= 80) return 'bg-green-600'
-      if (percentage >= 60) return 'bg-primary-600'
-      return 'bg-yellow-600'
+      if (percentage >= 85) return 'bg-green-600'
+      if (percentage >= 70) return 'bg-primary-600'
+      if (percentage >= 55) return 'bg-yellow-600'
+      return 'bg-gray-500'
     }
 
     const handleOpenDetails = async () => {
@@ -209,9 +388,11 @@ export default function JobsPage() {
               </div>
             </div>
           </div>
-          <div className={`${getMatchColor(matchPercentage)} text-white px-3 py-1 rounded-full text-xs font-bold flex-shrink-0`}>
-            {matchPercentage}% MATCH
-          </div>
+          {showApplicantFeatures && hasMatchData && (
+            <div className={`${getMatchColor(matchPercentage)} text-white px-3 py-1 rounded-full text-xs font-bold flex-shrink-0`}>
+              {formatMatchLabel(matchPercentage)} MATCH
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
@@ -253,70 +434,41 @@ export default function JobsPage() {
           </div>
         )}
 
-        <div className="mt-auto pt-4 border-t border-gray-200 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="inline-flex items-center px-2 py-1 rounded-full bg-primary-50 border border-primary-200 text-primary-700 font-semibold">
-              Learning Path
-            </span>
-            <span className="text-primary-700 font-semibold">2 Credits</span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
+        <div className="mt-auto pt-4 border-t border-gray-200">
+          <div className="grid gap-2 grid-cols-2">
             <button
               onClick={handleOpenDetails}
-              className="py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+              className="py-2 text-sm font-semibold border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors text-gray-700 text-center"
             >
-              Details
+              View Details
             </button>
 
-            <Link
-              to={`/job/${job.id}`}
-              className="py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-700 text-center"
-            >
-              View/Apply
-            </Link>
-
-            <button
-              onClick={() => handleGenerateLearningPath(job)}
-              disabled={learningPathState.loadingId === job.id}
-              className="inline-flex items-center justify-center gap-1 py-2 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors"
-            >
-              {learningPathState.loadingId === job.id ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  ...
-                </>
-              ) : (
-                'Path'
-              )}
-            </button>
-          </div>
-
-          <button
-            onClick={() => handleGenerateLearningPath(job)}
-            disabled={learningPathState.loadingId === job.id}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-primary-200 text-primary-700 text-sm font-semibold hover:bg-primary-50 disabled:opacity-60 transition-colors"
-          >
-            {learningPathState.loadingId === job.id ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Generating Path...
-              </>
+            {appliedJobIds.has(job.id) ? (
+              <button
+                disabled
+                className="py-2 text-sm font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg cursor-not-allowed text-center flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                Applied
+              </button>
             ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                Generate Learning Path
-              </>
+              <button
+                onClick={() => handleApply(job.id)}
+                disabled={applyingId === job.id}
+                className="py-2 text-sm font-semibold bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-center shadow-sm flex items-center justify-center gap-1.5"
+              >
+                {applyingId === job.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Applying...
+                  </>
+                ) : (
+                  'Apply Now'
+                )}
+              </button>
             )}
-          </button>
-        </div>
-
-        {learningPathState.success && learningPathState.successJobId === job.id && (
-          <div className="mt-3 flex items-center gap-2 text-green-700 text-xs bg-green-50 border border-green-200 px-3 py-2 rounded">
-            <CheckCircle className="w-4 h-4" />
-            <span>{learningPathState.success}</span>
           </div>
-        )}
+        </div>
       </motion.div>
     )
   }
@@ -338,6 +490,17 @@ export default function JobsPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-4 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm"
         >
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Search and filter</p>
+              <p className="text-xs text-gray-500">Refine the job list with keyword, location, type, skill, and sort controls.</p>
+            </div>
+            <div className="text-sm text-gray-600 text-right">
+              {total} results
+              {activeFilterCount > 0 && <span className="ml-2 text-primary-700">({activeFilterCount} active)</span>}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
             <div className="relative md:col-span-2">
               <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -345,7 +508,7 @@ export default function JobsPage() {
                 type="text"
                 placeholder="Keyword, title, or company"
                 value={filters.q}
-                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+                onChange={(e) => updateFilter('q', e.target.value)}
                 className="w-full bg-white border border-gray-300 rounded-lg px-10 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
               />
             </div>
@@ -356,14 +519,14 @@ export default function JobsPage() {
                 type="text"
                 placeholder="Location"
                 value={filters.location}
-                onChange={(e) => setFilters({ ...filters, location: e.target.value })}
+                onChange={(e) => updateFilter('location', e.target.value)}
                 className="w-full bg-white border border-gray-300 rounded-lg pl-10 pr-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
               />
             </div>
 
             <select
               value={filters.work_type}
-              onChange={(e) => setFilters({ ...filters, work_type: e.target.value })}
+              onChange={(e) => updateFilter('work_type', e.target.value)}
               className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
             >
               <option value="">All Work Types</option>
@@ -376,13 +539,13 @@ export default function JobsPage() {
               type="text"
               placeholder="Skills (React, Python)"
               value={filters.skills}
-              onChange={(e) => setFilters({ ...filters, skills: e.target.value })}
+              onChange={(e) => updateFilter('skills', e.target.value)}
               className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
             />
 
             <select
               value={filters.sort}
-              onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
+              onChange={(e) => updateFilter('sort', e.target.value)}
               className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
             >
               <option value="popular">Sort: Popular</option>
@@ -391,23 +554,54 @@ export default function JobsPage() {
             </select>
           </div>
 
+          {activeFilterCount > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {filters.q && (
+                <button onClick={() => removeFilter('q')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
+                  Keyword: {filters.q}
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
+              {filters.location && (
+                <button onClick={() => removeFilter('location')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
+                  Location: {filters.location}
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
+              {filters.work_type && (
+                <button onClick={() => removeFilter('work_type')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
+                  Type: {filters.work_type}
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
+              {filters.skills && (
+                <button onClick={() => removeFilter('skills')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
+                  Skills: {filters.skills}
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-gray-600">
-              {total} results
-              {activeFilterCount > 0 && <span className="ml-2 text-primary-700">({activeFilterCount} active filter{activeFilterCount > 1 ? 's' : ''})</span>}
+            <div className="text-xs text-gray-500">
+              Filters update automatically as you type.
             </div>
 
             <div className="flex items-center gap-2">
-              <Link
-                to="/dashboard/learning-paths"
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:border-primary-400 hover:text-primary-700 transition-colors"
-              >
-                Learning Paths
-                <ArrowRight className="w-4 h-4" />
-              </Link>
+              {showApplicantFeatures && (
+                <Link
+                  to="/dashboard/learning-paths"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:border-primary-400 hover:text-primary-700 transition-colors"
+                >
+                  Learning Paths
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              )}
               <button
                 onClick={resetFilters}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50 transition-colors"
+                disabled={activeFilterCount === 0}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FilterX className="w-4 h-4" />
                 Reset Filters
@@ -478,6 +672,22 @@ export default function JobsPage() {
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
             >
+              {(() => {
+                const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
+                const normalizedScore = recommendation?.normalizedScore ?? null
+                const explanationText = recommendation?.explain
+                const breakdownEntries = recommendation?.scoring_breakdown && typeof recommendation.scoring_breakdown === 'object'
+                  ? Object.entries(recommendation.scoring_breakdown).filter(([, value]) => value !== null && value !== undefined)
+                  : []
+
+                const explanationLines = Array.isArray(explanationText)
+                  ? explanationText.filter(Boolean)
+                  : typeof explanationText === 'string'
+                    ? explanationText.split(/\n+/).map((line) => line.trim()).filter(Boolean)
+                    : []
+
+                return null
+              })()}
               <div className="sticky top-0 bg-primary-600 text-white p-6 flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <h2 className="text-2xl font-bold mb-2">{selectedJob.title}</h2>
@@ -497,6 +707,126 @@ export default function JobsPage() {
               </div>
 
               <div className="p-6 space-y-6">
+                {(() => {
+                  const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
+                  const normalizedScore = recommendation?.normalizedScore ?? null
+                  const explanationText = recommendation?.explanation || recommendation?.explain
+                  const breakdownEntries = recommendation?.scoring_breakdown && typeof recommendation.scoring_breakdown === 'object'
+                    ? Object.entries(recommendation.scoring_breakdown).filter(([, value]) => value !== null && value !== undefined)
+                    : []
+
+                  const explanationLines = recommendation?.explanation
+                    ? [recommendation.explanation]
+                    : Array.isArray(explanationText)
+                      ? explanationText.filter(Boolean)
+                      : typeof explanationText === 'string'
+                        ? explanationText.split(/\n+/).map((line) => line.trim()).filter(Boolean)
+                        : typeof explanationText === 'object' && explanationText !== null
+                          ? (explanationText.reasons || [explanationText.summary || '']).filter(Boolean)
+                          : []
+
+                  return (
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recommendation</p>
+                          <h3 className="text-lg font-bold text-gray-900">Why this job is recommended</h3>
+                        </div>
+                        {normalizedScore !== null && (
+                          <div className={`px-3 py-1 rounded-full text-xs font-bold text-white ${normalizedScore >= 85 ? 'bg-green-600' : normalizedScore >= 70 ? 'bg-primary-600' : normalizedScore >= 55 ? 'bg-yellow-600' : 'bg-gray-500'}`}>
+                            {formatMatchLabel(normalizedScore)} Match
+                          </div>
+                        )}
+                      </div>
+
+                      {explanationLines.length > 0 ? (
+                        <ul className="space-y-2">
+                          {explanationLines.slice(0, 4).map((line, idx) => (
+                            <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                              <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                              <span>{line}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-gray-600">
+                          This role is aligned with your skills, location, and experience profile.
+                        </p>
+                      )}
+
+                      {breakdownEntries.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                          {breakdownEntries.slice(0, 6).map(([key, value]) => (
+                            <div key={key} className="rounded-xl border border-slate-200 bg-white p-3">
+                              <p className="text-[11px] uppercase tracking-wide text-gray-500">{formatBreakdownLabel(key)}</p>
+                              <p className="mt-1 text-sm font-semibold text-gray-900 break-words">{String(value)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {
+                        // Render key skills: prefer explicit job.required_skills, fallback to recommendation matched/partial skills
+                        (() => {
+                          const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
+                          const explicit = Array.isArray(selectedJob.required_skills) && selectedJob.required_skills.length > 0
+                          const matched = recommendation?.scoring_breakdown?.skills_breakdown?.matched_skills || []
+                          const partial = recommendation?.scoring_breakdown?.skills_breakdown?.partial_matches || []
+                          const fallbackSkills = [...new Set([...matched, ...partial])]
+                          const skillsToRender = explicit ? selectedJob.required_skills.slice(0, 8) : fallbackSkills.slice(0, 8)
+
+                          if (!skillsToRender || skillsToRender.length === 0) {
+                            return (
+                              <div className="rounded-lg border border-yellow-100 bg-yellow-50 p-4">
+                                <div className="flex items-start gap-3">
+                                  <div className="flex-1 text-sm text-yellow-800">
+                                    <div className="font-medium">No role-specific skills available</div>
+                                    <div className="text-xs text-yellow-800/90 mt-1">We couldn't find explicit skills for this job. You can re-run recommendations or update your profile to surface skill matches.</div>
+                                    <div className="mt-3 flex gap-2">
+                                      <button onClick={async () => {
+                                        const applicantId = secureStorage.getItem('db_applicant_id')
+                                        if (applicantId) await api.post(`/api/applicant/${applicantId}/generate-recommendations`)
+                                      }} className="px-3 py-1 bg-yellow-100 border border-yellow-200 rounded text-yellow-800 text-xs">Re-run Recommendations</button>
+                                      <Link to="/student/profile" className="px-3 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700">Update Profile</Link>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          }
+
+                          return (
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-700">Key Skills</h3>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {skillsToRender.map((skill, idx) => {
+                                  const skillName = typeof skill === 'string' ? skill : (skill?.name || skill?.skill || `Skill ${idx+1}`)
+                                  const reqName = skillName.toLowerCase().trim()
+                                  const isMatched = checkSkillMatch(candidateSkills, reqName) ||
+                                                    matched.some(m => checkSkillMatch([m], reqName)) ||
+                                                    partial.some(p => checkSkillMatch([p], reqName))
+                                  return (
+                                    <span
+                                      key={`${skill}-${idx}`}
+                                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-all inline-flex items-center ${
+                                        isMatched
+                                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm'
+                                          : 'bg-primary-50 border-primary-100 text-primary-700'
+                                      }`}
+                                    >
+                                      {isMatched && <Check className="w-3 h-3 mr-1 text-emerald-600 flex-shrink-0" />}
+                                      {skillName}
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })()
+                      }
+                    </div>
+                  )
+                })()}
+
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {selectedJob.location_city && selectedJob.location_state && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -551,32 +881,78 @@ export default function JobsPage() {
                     <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{selectedJob.description}</p>
                   </div>
                 )}
+
+                <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">Useful next steps</h3>
+                  <p className="text-sm text-gray-700">
+                    Open the job application, review the required skills, and generate a learning path if you want a gap-focused plan before applying.
+                  </p>
+                </div>
+
+                {learningPathState.success && learningPathState.successJobId === selectedJob.id && (
+                  <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 border border-green-200 px-4 py-3 rounded-xl shadow-sm mt-3 animate-fade-in">
+                    <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                    <span className="font-semibold">{learningPathState.success}</span>
+                  </div>
+                )}
+
+                {learningPathState.error && learningPathState.successJobId === selectedJob.id && (
+                  <div className="flex items-center gap-2 text-red-700 text-sm bg-red-50 border border-red-200 px-4 py-3 rounded-xl shadow-sm mt-3 animate-fade-in">
+                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                    <span className="font-semibold">{learningPathState.error}</span>
+                  </div>
+                )}
               </div>
 
               <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex gap-3">
-                <button
-                  onClick={() => {
-                    handleGenerateLearningPath(selectedJob)
-                    setTimeout(() => setSelectedJob(null), 500)
-                  }}
-                  disabled={learningPathState.loadingId === selectedJob.id}
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors"
-                >
-                  {learningPathState.loadingId === selectedJob.id ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Generate Learning Path
-                    </>
-                  )}
-                </button>
+                {appliedJobIds.has(selectedJob.id) ? (
+                  <button
+                    disabled
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold rounded-lg cursor-not-allowed text-center shadow-sm"
+                  >
+                    <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                    Applied
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleApply(selectedJob.id)}
+                    disabled={applyingId === selectedJob.id}
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-center shadow-sm"
+                  >
+                    {applyingId === selectedJob.id ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Applying...
+                      </>
+                    ) : (
+                      'Apply Now'
+                    )}
+                  </button>
+                )}
+                {showApplicantFeatures && (
+                  <button
+                    onClick={() => {
+                      handleGenerateLearningPath(selectedJob)
+                    }}
+                    disabled={learningPathState.loadingId === selectedJob.id}
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-primary-200 text-primary-700 font-semibold hover:bg-primary-50 disabled:opacity-60 transition-colors"
+                  >
+                    {learningPathState.loadingId === selectedJob.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating Path...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Generate Learning Path
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={() => setSelectedJob(null)}
-                  className="flex-1 px-4 py-3 rounded-lg border border-gray-300 text-gray-900 font-semibold hover:bg-gray-100 transition-colors"
+                  className="px-6 py-3 rounded-lg border border-gray-300 text-gray-900 font-semibold hover:bg-gray-100 transition-colors"
                 >
                   Close
                 </button>
@@ -585,6 +961,7 @@ export default function JobsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
 }

@@ -46,21 +46,31 @@ export default function EmployerProfile() {
         api.get('/api/employer/profile')
       ])
       
-      setUser(userResponse.data)
-      setEmployer(employerResponse.data)
-      
+      // prefer server values, but fall back to locally-stored user (from login) for missing fields
+      const serverUser = userResponse.data || {}
+      const serverEmployer = employerResponse.data || {}
+      const storedUser = secureStorage.getItem('user') || {}
+
+      setUser(serverUser)
+      setEmployer(serverEmployer)
+
       setFormData({
-        full_name: userResponse.data.full_name || '',
-        email: userResponse.data.email || '',
-        company_name: employerResponse.data.company_name || '',
-        company_description: employerResponse.data.company_description || '',
-        company_website: employerResponse.data.company_website || '',
-        location: employerResponse.data.location || '',
-        contact_phone: employerResponse.data.contact_phone || '',
+        full_name: serverUser.full_name || storedUser.full_name || '',
+        email: serverUser.email || storedUser.email || '',
+        company_name: serverEmployer.company_name || '',
+        company_description: serverEmployer.company_description || '',
+        company_website: serverEmployer.company_website || '',
+        location: serverEmployer.location || '',
+        contact_phone: serverEmployer.contact_phone || '',
         current_password: '',
         new_password: '',
         confirm_password: ''
       })
+
+      // If no name was provided by the server or during login, open edit mode so user can fill it in
+      if (!serverUser.full_name && !storedUser.full_name) {
+        setEditing(true)
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load profile')
       toast.error('Failed to load profile')
@@ -109,7 +119,14 @@ export default function EmployerProfile() {
 
       // Refresh data
       await fetchProfile()
-      
+
+      // keep local stored user in sync so other pages show updated name immediately
+      try {
+        secureStorage.setItem('user', { full_name: sanitizeText(formData.full_name), email: formData.email || user?.email, role: user?.role || 'employer' })
+      } catch (e) {
+        // ignore storage failures
+      }
+
       toast.success('Profile updated successfully!')
       setEditing(false)
       setFormData({
@@ -156,168 +173,185 @@ export default function EmployerProfile() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-4xl">
+    <div className="min-h-screen bg-slate-50/50 pt-24 pb-12 relative overflow-hidden">
+      {/* Ambient background glows */}
+      <div className="pointer-events-none absolute left-1/4 top-10 h-96 w-96 rounded-full bg-gradient-to-br from-primary-400/10 to-indigo-300/10 blur-[100px]" />
+      <div className="pointer-events-none absolute right-1/4 top-40 h-96 w-96 rounded-full bg-gradient-to-br from-sky-400/10 to-emerald-300/10 blur-[100px]" />
+
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-4xl relative z-10">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="relative mb-8 overflow-hidden rounded-3xl border border-white/80 bg-white/70 p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.04)] backdrop-blur-md"
         >
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">Employer Profile</h1>
-          <p className="text-gray-400">Manage your company information and account settings</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card"
-        >
-          {/* Profile Header */}
-          <div className="flex items-center justify-between mb-6 pb-6 border-b border-gray-200">
-            <div className="flex items-center space-x-4">
-              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
-                <Building2 className="w-10 h-10 text-green-400" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/40 via-white/50 to-white/40 opacity-70" />
+          <div className="relative flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary-700 mb-3">
+                <Building2 className="w-3.5 h-3.5" />
+                Settings
               </div>
-              <div>
-                <h2 className="text-2xl font-bold">{employer?.company_name || 'Company'}</h2>
-                <p className="text-gray-400 flex items-center space-x-2">
-                  <Mail className="w-4 h-4" />
-                  <span>{user?.email}</span>
-                </p>
-              </div>
+              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2">
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-slate-800 to-primary-950">
+                  Employer Profile
+                </span>
+              </h1>
+              <p className="text-gray-600">Manage your company information and account settings</p>
             </div>
             {!editing && (
               <button
                 onClick={() => setEditing(true)}
-                className="btn-primary flex items-center space-x-2"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-xl hover:from-primary-700 hover:to-indigo-700 transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 active:scale-95 duration-200 font-semibold text-sm"
               >
                 <Edit2 className="w-4 h-4" />
                 <span>Edit Profile</span>
               </button>
             )}
           </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden rounded-3xl border border-slate-100 bg-white/90 backdrop-blur-sm p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
+        >
+          {/* Profile Header */}
+          <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
+            <div className="flex items-center space-x-4">
+              <div className="w-16 h-16 bg-gradient-to-br from-emerald-400/20 to-teal-500/20 rounded-2xl flex items-center justify-center border border-emerald-500/10 shadow-inner">
+                <Building2 className="w-8 h-8 text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">{employer?.company_name || 'Company Name'}</h2>
+                <p className="text-slate-500 flex items-center space-x-2 text-sm mt-0.5 font-medium">
+                  <Mail className="w-4 h-4 text-slate-400" />
+                  <span>{user?.email}</span>
+                </p>
+              </div>
+            </div>
+          </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg flex items-center space-x-2">
-              <AlertTriangle className="w-5 h-5 text-red-400" />
-              <span className="text-red-400 text-sm">{error}</span>
+            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center space-x-2 text-rose-700 font-medium text-sm">
+              <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           <form onSubmit={handleUpdateProfile}>
-            <div className="space-y-6">
+            <div className="space-y-8">
               {/* Account Information */}
-              <div>
-                <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                  <User className="w-5 h-5 text-primary-400" />
+              <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5 md:p-6">
+                <h3 className="text-base font-bold text-slate-800 mb-5 flex items-center space-x-2">
+                  <User className="w-4 h-4 text-primary-500" />
                   <span>Account Information</span>
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-sm font-medium mb-2">Contact Name</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Contact Name</label>
                     <input
                       type="text"
                       disabled={!editing}
                       value={formData.full_name}
                       onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                      className="input w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                       placeholder="Your full name"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-2">Email Address</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Email Address</label>
                     <input
                       type="email"
                       disabled
                       value={formData.email}
-                      className="input w-full opacity-50 cursor-not-allowed"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-400 cursor-not-allowed"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1.5">Email cannot be changed</p>
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between">
+                <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-5 flex-wrap gap-3">
                   <div className="flex items-center space-x-2">
                     {user?.is_verified ? (
                       <>
-                        <CheckCircle className="w-5 h-5 text-green-400" />
-                        <span className="text-green-400 text-sm">Verified Account</span>
+                        <CheckCircle className="w-5 h-5 text-emerald-500" />
+                        <span className="text-emerald-600 text-sm font-semibold">Verified Account</span>
                       </>
                     ) : (
                       <>
-                        <AlertTriangle className="w-5 h-5 text-yellow-400" />
-                        <span className="text-yellow-400 text-sm">Not Verified</span>
+                        <AlertTriangle className="w-5 h-5 text-amber-500" />
+                        <span className="text-amber-600 text-sm font-semibold">Not Verified</span>
                       </>
                     )}
                   </div>
-                  <div className="flex items-center space-x-2 text-gray-400 text-sm">
-                    <Calendar className="w-4 h-4" />
+                  <div className="flex items-center space-x-2 text-slate-400 text-xs font-bold">
+                    <Calendar className="w-4 h-4 text-slate-400" />
                     <span>Joined {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</span>
                   </div>
                 </div>
               </div>
 
               {/* Company Information */}
-              <div className="pt-6 border-t border-gray-200">
-                <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                  <Building2 className="w-5 h-5 text-primary-400" />
+              <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5 md:p-6">
+                <h3 className="text-base font-bold text-slate-800 mb-5 flex items-center space-x-2">
+                  <Building2 className="w-4 h-4 text-primary-500" />
                   <span>Company Information</span>
                 </h3>
 
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <div>
-                    <label className="block text-sm font-medium mb-2">Company Name *</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Company Name *</label>
                     <input
                       type="text"
                       disabled={!editing}
                       required
                       value={formData.company_name}
                       onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                      className="input w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                       placeholder="Enter company name"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-2">Company Description</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Company Description</label>
                     <textarea
                       disabled={!editing}
                       value={formData.company_description}
                       onChange={(e) => setFormData({ ...formData, company_description: e.target.value })}
-                      className="input w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                       rows="4"
                       placeholder="Brief description of your company"
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
-                      <label className="block text-sm font-medium mb-2">Company Website</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Company Website</label>
                       <div className="relative">
-                        <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <Globe className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                           type="url"
                           disabled={!editing}
                           value={formData.company_website}
                           onChange={(e) => setFormData({ ...formData, company_website: e.target.value })}
-                          className="input w-full pl-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                           placeholder="https://example.com"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium mb-2">Contact Phone</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Contact Phone</label>
                       <div className="relative">
-                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <Phone className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                           type="tel"
                           disabled={!editing}
                           value={formData.contact_phone}
                           onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-                          className="input w-full pl-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                           placeholder="+1 (555) 000-0000"
                         />
                       </div>
@@ -325,15 +359,15 @@ export default function EmployerProfile() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-2">Location</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Location</label>
                     <div className="relative">
-                      <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <MapPin className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input
                         type="text"
                         disabled={!editing}
                         value={formData.location}
                         onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                        className="input w-full pl-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
                         placeholder="City, State/Country"
                       />
                     </div>
@@ -343,70 +377,70 @@ export default function EmployerProfile() {
 
               {/* Change Password Section */}
               {editing && (
-                <div className="pt-6 border-t border-gray-200">
-                  <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2">
-                    <Lock className="w-5 h-5 text-primary-400" />
+                <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5 md:p-6">
+                  <h3 className="text-base font-bold text-slate-800 mb-5 flex items-center space-x-2">
+                    <Lock className="w-4 h-4 text-primary-500" />
                     <span>Change Password (Optional)</span>
                   </h3>
 
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div>
-                      <label className="block text-sm font-medium mb-2">Current Password</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Current Password</label>
                       <div className="relative">
                         <input
                           type={showCurrentPassword ? "text" : "password"}
                           value={formData.current_password}
                           onChange={(e) => setFormData({ ...formData, current_password: e.target.value })}
-                          className="input w-full pr-10"
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700"
                           placeholder="Enter current password"
                         />
                         <button
                           type="button"
                           onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                          className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
                         >
-                          {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                          {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       <div>
-                        <label className="block text-sm font-medium mb-2">New Password</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">New Password</label>
                         <div className="relative">
                           <input
                             type={showNewPassword ? "text" : "password"}
                             value={formData.new_password}
                             onChange={(e) => setFormData({ ...formData, new_password: e.target.value })}
-                            className="input w-full pr-10"
+                            className="w-full bg-white border border-slate-200 pl-4 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 rounded-xl"
                             placeholder="Min 8 characters"
                           />
                           <button
                             type="button"
                             onClick={() => setShowNewPassword(!showNewPassword)}
-                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                            className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
                           >
-                            {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                            {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium mb-2">Confirm New Password</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Confirm New Password</label>
                         <div className="relative">
                           <input
                             type={showConfirmPassword ? "text" : "password"}
                             value={formData.confirm_password}
                             onChange={(e) => setFormData({ ...formData, confirm_password: e.target.value })}
-                            className="input w-full pr-10"
+                            className="w-full bg-white border border-slate-200 pl-4 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-700 rounded-xl"
                             placeholder="Confirm password"
                           />
                           <button
                             type="button"
                             onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                            className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
                           >
-                            {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                            {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>
@@ -417,19 +451,19 @@ export default function EmployerProfile() {
 
               {/* Action Buttons */}
               {editing && (
-                <div className="flex items-center justify-end space-x-3 pt-6 border-t border-gray-200">
+                <div className="flex items-center justify-end space-x-3 pt-6 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={handleCancel}
-                    className="px-6 py-2 border border-gray-300 rounded-lg hover:border-gray-400 transition-colors flex items-center space-x-2"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all text-slate-700 font-semibold text-sm active:scale-95 duration-200"
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-4 h-4 text-slate-500" />
                     <span>Cancel</span>
                   </button>
                   <button
                     type="submit"
                     disabled={saving}
-                    className="btn-primary flex items-center space-x-2"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-md transition-all active:scale-95 duration-200 text-sm"
                   >
                     <Save className="w-4 h-4" />
                     <span>{saving ? 'Saving...' : 'Save Changes'}</span>

@@ -54,10 +54,9 @@ export default function Navbar() {
         ]
       case 'admin':
         return [
-          { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { to: '/admin/reviews', label: 'Reviews', icon: Shield },
-          { to: '/applicants', label: 'Applicants', icon: Users },
-          { to: '/jobs', label: 'Jobs', icon: Briefcase },
+          { to: '/admin/dashboard?tab=overview', label: 'Admin Hub', icon: LayoutDashboard },
+          { to: '/admin/dashboard?tab=jobs', label: 'Job Reviews', icon: Shield },
+          { to: '/admin/dashboard?tab=applicants', label: 'Applicants', icon: Users },
         ]
       default:
         return []
@@ -65,7 +64,11 @@ export default function Navbar() {
   }
 
   const navLinks = getNavLinks()
-  const isActive = (path) => location.pathname === path
+  const isAdminHub = user?.role === 'admin' && location.pathname.startsWith('/admin/dashboard')
+  const isActive = (path) => {
+    const [pathname, search = ''] = path.split('?')
+    return location.pathname === pathname && location.search === (search ? `?${search}` : '')
+  }
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
@@ -83,44 +86,20 @@ export default function Navbar() {
             </span>
           </Link>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Navigation: keep navbar minimal — only Logout for authenticated users */}
           <div className="hidden md:flex items-center space-x-1">
-            {navLinks.map((link) => {
-              const Icon = link.icon
-              return (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 ${
-                    isActive(link.to)
-                      ? 'bg-primary-50 text-primary-600 font-semibold'
-                      : 'text-gray-700 hover:text-primary-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{link.label}</span>
-                </Link>
-              )
-            })}
             {user ? (
               <div className="flex items-center space-x-2 ml-4">
                 <button
-                  onClick={() => navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : '/dashboard')}
-                  className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-primary-500 hover:text-primary-600 transition-colors text-gray-700"
-                >
-                  <User className="w-4 h-4" />
-                  <span>My Profile</span>
-                </button>
-                <button
                   onClick={handleLogout}
-                  className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-red-500 hover:text-red-600 transition-colors text-gray-700"
+                  className="nav-button"
                 >
                   <LogOut className="w-4 h-4" />
                   <span>Logout</span>
                 </button>
               </div>
             ) : (
-              <Link to="/login" className="btn-primary ml-4">
+              <Link to="/login" className="btn-primary-sm ml-4">
                 Login
               </Link>
             )}
@@ -145,42 +124,15 @@ export default function Navbar() {
               className="md:hidden overflow-hidden"
             >
               <div className="py-4 space-y-2">
-                {navLinks.map((link) => {
-                  const Icon = link.icon
-                  return (
-                    <Link
-                      key={link.to}
-                      to={link.to}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200 ${
-                        isActive(link.to)
-                          ? 'bg-primary-50 text-primary-600 font-semibold'
-                          : 'text-gray-700 hover:text-primary-600 hover:bg-gray-100'
-                      }`}
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span>{link.label}</span>
-                    </Link>
-                  )
-                })}
+                {/* Mobile: only show Logout (or Login) — keep mobile menu minimal */}
                 {user ? (
                   <div className="pt-4 border-t border-gray-200 space-y-2">
-                    <button
-                      onClick={() => {
-                        navigate(user.role === 'student' ? '/student/profile' : user.role === 'employer' ? '/employer/profile' : '/dashboard')
-                        setMobileMenuOpen(false)
-                      }}
-                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-primary-500 hover:text-primary-600 transition-colors text-gray-700"
-                    >
-                      <User className="w-4 h-4" />
-                      <span>My Profile</span>
-                    </button>
                     <button
                       onClick={() => {
                         handleLogout()
                         setMobileMenuOpen(false)
                       }}
-                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:border-red-500 hover:text-red-600 transition-colors text-gray-700"
+                      className="w-full nav-button justify-center"
                     >
                       <LogOut className="w-4 h-4" />
                       <span>Logout</span>
@@ -189,7 +141,7 @@ export default function Navbar() {
                 ) : (
                   <Link
                     to="/login"
-                    className="block btn-primary text-center mt-4"
+                    className="block btn-primary-sm w-full text-center mt-4"
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Login

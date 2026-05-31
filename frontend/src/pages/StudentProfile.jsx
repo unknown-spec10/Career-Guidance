@@ -24,11 +24,13 @@ import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
 import secureStorage from '../utils/secureStorage'
+import { calculateProfileCompletion } from '../utils/profileCompletion'
 
 export default function StudentProfile() {
   const navigate = useNavigate()
   const { showToast } = useToast()
   const [loading, setLoading] = useState(true)
+  const [loadingResumeData, setLoadingResumeData] = useState(true)
   const [error, setError] = useState(null)
   const [profile, setProfile] = useState({
     full_name: '',
@@ -104,6 +106,8 @@ export default function StudentProfile() {
       }
     } catch (err) {
       console.error('Error fetching resume data:', err)
+    } finally {
+      setLoadingResumeData(false)
     }
   }
 
@@ -309,9 +313,27 @@ export default function StudentProfile() {
       .map((skill) => (typeof skill === 'string' ? skill : skill?.name))
       .filter(Boolean)
     : []
+  const mergedSkills = parsedSkills.length > 0 ? parsedSkills : profile.skills
+  const mergedPersonalInfo = {
+    name: profile.full_name || resumeData?.personal_info?.name || resumeData?.display_name || '',
+    email: profile.email || resumeData?.personal_info?.email || '',
+    phone: profile.phone || resumeData?.personal_info?.phone || '',
+    location: profile.location || resumeData?.personal_info?.location || '',
+  }
   const creditBalance = typeof creditInfo?.current_credits === 'number' ? creditInfo.current_credits : 0
   const deepAnalysisCost = creditInfo?.costs?.deep_analysis || 5
   const estimatedAnalyses = deepAnalysisCost > 0 ? Math.floor(creditBalance / deepAnalysisCost) : 0
+  const profileCompletion = calculateProfileCompletion({
+    personal_info: mergedPersonalInfo,
+    skills: mergedSkills,
+    education: resumeData?.education || [],
+    experience: resumeData?.experience || [],
+    projects: resumeData?.projects || [],
+    certifications: resumeData?.certifications || [],
+    cgpa: profile.cgpa,
+    jee_rank: profile.jee_rank || resumeData?.jee_rank,
+  })
+  const profileCompletionLoading = loading || loadingResumeData
 
   return (
     <div className="min-h-screen bg-white">
@@ -360,16 +382,29 @@ export default function StudentProfile() {
 
           {/* Profile Completeness */}
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-gray-700">Profile Completeness</span>
-              <span className="text-lg font-bold text-blue-600">85%</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-              <div className="h-full bg-blue-600 rounded-full" style={{ width: '85%' }} />
-            </div>
-            <p className="text-sm text-gray-600 mt-2">
-              Almost there! Complete the remaining sections to unlock personalized AI career roadmaps.
-            </p>
+            {profileCompletionLoading ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-40 animate-pulse rounded bg-gray-200" />
+                  <div className="h-6 w-12 animate-pulse rounded bg-gray-200" />
+                </div>
+                <div className="h-2 w-full animate-pulse rounded-full bg-gray-200" />
+                <div className="h-4 w-3/4 animate-pulse rounded bg-gray-200" />
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-gray-700">Profile Completeness</span>
+                  <span className="text-lg font-bold text-blue-600">{profileCompletion}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                  <div className="h-full bg-blue-600 rounded-full" style={{ width: `${profileCompletion}%` }} />
+                </div>
+                <p className="text-sm text-gray-600 mt-2">
+                  Almost there! Complete the remaining sections to unlock personalized AI career roadmaps.
+                </p>
+              </>
+            )}
           </div>
         </div>
 
