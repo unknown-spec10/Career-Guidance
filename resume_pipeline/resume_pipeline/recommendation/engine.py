@@ -3,7 +3,7 @@ import datetime
 from sqlalchemy.orm import Session, joinedload
 from ..db import Applicant, Job, JobRecommendation, LLMParsedRecord
 from .embedder import Embedder, GeminiEmbeddingUnavailable
-from .explainer import generate_explanation
+from .explainer import generate_explanation, generate_employer_match_analysis
 from .aggregator import (
     aggregate_scores,
     compute_location_match,
@@ -178,15 +178,26 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
 
             explanation = None
             explanation_source = None
+            employer_reasons = None
+            employer_gaps = None
 
             # Optimization: check if v2 explanation is already cached in DB to conserve API usage
             if existing_rec and existing_rec.explanation and getattr(existing_rec, "engine_version", "v1") == "v2":
                 explanation = existing_rec.explanation
                 if existing_rec.score_breakdown:
                     explanation_source = existing_rec.score_breakdown.get("explanation_source")
-            else:
+                if existing_rec.explain:
+                    employer_reasons = existing_rec.explain.get("employer_reasons")
+                    employer_gaps = existing_rec.explain.get("employer_gaps")
+
+            if not explanation:
                 # Generate new natural language explanation
                 explanation, explanation_source = generate_explanation(applicant, job, breakdown)
+
+            if not employer_reasons or not employer_gaps:
+                analysis = generate_employer_match_analysis(applicant, job, breakdown)
+                employer_reasons = analysis.get("reasons")
+                employer_gaps = analysis.get("gaps")
 
             breakdown["explanation_source"] = explanation_source
             score_percent = breakdown["final_score"] * 100
@@ -196,7 +207,9 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
                 "reasons": [explanation] if explanation else ["Matched based on your profile strength and skill overlap."],
                 "summary": explanation or "Your profile aligns well with this role.",
                 "key_strengths": [],
-                "improvement_areas": []
+                "improvement_areas": [],
+                "employer_reasons": employer_reasons,
+                "employer_gaps": employer_gaps
             }
 
             # Upsert into database
@@ -290,11 +303,18 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
             breakdown["explanation_source"] = explanation_source
             score_percent = breakdown["final_score"] * 100
 
+            # Generate employer match analysis
+            analysis = generate_employer_match_analysis(applicant, job, breakdown)
+            employer_reasons = analysis.get("reasons")
+            employer_gaps = analysis.get("gaps")
+
             explain_compat = {
                 "reasons": [explanation] if explanation else ["Matched based on your profile strength and skill overlap."],
                 "summary": explanation or "Your profile aligns well with this role.",
                 "key_strengths": [],
-                "improvement_areas": []
+                "improvement_areas": [],
+                "employer_reasons": employer_reasons,
+                "employer_gaps": employer_gaps
             }
 
             existing_rec = db.query(JobRecommendation).filter(
@@ -372,3 +392,108 @@ def retry_null_explanations(applicant_id: int, db: Session) -> None:
     except Exception as e:
         logger.error(f"Failed to commit retried explanations: {e}")
         db.rollback()
+
+
+def ensure_applicant_job_recommendation(applicant_id: int, job_id: int, db: Session) -> JobRecommendation:
+    """Ensure a JobRecommendation exists and contains employer match reasons and gaps."""
+    rec = db.query(JobRecommendation).filter(
+        JobRecommendation.applicant_id == applicant_id,
+        JobRecommendation.job_id == job_id
+    ).first()
+
+    # If it exists and already has employer_reasons, just return it
+    if rec and rec.explain and "employer_reasons" in rec.explain:
+        return rec
+
+    # Otherwise, compute it
+    applicant = db.query(Applicant).options(
+        joinedload(Applicant.parsed_record)
+    ).filter(Applicant.id == applicant_id).first()
+
+    job = db.query(Job).options(
+        joinedload(Job.meta)
+    ).filter(Job.id == job_id).first()
+
+    if not applicant or not job:
+        logger.warning(f"Could not compute recommendation: applicant={applicant_id}, job={job_id} not found.")
+        return None
+
+    # Load scoring engines
+    embedder = Embedder(db)
+    now = datetime.datetime.utcnow()
+    active_jobs = db.query(Job).filter(
+        Job.status == "approved",
+        ((Job.expires_at.is_(None)) | (Job.expires_at > now))
+    ).all()
+    
+    # Ensure this specific job is in active jobs for TfidfScorer fit
+    job_ids = {j.id for j in active_jobs}
+    if job.id not in job_ids:
+        active_jobs.append(job)
+
+    tfidf_scorer = get_tfidf_scorer(db, active_jobs)
+    semantic_scorer = SemanticScorer(embedder)
+    personalization_scorer = PersonalizationScorer(db)
+    temporal_scorer = TemporalScorer()
+    document_scorer = DocumentScorer(embedder)
+
+    try:
+        breakdown = run_pipeline_for_applicant_job(
+            applicant=applicant,
+            job=job,
+            db=db,
+            tfidf_scorer=tfidf_scorer,
+            embedder=embedder,
+            semantic_scorer=semantic_scorer,
+            personalization_scorer=personalization_scorer,
+            temporal_scorer=temporal_scorer,
+            document_scorer=document_scorer
+        )
+
+        explanation, explanation_source = generate_explanation(applicant, job, breakdown)
+        breakdown["explanation_source"] = explanation_source
+        score_percent = breakdown["final_score"] * 100
+
+        # Generate employer analysis
+        analysis = generate_employer_match_analysis(applicant, job, breakdown)
+        employer_reasons = analysis.get("reasons")
+        employer_gaps = analysis.get("gaps")
+
+        explain_compat = {
+            "reasons": [explanation] if explanation else ["Matched based on your profile strength and skill overlap."],
+            "summary": explanation or "Your profile aligns well with this role.",
+            "key_strengths": [],
+            "improvement_areas": [],
+            "employer_reasons": employer_reasons,
+            "employer_gaps": employer_gaps
+        }
+
+        if rec:
+            rec.score = score_percent
+            rec.score_breakdown = breakdown
+            rec.explanation = explanation
+            rec.explain = explain_compat
+            rec.computed_at = now
+            rec.engine_version = "v2"
+        else:
+            rec = JobRecommendation(
+                applicant_id=applicant_id,
+                job_id=job_id,
+                score=score_percent,
+                score_breakdown=breakdown,
+                explanation=explanation,
+                explain=explain_compat,
+                computed_at=now,
+                engine_version="v2"
+            )
+            db.add(rec)
+
+        db.commit()
+        db.refresh(rec)
+        logger.info(f"Dynamically generated and cached recommendation for applicant_id={applicant_id}, job_id={job_id}")
+        return rec
+    except Exception as e:
+        logger.error(f"Failed to ensure recommendation for applicant_id={applicant_id}, job_id={job_id}: {e}", exc_info=True)
+        db.rollback()
+        return None
+

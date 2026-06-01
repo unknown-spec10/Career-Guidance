@@ -6,6 +6,41 @@ Application constants for consistent configuration
 LLM_CONFIDENCE_THRESHOLD = 0.7  # Minimum confidence score for LLM responses
 MAX_UNKNOWN_SKILLS = 5  # Maximum allowed unknown skills before flagging
 
+# ============================================================================
+# PARSE PIPELINE — CONFIDENCE WEIGHTS (redesign v2.0)
+# Weighted average of per-section heuristic scores.
+# Weights reflect importance to downstream recommendation quality.
+# Stored here (not inlined) so they can be tuned without code changes.
+# ============================================================================
+CONFIDENCE_WEIGHTS = {
+    'contact':   0.10,
+    'education': 0.35,   # Highest: CGPA feeds recommendation scoring directly
+    'experience': 0.25,
+    'skills':    0.20,
+    'projects':  0.05,
+    'extras':    0.05,
+}
+
+# ============================================================================
+# PARSE STATUS — State machine outcomes
+# ============================================================================
+PARSE_STATUS_PROCESSING    = 'processing'     # Background task running
+PARSE_STATUS_ACCEPTED      = 'accepted'       # AUTO_ACCEPT ≥ 0.85
+PARSE_STATUS_PENDING_REVIEW = 'pending_review' # NEEDS_REVIEW 0.60–0.84
+PARSE_STATUS_FAILED        = 'failed'         # RE_PARSE exhausted
+
+PARSE_AUTO_ACCEPT_THRESHOLD = 0.85
+PARSE_REVIEW_THRESHOLD      = 0.60
+SECTION_RETRY_THRESHOLD     = 0.70   # Retry individual section if below this
+
+# ============================================================================
+# FILE TYPE ROUTER — Detection heuristics
+# ============================================================================
+ROUTER_THRESHOLDS = {
+    'min_chars_per_page': 200,      # Below this → Type C (scanned)
+    'whitespace_ratio_limit': 0.40,  # Above this → Type B (designed/columnar)
+}
+
 # Validation Thresholds
 CGPA_MISMATCH_THRESHOLD = 0.5  # Maximum CGPA difference before overriding
 MAX_RESUME_TEXT_WORDS = 2000  # Maximum words before summarization
@@ -115,6 +150,14 @@ INTERVIEW_CONFIG_V2 = {
     'SESSION_ACTIVE_HOURS': 24,       # Hours before an active session is considered stale
 }
 
+# Rate Limiting & Cost Safeguards for Mock Interview System
+INTERVIEW_LIMITS = {
+    'SESSION_START_WINDOW_SECONDS': 300,  # 5 minutes
+    'SESSION_START_MAX_DAILY': 3,         # 3 sessions per day
+    'ANSWER_SUBMIT_WINDOW_SECONDS': 10,   # 10 seconds
+    'ANSWER_SUBMIT_MAX_DAILY': 30,        # 30 answer evaluations per day
+}
+
 
 # Credit-Based Quota System
 CREDIT_CONFIG = {
@@ -124,7 +167,9 @@ CREDIT_CONFIG = {
     'MICRO_SESSION_COST': 1,  # 1 micro-session (1 question) = 1 credit
     'CODING_QUESTION_COST': 1,  # 1 Gemini coding question = 1 credit
     'PROJECT_IDEA_COST': 2,  # 1 project idea generation = 2 credits
-    'LEARNING_PATH_GENERATION_COST': 2,  # 1 learning path generation = 2 credits
+    'LEARNING_PATH_GENERATION_COST': 10,  # 1 learning path generation = 10 credits
+    'RECOMMENDATION_REFRESH_COST': 5,  # Refreshing recommendations within cooldown = 5 credits
+    'RECOMMENDATION_REFRESH_COOLDOWN_HOURS': 24,  # Cooldown between free refreshes
     
     # Credit limits (free tier)
     'DEFAULT_WEEKLY_CREDITS': 60,  # 60 credits per week (4 full + 20 micro)

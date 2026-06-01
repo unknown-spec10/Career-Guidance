@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { 
   Shield, Briefcase, CheckCircle, XCircle, 
-  Clock, AlertTriangle, TrendingUp, Search, Coins, Plus, Minus, X
+  Clock, AlertTriangle, TrendingUp, Search, Coins, Plus, Minus, X,
+  FileText, Activity, Database, Cpu, RefreshCw, Ban, PlayCircle, Eye, GraduationCap, Server, Check, Edit2, Play, Users, Sparkles
 } from 'lucide-react'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
@@ -46,6 +47,27 @@ export default function AdminReviewsPage() {
   const [editForm, setEditForm] = useState({ title: '', description: '', location_city: '', location_state: '', expires_at: '' })
   const [confirmAction, setConfirmAction] = useState(null) // { type: 'disable'|'enable'|'requeue', job, loading }
 
+  // Resume Reviews Center
+  const [pendingResumeReviews, setPendingResumeReviews] = useState([])
+  const [pendingResumeReviewsLoading, setPendingResumeReviewsLoading] = useState(false)
+  const [selectedResumeReview, setSelectedResumeReview] = useState(null)
+  const [selectedResumeReviewLoading, setSelectedResumeReviewLoading] = useState(false)
+  const [reviewForm, setReviewForm] = useState({ cgpa: '', jee_rank: '', reason: '' })
+  const [reviewSubmitting, setReviewSubmitting] = useState(false)
+  const [resumeReviewSearchQuery, setResumeReviewSearchQuery] = useState('')
+
+  // System Health Hub
+  const [systemHealthStats, setSystemHealthStats] = useState(null)
+  const [systemHealthLoading, setSystemHealthLoading] = useState(false)
+  const [systemHealthActionLoading, setSystemHealthActionLoading] = useState(null)
+
+  // Candidate Mock Practice & Supervision
+  const [applicantSessions, setApplicantSessions] = useState([])
+  const [applicantSessionsLoading, setApplicantSessionsLoading] = useState(false)
+  const [applicantIntelligence, setApplicantIntelligence] = useState(null)
+  const [applicantIntelligenceLoading, setApplicantIntelligenceLoading] = useState(false)
+  const [suspensionLoading, setSuspensionLoading] = useState(false)
+
   useEffect(() => {
     fetchOverviewStats()
     fetchPendingReviews()
@@ -56,6 +78,10 @@ export default function AdminReviewsPage() {
   useEffect(() => {
     if (activeTab === 'all-jobs' && allJobs.length === 0) {
       fetchAllJobs()
+    } else if (activeTab === 'resume-reviews') {
+      fetchPendingResumeReviews()
+    } else if (activeTab === 'system-health') {
+      fetchSystemHealth()
     }
   }, [activeTab])
 
@@ -316,15 +342,211 @@ export default function AdminReviewsPage() {
   const handleSelectApplicant = async (applicant) => {
     setSelectedApplicant(applicant)
     setSelectedApplicantCredits(null)
+    setApplicantSessions([])
+    setApplicantIntelligence(null)
     setCreditAmount('')
     setCreditReason('')
+    
+    // Fetch credits balance
     try {
       const creditResponse = await api.get(`/api/admin/credits/applicant/${applicant.id}`)
       setSelectedApplicantCredits(creditResponse.data)
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to fetch applicant credits')
     }
+
+    // Fetch details (to resolve is_active and user_id)
+    try {
+      const detailResponse = await api.get(`/api/applicant/${applicant.id}`)
+      setSelectedApplicant(prev => prev && prev.id === applicant.id ? { ...prev, ...detailResponse.data.applicant } : prev)
+    } catch (err) {
+      // Ignored: fallback to base applicant info
+    }
+
+    // Fetch mock practice sessions list
+    try {
+      setApplicantSessionsLoading(true)
+      const sessionsResponse = await api.get(`/api/admin/applicants/${applicant.id}/sessions`)
+      setApplicantSessions(sessionsResponse.data || [])
+    } catch (err) {
+      setApplicantSessions([])
+    } finally {
+      setApplicantSessionsLoading(false)
+    }
+
+    // Fetch candidate cumulative AI profile
+    try {
+      setApplicantIntelligenceLoading(true)
+      const intelligenceResponse = await api.get(`/api/interview/candidate-intelligence/${applicant.applicant_id}`)
+      setApplicantIntelligence(intelligenceResponse.data)
+    } catch (err) {
+      setApplicantIntelligence(null)
+    } finally {
+      setApplicantIntelligenceLoading(false)
+    }
   }
+
+  const handleToggleUserSuspension = async () => {
+    if (!selectedApplicant || !selectedApplicant.user_id) {
+      toast.error('Applicant user account information not loaded')
+      return
+    }
+    
+    try {
+      setSuspensionLoading(true)
+      const response = await api.post(`/api/admin/users/${selectedApplicant.user_id}/toggle-active`, {})
+      setSelectedApplicant(prev => prev ? { ...prev, is_active: response.data.is_active } : null)
+      toast.success(response.data.message || `User account suspension state updated`)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to toggle account suspension state')
+    } finally {
+      setSuspensionLoading(false)
+    }
+  }
+
+  const fetchPendingResumeReviews = async () => {
+    try {
+      setPendingResumeReviewsLoading(true)
+      const response = await api.get('/api/reviews/pending')
+      setPendingResumeReviews(response.data.pending_reviews || [])
+    } catch (err) {
+      toast.error('Failed to load pending resume reviews')
+      setPendingResumeReviews([])
+    } finally {
+      setPendingResumeReviewsLoading(false)
+    }
+  }
+
+  const handleSelectResumeReview = async (applicantId) => {
+    try {
+      setSelectedResumeReviewLoading(true)
+      setSelectedResumeReview(null)
+      const response = await api.get(`/api/applicant/${applicantId}`)
+      setSelectedResumeReview(response.data)
+      
+      const parsed = response.data.parsed_data || {}
+      const edu = parsed.education && parsed.education[0] ? parsed.education[0] : {}
+      const cgpaVal = edu.grade || edu.cgpa || ''
+      const jeeVal = parsed.jee_rank || ''
+      
+      setReviewForm({
+        cgpa: cgpaVal,
+        jee_rank: jeeVal,
+        reason: ''
+      })
+    } catch (err) {
+      toast.error('Failed to fetch resume parsed details')
+    } finally {
+      setSelectedResumeReviewLoading(false)
+    }
+  }
+
+  const handleApplyResumeReviewOverride = async () => {
+    if (!selectedResumeReview || !selectedResumeReview.applicant) return
+    const applicantId = selectedResumeReview.applicant.id
+    
+    if (!reviewForm.reason.trim()) {
+      toast.error('Please provide a correction reason for audit records')
+      return
+    }
+
+    try {
+      setReviewSubmitting(true)
+      const parsed = selectedResumeReview.parsed_data || {}
+      const edu = parsed.education && parsed.education[0] ? parsed.education[0] : {}
+      const originalCgpa = edu.grade || edu.cgpa || ''
+      const originalJee = parsed.jee_rank || ''
+
+      let submittedAny = false
+
+      if (reviewForm.cgpa !== '' && String(reviewForm.cgpa) !== String(originalCgpa)) {
+        await api.post('/api/reviews/submit', {
+          applicant_id: applicantId,
+          field: 'cgpa',
+          original_value: String(originalCgpa),
+          corrected_value: String(reviewForm.cgpa),
+          reason: reviewForm.reason.trim()
+        })
+        submittedAny = true
+      }
+
+      if (reviewForm.jee_rank !== '' && String(reviewForm.jee_rank) !== String(originalJee)) {
+        await api.post('/api/reviews/submit', {
+          applicant_id: applicantId,
+          field: 'jee_rank',
+          original_value: String(originalJee),
+          corrected_value: String(reviewForm.jee_rank),
+          reason: reviewForm.reason.trim()
+        })
+        submittedAny = true
+      }
+
+      if (!submittedAny) {
+        toast.error('No changes were made to override')
+        return
+      }
+
+      toast.success('Resume correction overrides applied successfully')
+      setSelectedResumeReview(null)
+      fetchPendingResumeReviews()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to submit human review override')
+    } finally {
+      setReviewSubmitting(false)
+    }
+  }
+
+  const handleApproveResumeReviewWithoutChanges = async (applicantId) => {
+    try {
+      setReviewSubmitting(true)
+      await api.patch(`/api/reviews/mark-reviewed/${applicantId}`)
+      toast.success('Resume parser data approved successfully')
+      setSelectedResumeReview(null)
+      fetchPendingResumeReviews()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to approve parsed resume')
+    } finally {
+      setReviewSubmitting(false)
+    }
+  }
+
+  const fetchSystemHealth = async () => {
+    try {
+      setSystemHealthLoading(true)
+      const healthResponse = await api.get('/api/embeddings/health')
+      const ragResponse = await api.get('/api/rag/stats')
+      setSystemHealthStats({
+        embeddings: healthResponse.data,
+        rag: ragResponse.data
+      })
+    } catch (err) {
+      toast.error('Failed to load system health statistics')
+    } finally {
+      setSystemHealthLoading(false)
+    }
+  }
+
+  const triggerReindex = async (type) => {
+    try {
+      setSystemHealthActionLoading(type)
+      if (type === 'jobs') {
+        await api.post('/api/embeddings/reindex/jobs', {})
+        toast.success('Queued background embedding reindexing for jobs')
+      } else if (type === 'applicants') {
+        await api.post('/api/embeddings/reindex/applicants', {})
+        toast.success('Queued background embedding reindexing for applicants')
+      } else if (type === 'rag') {
+        await api.post('/api/rag/initialize', { force_rebuild: true })
+        toast.success('Triggered documentation RAG index reinitialization')
+      }
+      setTimeout(fetchSystemHealth, 1500)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || `Failed to trigger action for ${type}`)
+    } finally {
+      setSystemHealthActionLoading(null)
+    }
+  }
+
 
   if (loading) {
     return (
@@ -392,22 +614,6 @@ export default function AdminReviewsPage() {
             </div>
           </div>
 
-          <div className="relative mt-6 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 p-1 shadow-sm">
-            {[
-              { id: 'overview', label: 'Overview' },
-              { id: 'jobs', label: 'Job Reviews' },
-              { id: 'all-jobs', label: 'All Jobs' },
-              { id: 'applicants', label: 'Applicants' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => navigate(`/admin/dashboard?tab=${tab.id}`)}
-                className={`px-4 py-2 rounded-xl transition-all duration-200 text-sm font-bold ${activeTab === tab.id ? 'bg-primary-600 text-white shadow-md shadow-primary-600/10' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
         </motion.div>
 
         {activeTab === 'overview' && (
@@ -438,77 +644,6 @@ export default function AdminReviewsPage() {
         )}
 
         <div className="grid grid-cols-1 gap-8">
-          {/* Pending Jobs */}
-          {activeTab === 'jobs' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 4 }}
-              className="border border-slate-100 bg-white/90 backdrop-blur-sm rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
-            >
-              <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-primary-500" />
-                  <span>Pending Job Postings</span>
-                </h2>
-                <span className="rounded-full bg-primary-50 px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary-700">
-                  {pendingJobs.length} awaiting review
-                </span>
-              </div>
-              {pendingJobs.length === 0 ? (
-                <div className="text-center py-10">
-                  <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
-                  <p className="text-slate-500 font-semibold">No pending jobs found</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingJobs.map((job) => (
-                    <div key={job.id} className="p-5 bg-white rounded-2xl border border-slate-100 transition-all hover:shadow-[0_15px_35px_rgba(15,23,42,0.05)] hover:border-slate-200 hover:-translate-y-0.5">
-                      <div className="flex items-start justify-between mb-4 gap-4">
-                        <div>
-                          <h3 className="font-bold text-base text-slate-900 mb-1">{job.title}</h3>
-                          <p className="text-sm font-semibold text-slate-500">{job.company}</p>
-                          <p className="text-xs text-slate-400 mt-1 font-semibold">
-                            Posted: {new Date(job.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <Clock className="w-5 h-5 text-amber-500 animate-pulse" />
-                      </div>
-                      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap border-t border-slate-50 pt-4">
-                        <button
-                          onClick={() => openJobDetails(job)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all text-xs font-bold active:scale-95 duration-200"
-                        >
-                          <Search className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Details</span>
-                        </button>
-                        
-                        <div className="flex items-center gap-2 flex-1 md:flex-none">
-                          <button
-                            onClick={() => handleJobReview(job.id, 'approve')}
-                            disabled={actionLoading === `job-${job.id}`}
-                            className="flex-1 py-2 px-3 bg-emerald-50 border border-emerald-100 text-emerald-700 hover:bg-emerald-100 rounded-xl transition-all text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 duration-200"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            <span>Approve</span>
-                          </button>
-                          <button
-                            onClick={() => openRejectModal(job)}
-                            disabled={actionLoading === `job-${job.id}`}
-                            className="flex-1 py-2 px-3 bg-rose-50 border border-rose-100 text-rose-700 hover:bg-rose-100 rounded-xl transition-all text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 duration-200"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            <span>Reject</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          )}
-
           {activeTab === 'all-jobs' && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -643,8 +778,8 @@ export default function AdminReviewsPage() {
                 <p className="text-xs font-semibold text-slate-400">Search applicants and manage credits from one place.</p>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/40 p-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/40 p-4 lg:col-span-1">
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Search Applicant</label>
                   <div className="relative mb-3">
                     <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -673,68 +808,552 @@ export default function AdminReviewsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Selected Applicant</label>
-                  <div className="mb-4 p-4 border border-slate-200 rounded-2xl bg-gradient-to-br from-slate-50/40 via-white to-slate-50/10">
-                    {selectedApplicant ? (
-                      <>
-                        <p className="font-bold text-slate-800 text-sm">{selectedApplicant.display_name || `Applicant #${selectedApplicant.id}`}</p>
-                        <p className="text-[10px] text-slate-400 font-semibold">{selectedApplicant.applicant_id || `DB ID: ${selectedApplicant.id}`}</p>
-                        <p className="text-xs font-bold text-slate-500 mt-3 flex items-center gap-1.5">
-                          Remaining Credits:
-                          <span className="text-sm font-black text-primary-600 bg-primary-50 px-2 py-0.5 rounded-lg border border-primary-100">
-                            {selectedApplicantCredits?.current_credits ?? '--'}
-                          </span>
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-xs font-semibold text-slate-400">Pick an applicant from the list.</p>
-                    )}
-                  </div>
+                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
+                  {selectedApplicant ? (
+                    <div className="space-y-6">
+                      {/* Applicant Header with Account Status suspension control */}
+                      <div className="p-4 border border-slate-200 rounded-2xl bg-gradient-to-br from-slate-50/40 via-white to-slate-50/10 flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                          <p className="font-black text-slate-800 text-base">{selectedApplicant.display_name || `Applicant #${selectedApplicant.id}`}</p>
+                          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedApplicant.applicant_id || `DB ID: ${selectedApplicant.id}`}</p>
+                        </div>
+                        <div className="flex items-center gap-3 border border-slate-100 rounded-2xl bg-white/60 p-2 shadow-sm">
+                          <div className="text-right">
+                            <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Account Access</span>
+                            <span className={`text-[10px] font-black uppercase tracking-wider ${selectedApplicant.is_active !== false ? 'text-emerald-600' : 'text-rose-600 animate-pulse'}`}>
+                              {selectedApplicant.is_active !== false ? 'Active' : 'Suspended / Banned'}
+                            </span>
+                          </div>
+                          <button
+                            onClick={handleToggleUserSuspension}
+                            disabled={suspensionLoading}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all duration-200 active:scale-95 flex items-center gap-1 border ${
+                              selectedApplicant.is_active !== false
+                                ? 'bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
+                            }`}
+                          >
+                            <Ban className="w-3 h-3" />
+                            <span>{suspensionLoading ? 'Updating...' : selectedApplicant.is_active !== false ? 'Suspend User' : 'Lift Suspension'}</span>
+                          </button>
+                        </div>
+                      </div>
 
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Adjustment Amount</label>
-                  <div className="flex items-center gap-2 mb-4">
-                    <button
-                      type="button"
-                      onClick={() => setCreditAmount('-10')}
-                      className="px-3.5 py-2.5 border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-50 transition-all font-bold text-sm active:scale-95 duration-200"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
-                    <input
-                      type="number"
-                      value={creditAmount}
-                      onChange={(e) => setCreditAmount(e.target.value)}
-                      placeholder="Use + for add, - for deduct"
-                      className="flex-1 w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-semibold"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setCreditAmount('10')}
-                      className="px-3.5 py-2.5 border border-emerald-200 text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all font-bold text-sm active:scale-95 duration-200"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
+                      {/* Nested Operations: Credits & Mock Session History */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Credits adjustment section */}
+                        <div className="p-4 border border-slate-100 rounded-2xl bg-slate-50/30 space-y-4">
+                          <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                            <Coins className="w-4 h-4 text-primary-500" />
+                            <span>Credit Management</span>
+                          </h3>
+                          <p className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+                            Remaining Balance:
+                            <span className="text-sm font-black text-primary-600 bg-primary-50 px-2 py-0.5 rounded-lg border border-primary-100">
+                              {selectedApplicantCredits?.current_credits ?? '--'}
+                            </span>
+                          </p>
 
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Audit Reason</label>
-                  <textarea
-                    value={creditReason}
-                    onChange={(e) => setCreditReason(e.target.value)}
-                    rows={3}
-                    placeholder="Provide audit description for allocation/deallocation"
-                    className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm mb-4"
-                  />
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Adjustment Amount</label>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setCreditAmount('-10')}
+                                  className="px-2.5 py-2 border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-50 transition-all font-bold text-xs"
+                                >
+                                  -10
+                                </button>
+                                <input
+                                  type="number"
+                                  value={creditAmount}
+                                  onChange={(e) => setCreditAmount(e.target.value)}
+                                  placeholder="Use + / -"
+                                  className="flex-1 w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold text-center"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setCreditAmount('10')}
+                                  className="px-2.5 py-2 border border-emerald-200 text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all font-bold text-xs"
+                                >
+                                  +10
+                                </button>
+                              </div>
+                            </div>
 
-                  <button
-                    onClick={handleCreditAdjustment}
-                    disabled={creditLoading}
-                    className="w-full py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95 duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {creditLoading ? 'Applying...' : 'Apply Credit Adjustment'}
-                  </button>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Reason / Description</label>
+                              <textarea
+                                value={creditReason}
+                                onChange={(e) => setCreditReason(e.target.value)}
+                                rows={2}
+                                placeholder="Audit logs reason..."
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold"
+                              />
+                            </div>
+
+                            <button
+                              onClick={handleCreditAdjustment}
+                              disabled={creditLoading}
+                              className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95 duration-200 text-xs disabled:opacity-50"
+                            >
+                              {creditLoading ? 'Applying...' : 'Apply Credit Adjust'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Mock practice session history section */}
+                        <div className="p-4 border border-slate-100 rounded-2xl bg-slate-50/30 flex flex-col h-72">
+                          <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5 mb-3 flex-shrink-0">
+                            <GraduationCap className="w-4 h-4 text-emerald-500" />
+                            <span>Mock Sessions History</span>
+                          </h3>
+                          <div className="overflow-y-auto flex-1 pr-1 space-y-2 border border-slate-150 bg-white rounded-xl p-2 shadow-inner">
+                            {applicantSessionsLoading ? (
+                              <div className="py-12 text-center text-[10px] font-semibold text-slate-400">
+                                <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-emerald-500" />
+                                Loading session histories...
+                              </div>
+                            ) : applicantSessions.length > 0 ? (
+                              applicantSessions.map((session) => (
+                                <div key={session.id} className="p-2 border border-slate-100 rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="font-bold text-[11px] text-slate-800 capitalize">{session.interview_type} practice ({session.difficulty})</p>
+                                    <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Persona: {session.interviewer_persona}</p>
+                                    <p className="text-[8px] text-slate-350">{session.created_at ? new Date(session.created_at).toLocaleDateString() : 'N/A'}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className={`inline-block rounded-full px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
+                                      session.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                                      session.status === 'abandoned' ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-amber-50 text-amber-700 border border-amber-100 animate-pulse'
+                                    }`}>
+                                      {session.status}
+                                    </span>
+                                    {session.overall_score !== null && (
+                                      <p className="font-black text-xs text-slate-700 mt-1">Score: {session.overall_score.toFixed(0)}%</p>
+                                    )}
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="py-16 text-center text-[10px] font-semibold text-slate-400">
+                                No mock practice sessions completed.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Cumulative AI Intelligence insights profile section */}
+                      <div className="p-4 border border-slate-100 rounded-2xl bg-gradient-to-r from-primary-50/10 via-indigo-50/5 to-white shadow-sm space-y-4">
+                        <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-2">
+                          <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
+                          <span>Candidate AI Intelligence Profile</span>
+                        </h3>
+                        {applicantIntelligenceLoading ? (
+                          <div className="py-12 text-center text-xs font-semibold text-slate-400">
+                            <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-primary-500" />
+                            Synthesizing cumulative candidate intelligence...
+                          </div>
+                        ) : applicantIntelligence && applicantIntelligence.status !== 'no_sessions' ? (
+                          <div className="space-y-4 text-xs font-semibold text-slate-700 leading-relaxed">
+                            {/* Grid of parsed intelligence attributes */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
+                                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interviewer Tips</span>
+                                <p className="text-[11px] text-slate-600 font-semibold">{applicantIntelligence.interviewer_tips || 'N/A'}</p>
+                              </div>
+                              <div className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
+                                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Core Weaknesses</span>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {(applicantIntelligence.core_weaknesses || []).map((w, wIdx) => (
+                                    <span key={wIdx} className="rounded px-1.5 py-0.5 bg-rose-50 border border-rose-100 text-[9px] font-bold text-rose-600">
+                                      {w}
+                                    </span>
+                                  ))}
+                                  {(applicantIntelligence.core_weaknesses || []).length === 0 && <span className="text-[9px] text-slate-400">None logged</span>}
+                                </div>
+                              </div>
+                              <div className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
+                                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Key Strengths</span>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {(applicantIntelligence.key_strengths || []).map((s, sIdx) => (
+                                    <span key={sIdx} className="rounded px-1.5 py-0.5 bg-emerald-50 border border-emerald-100 text-[9px] font-bold text-emerald-600">
+                                      {s}
+                                    </span>
+                                  ))}
+                                  {(applicantIntelligence.key_strengths || []).length === 0 && <span className="text-[9px] text-slate-400">None logged</span>}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Summary description */}
+                            <div className="p-3.5 rounded-xl border border-slate-100 bg-white/50">
+                              <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Growth Summary</span>
+                              <p className="text-[11px] text-slate-650 font-normal leading-relaxed">{applicantIntelligence.growth_summary || 'No growth summary logged yet.'}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="py-8 text-center text-xs font-semibold text-slate-400">
+                            Candidate has not completed any mock sessions yet. No AI insights available.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-24 text-center">
+                      <Coins className="w-16 h-16 text-slate-200 mx-auto mb-3 animate-pulse" />
+                      <p className="text-slate-400 font-semibold text-xs">Select an applicant from the list to manage credits, view practice sessions, and audit AI insights.</p>
+                    </div>
+                  )}
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {/* Resume Reviews Hub */}
+          {activeTab === 'resume-reviews' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 4 }}
+              className="border border-slate-100 bg-white/90 backdrop-blur-sm rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
+            >
+              <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-primary-500" />
+                  <span>Resume Parsing Correction Hub</span>
+                </h2>
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wider text-amber-700">
+                  {pendingResumeReviews.length} parses need human review
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left side list */}
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/40 p-4 lg:col-span-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Pending Resume Reviews</label>
+                  <div className="relative mb-3">
+                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={resumeReviewSearchQuery}
+                      onChange={(e) => setResumeReviewSearchQuery(e.target.value)}
+                      placeholder="Search applicant name..."
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+                    />
+                  </div>
+                  <div className="max-h-[50vh] overflow-auto border border-slate-200 rounded-2xl bg-white shadow-sm">
+                    {pendingResumeReviewsLoading ? (
+                      <div className="p-8 text-center text-slate-400 font-semibold text-xs">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary-500" />
+                        Loading reviews...
+                      </div>
+                    ) : pendingResumeReviews.filter(r => (r.applicant_name || '').toLowerCase().includes(resumeReviewSearchQuery.toLowerCase())).map((reviewItem) => (
+                      <button
+                        key={reviewItem.applicant_id}
+                        onClick={() => handleSelectResumeReview(reviewItem.applicant_id)}
+                        className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors ${selectedResumeReview?.applicant?.id === reviewItem.applicant_id ? 'bg-primary-50/50' : 'hover:bg-slate-50'}`}
+                      >
+                        <p className="font-bold text-sm text-slate-800">{reviewItem.applicant_name || `Applicant #${reviewItem.applicant_id}`}</p>
+                        <div className="flex items-center justify-between mt-1">
+                          <p className="text-[10px] text-slate-400 font-semibold">Confidence: {(reviewItem.confidence * 100).toFixed(0)}%</p>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${reviewItem.confidence < 0.7 ? 'bg-rose-50 text-rose-655' : 'bg-amber-50 text-amber-655'}`}>
+                            {reviewItem.confidence < 0.7 ? 'Low' : 'Medium'}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                    {pendingResumeReviews.length === 0 && !pendingResumeReviewsLoading && (
+                      <p className="px-4 py-8 text-xs font-semibold text-slate-400 text-center">No pending resume reviews!</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right side details override form */}
+                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Resume Correction Console</label>
+                  {selectedResumeReviewLoading ? (
+                    <div className="p-16 text-center text-slate-400 font-semibold text-sm">
+                      <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-primary-500" />
+                      Loading parse details...
+                    </div>
+                  ) : selectedResumeReview ? (
+                    <div className="space-y-6">
+                      <div className="p-4 border border-slate-100 rounded-2xl bg-gradient-to-br from-slate-50/50 via-white to-slate-50/10">
+                        <div className="flex justify-between items-start gap-4 flex-wrap">
+                          <div>
+                            <h4 className="font-black text-slate-800 text-base">{selectedResumeReview.applicant?.display_name || `Applicant #${selectedResumeReview.applicant?.id}`}</h4>
+                            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">ID: {selectedResumeReview.applicant?.applicant_id} | DB ID: {selectedResumeReview.applicant?.id}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="rounded-xl border border-rose-100 bg-rose-50/50 px-2.5 py-1 text-[10px] font-bold text-rose-700">
+                              Confidence: {(selectedResumeReview.field_confidences?.overall * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Fields Override section */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* CGPA */}
+                        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/30">
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">CGPA / Grade</label>
+                          <p className="text-[10px] text-slate-400 font-semibold mb-2">Original parsed: <span className="font-black text-slate-700">{selectedResumeReview.parsed_data?.education?.[0]?.grade || selectedResumeReview.parsed_data?.education?.[0]?.cgpa || 'N/A'}</span></p>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={reviewForm.cgpa}
+                            onChange={(e) => setReviewForm(prev => ({ ...prev, cgpa: e.target.value }))}
+                            placeholder="Enter corrected CGPA (e.g. 8.5)"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold text-slate-800"
+                          />
+                        </div>
+
+                        {/* JEE Rank */}
+                        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/30">
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">JEE Rank</label>
+                          <p className="text-[10px] text-slate-400 font-semibold mb-2">Original parsed: <span className="font-black text-slate-700">{selectedResumeReview.parsed_data?.jee_rank || 'N/A'}</span></p>
+                          <input
+                            type="number"
+                            value={reviewForm.jee_rank}
+                            onChange={(e) => setReviewForm(prev => ({ ...prev, jee_rank: e.target.value }))}
+                            placeholder="Enter corrected JEE rank (e.g. 12500)"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold text-slate-800"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Skills review */}
+                      <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/30">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Parsed Skills</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(selectedResumeReview.parsed_data?.skills || []).map((skill, sIdx) => {
+                            const skillName = typeof skill === 'string' ? skill : skill.name || JSON.stringify(skill)
+                            return (
+                              <span key={sIdx} className="rounded-lg bg-white border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                                {skillName}
+                              </span>
+                            )
+                          })}
+                          {(selectedResumeReview.parsed_data?.skills || []).length === 0 && (
+                            <p className="text-xs font-semibold text-slate-400">No skills parsed.</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Audit Reason */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Human Correction Reason (Audit Logs)</label>
+                        <textarea
+                          rows={3}
+                          value={reviewForm.reason}
+                          onChange={(e) => setReviewForm(prev => ({ ...prev, reason: e.target.value }))}
+                          placeholder="Explain why these fields are being overridden..."
+                          className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+                        />
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                        <button
+                          onClick={() => handleApproveResumeReviewWithoutChanges(selectedResumeReview.applicant.id)}
+                          disabled={reviewSubmitting}
+                          className="px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition-all text-xs font-bold active:scale-95 duration-200 disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Approve Without Overrides</span>
+                        </button>
+                        <button
+                          onClick={handleApplyResumeReviewOverride}
+                          disabled={reviewSubmitting}
+                          className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white rounded-xl transition-all text-xs font-bold active:scale-95 duration-200 disabled:opacity-50 shadow-md flex items-center gap-1.5"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>{reviewSubmitting ? 'Submitting Override...' : 'Apply Correction Overrides'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-24 text-center">
+                      <FileText className="w-16 h-16 text-slate-200 mx-auto mb-3" />
+                      <p className="text-slate-400 font-semibold text-xs">Select a pending resume review from the list to begin human loop corrections.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* System Health Tab */}
+          {activeTab === 'system-health' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 4 }}
+              className="border border-slate-100 bg-white/90 backdrop-blur-sm rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
+            >
+              <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-primary-500" />
+                  <span>System Health & Semantic Indexing Center</span>
+                </h2>
+                <button
+                  onClick={fetchSystemHealth}
+                  disabled={systemHealthLoading}
+                  className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${systemHealthLoading ? 'animate-spin' : ''}`} />
+                  <span>Refresh Stats</span>
+                </button>
+              </div>
+
+              {systemHealthLoading && !systemHealthStats ? (
+                <div className="py-24 text-center text-slate-400 font-semibold">
+                  <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-primary-500" />
+                  Loading system health diagnostics...
+                </div>
+              ) : systemHealthStats ? (
+                <div className="space-y-6">
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {/* Applicant Embedding Coverage */}
+                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Applicants Embedded</p>
+                        <p className="text-2xl font-black text-slate-800">
+                          {systemHealthStats.embeddings?.coverage?.applicants_embedded ?? 0} / {systemHealthStats.embeddings?.coverage?.applicants_total ?? 0}
+                        </p>
+                        <p className="text-[10px] font-bold text-emerald-600 mt-1">
+                          {systemHealthStats.embeddings?.coverage?.applicants_total ? ((systemHealthStats.embeddings.coverage.applicants_embedded / systemHealthStats.embeddings.coverage.applicants_total) * 100).toFixed(1) : 0}% Coverage
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-primary-50 border border-primary-100 text-primary-600">
+                        <Users className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Jobs Embedding Coverage */}
+                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Approved Jobs Embedded</p>
+                        <p className="text-2xl font-black text-slate-800">
+                          {systemHealthStats.embeddings?.coverage?.jobs_embedded ?? 0} / {systemHealthStats.embeddings?.coverage?.jobs_total ?? 0}
+                        </p>
+                        <p className="text-[10px] font-bold text-emerald-600 mt-1">
+                          {systemHealthStats.embeddings?.coverage?.jobs_total ? ((systemHealthStats.embeddings.coverage.jobs_embedded / systemHealthStats.embeddings.coverage.jobs_total) * 100).toFixed(1) : 0}% Coverage
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600">
+                        <Briefcase className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* RAG Chunks */}
+                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">RAG Doc Chunks</p>
+                        <p className="text-2xl font-black text-slate-800">
+                          {systemHealthStats.rag?.total_chunks ?? 0}
+                        </p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1">
+                          Initialized: {systemHealthStats.rag?.is_initialized ? 'Yes' : 'No'}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 text-amber-600">
+                        <Database className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* RAG Cache size */}
+                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Cache / Rebuilds</p>
+                        <p className="text-2xl font-black text-slate-800">
+                          {systemHealthStats.rag?.cache_size ?? 0} / {systemHealthStats.rag?.total_rebuilds ?? 0}
+                        </p>
+                        <p className="text-[10px] font-bold text-indigo-600 mt-1">
+                          Model: {systemHealthStats.rag?.model || 'Gemini'}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
+                        <Cpu className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">
+                    {/* Job Reindexing Card */}
+                    <div className="p-5 border border-slate-100 bg-slate-50/30 rounded-2xl flex flex-col justify-between h-48">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Server className="w-4 h-4 text-emerald-600" />
+                          <h3 className="font-bold text-slate-800 text-sm">Job Semantic Index</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 font-semibold leading-relaxed">
+                          Queue background embedding generation for all approved jobs. Essential for semantic matching scoring.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => triggerReindex('jobs')}
+                        disabled={systemHealthActionLoading !== null}
+                        className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold transition-all text-slate-700 flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${systemHealthActionLoading === 'jobs' ? 'animate-spin' : ''}`} />
+                        <span>Reindex Approved Jobs</span>
+                      </button>
+                    </div>
+
+                    {/* Applicant Reindexing Card */}
+                    <div className="p-5 border border-slate-100 bg-slate-50/30 rounded-2xl flex flex-col justify-between h-48">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Users className="w-4 h-4 text-primary-600" />
+                          <h3 className="font-bold text-slate-800 text-sm">Resume Semantic Index</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 font-semibold leading-relaxed">
+                          Queue background embedding generation for all parsed resume profiles. Powerhouse of semantic queries.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => triggerReindex('applicants')}
+                        disabled={systemHealthActionLoading !== null}
+                        className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold transition-all text-slate-700 flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${systemHealthActionLoading === 'applicants' ? 'animate-spin' : ''}`} />
+                        <span>Reindex Resumes</span>
+                      </button>
+                    </div>
+
+                    {/* RAG Reinitialize Card */}
+                    <div className="p-5 border border-slate-100 bg-slate-50/30 rounded-2xl flex flex-col justify-between h-48">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Database className="w-4 h-4 text-amber-600" />
+                          <h3 className="font-bold text-slate-800 text-sm">Documentation RAG</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 font-semibold leading-relaxed">
+                          Force fully rebuilding the vector search chunk index from files. Resolves document answer drifts.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => triggerReindex('rag')}
+                        disabled={systemHealthActionLoading !== null}
+                        className="w-full py-2.5 px-4 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50 shadow-md shadow-primary-500/10"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>{systemHealthActionLoading === 'rag' ? 'Rebuilding RAG...' : 'Force Rebuild RAG'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-24 text-center text-slate-400 font-semibold">
+                  Failed to fetch diagnostic reports. Ensure backend is running.
+                </div>
+              )}
             </motion.div>
           )}
         </div>

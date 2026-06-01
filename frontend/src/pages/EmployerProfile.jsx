@@ -87,7 +87,7 @@ export default function EmployerProfile() {
     try {
       // Update basic user info
       await api.patch('/api/auth/profile', {
-        full_name: sanitizeText(formData.full_name)
+        name: sanitizeText(formData.full_name)
       })
 
       // Update employer-specific info

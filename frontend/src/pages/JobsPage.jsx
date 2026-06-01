@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
 import {
   Briefcase,
   MapPin,
@@ -62,6 +63,34 @@ const checkSkillMatch = (candidateSkills, requiredSkillName) => {
     }
     return false
   })
+}
+
+const jobMarkdownComponents = {
+  h1: ({ children }) => <h1 className="text-sm font-bold text-slate-900 mb-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-sm font-bold text-slate-900 mb-2">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-800 mb-1.5">{children}</h3>,
+  p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-inherit">{children}</p>,
+  ul: ({ children }) => <ul className="mb-2 ml-4 space-y-1 list-disc text-inherit">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 ml-4 space-y-1 list-decimal text-inherit">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed pl-1">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+  code: ({ inline, children }) => {
+    if (inline) {
+      return <code className="bg-white text-primary-700 px-1.5 py-0.5 rounded border border-slate-200 font-mono text-[10px]">{children}</code>
+    }
+
+    return (
+      <pre className="bg-slate-950 text-slate-100 p-3 rounded-xl overflow-x-auto text-[10px] leading-relaxed border border-slate-800 mb-2">
+        <code>{children}</code>
+      </pre>
+    )
+  },
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:text-primary-700 underline font-semibold">
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-200 pl-3 italic text-slate-600 mb-2">{children}</blockquote>,
 }
 
 export default function JobsPage() {
@@ -374,59 +403,64 @@ export default function JobsPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md hover:border-primary-200 transition-all flex flex-col h-full"
+        className="p-6 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-primary-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col h-full relative overflow-hidden group"
       >
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div className="flex-1">
-            <div className="flex items-start gap-3 mb-2">
-              <div className="w-10 h-10 bg-primary-50 border border-primary-100 rounded-lg flex items-center justify-center flex-shrink-0">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary-500/0 via-indigo-500/0 to-purple-500/0 group-hover:from-primary-500 group-hover:via-indigo-500 group-hover:to-purple-500 transition-all duration-300" />
+
+        <div className="flex justify-between items-start mb-3 gap-4">
+          <div className="flex-1 mr-2">
+            <div className="flex items-start gap-3 mb-1.5">
+              <div className="w-11 h-11 bg-primary-50 border border-primary-100 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm">
                 <Briefcase className="w-5 h-5 text-primary-700" />
               </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-bold text-gray-900">{job.title}</h3>
-                <p className="text-sm text-gray-600">{job.company}</p>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-lg leading-tight mb-1 text-slate-900 group-hover:text-primary-900 transition-colors line-clamp-2">{job.title}</h3>
+                <p className="text-sm font-semibold text-slate-500">{job.company}</p>
               </div>
             </div>
           </div>
+
           {showApplicantFeatures && hasMatchData && (
-            <div className={`${getMatchColor(matchPercentage)} text-white px-3 py-1 rounded-full text-xs font-bold flex-shrink-0`}>
-              {formatMatchLabel(matchPercentage)} MATCH
+            <div className={`${getMatchColor(matchPercentage)} text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase shadow-sm flex-shrink-0`}>
+              {formatMatchLabel(matchPercentage)}
             </div>
           )}
         </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
-          <div className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
-            <MapPin className="w-3 h-3" />
+          <div className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-slate-100 bg-slate-50 text-slate-600 font-medium">
+            <MapPin className="w-3.5 h-3.5 text-slate-400" />
             <span>{job.location_city || 'Remote'}{job.location_state ? `, ${job.location_state}` : ''}</span>
           </div>
-          <div className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
-            <Clock className="w-3 h-3" />
-            <span className="capitalize">{job.work_type || 'Full-time'}</span>
+          <div className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-slate-100 bg-slate-50 text-slate-600 font-medium capitalize">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>{job.work_type || 'Full-time'}</span>
           </div>
-          {job.min_experience_years !== null && (
-            <div className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
-              <Sparkles className="w-3 h-3" />
+          {job.min_experience_years !== null && job.min_experience_years !== undefined && (
+            <div className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-slate-100 bg-slate-50 text-slate-600 font-medium">
+              <Sparkles className="w-3.5 h-3.5 text-slate-400" />
               <span>{job.min_experience_years}+ years</span>
             </div>
           )}
           {job.min_cgpa && (
-            <div className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
-              <Award className="w-3 h-3" />
+            <div className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-slate-100 bg-slate-50 text-slate-600 font-medium">
+              <Award className="w-3.5 h-3.5 text-slate-400" />
               <span>CGPA {job.min_cgpa}+</span>
             </div>
           )}
         </div>
 
         {job.description && (
-          <p className="text-sm text-gray-700 mb-4 line-clamp-3">
-            {job.description}
-          </p>
+          <div className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 bg-slate-50/50 rounded-xl p-3 border border-slate-100 line-clamp-4 overflow-hidden">
+            <ReactMarkdown components={jobMarkdownComponents}>
+              {job.description}
+            </ReactMarkdown>
+          </div>
         )}
 
         {(job.min_salary || job.max_salary) && (
           <div className="mb-4">
-            <p className="text-xs font-semibold text-gray-600 mb-1">Salary Range</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Salary Range</p>
             <p className="text-sm font-bold text-primary-600">
               {job.min_salary ? `INR ${(job.min_salary / 100000).toFixed(1)}L` : 'Competitive'}
               {job.max_salary ? ` - INR ${(job.max_salary / 100000).toFixed(1)}L` : ''}
@@ -434,19 +468,19 @@ export default function JobsPage() {
           </div>
         )}
 
-        <div className="mt-auto pt-4 border-t border-gray-200">
-          <div className="grid gap-2 grid-cols-2">
+        <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
+          <div className="flex gap-2 w-full">
             <button
               onClick={handleOpenDetails}
-              className="py-2 text-sm font-semibold border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors text-gray-700 text-center"
+              className="flex-1 py-2 px-3 text-xs font-bold border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-700 active:scale-95 duration-200"
             >
-              View Details
+              Details
             </button>
 
             {appliedJobIds.has(job.id) ? (
               <button
                 disabled
-                className="py-2 text-sm font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg cursor-not-allowed text-center flex items-center justify-center gap-1.5"
+                className="flex-1 py-2 px-3 text-xs font-bold rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200 cursor-not-allowed text-center flex items-center justify-center gap-1.5"
               >
                 <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                 Applied
@@ -455,7 +489,7 @@ export default function JobsPage() {
               <button
                 onClick={() => handleApply(job.id)}
                 disabled={applyingId === job.id}
-                className="py-2 text-sm font-semibold bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-center shadow-sm flex items-center justify-center gap-1.5"
+                className="flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-all active:scale-95 duration-200 bg-primary-600 hover:bg-primary-700 text-white shadow-sm shadow-primary-500/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
               >
                 {applyingId === job.id ? (
                   <>
@@ -463,11 +497,20 @@ export default function JobsPage() {
                     Applying...
                   </>
                 ) : (
-                  'Apply Now'
+                  'Easy Apply'
                 )}
               </button>
             )}
           </div>
+
+          {!showApplicantFeatures && (
+            <button
+              onClick={handleOpenDetails}
+              className="text-[9px] text-primary-600 font-extrabold hover:underline self-center pt-0.5"
+            >
+              View full job details
+            </button>
+          )}
         </div>
       </motion.div>
     )
@@ -494,15 +537,6 @@ export default function JobsPage() {
             <div>
               <p className="text-sm font-semibold text-gray-900">Search and filter</p>
               <p className="text-xs text-gray-500">Refine the job list with keyword, location, type, skill, and sort controls.</p>
-            </div>
-            <div className="text-sm text-gray-600 text-right">
-              {total} results
-              {activeFilterCount > 0 && <span className="ml-2 text-primary-700">({activeFilterCount} active)</span>}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-            <div className="relative md:col-span-2">
               <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
@@ -670,7 +704,7 @@ export default function JobsPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', damping: 25, stiffness: 400 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+              className="bg-white/95 backdrop-blur-md rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-[0_30px_80px_rgba(15,23,42,0.22)] border border-slate-100"
             >
               {(() => {
                 const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
@@ -688,17 +722,22 @@ export default function JobsPage() {
 
                 return null
               })()}
-              <div className="sticky top-0 bg-primary-600 text-white p-6 flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <h2 className="text-2xl font-bold mb-2">{selectedJob.title}</h2>
-                  <p className="text-primary-100 flex items-center gap-2">
-                    <Building2 className="w-4 h-4" />
+              <div className="sticky top-0 z-10 relative overflow-hidden border-b border-slate-100 bg-white/90 p-6 flex items-start justify-between gap-4">
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/70 via-white/90 to-sky-50/70" />
+                <div className="relative flex-1">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-700 mb-3">
+                    <Building2 className="w-3.5 h-3.5" />
+                    Job Details
+                  </div>
+                  <h2 className="text-2xl font-extrabold text-slate-900 mb-2 tracking-tight">{selectedJob.title}</h2>
+                  <p className="text-sm font-semibold text-slate-500 flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-primary-500" />
                     {selectedJob.company}
                   </p>
                 </div>
                 <button
                   onClick={() => setSelectedJob(null)}
-                  className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors flex-shrink-0"
+                  className="relative text-slate-500 hover:text-slate-900 hover:bg-white/80 border border-slate-200 bg-white/60 p-2.5 rounded-xl transition-all flex-shrink-0 shadow-sm"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -706,7 +745,7 @@ export default function JobsPage() {
                 </button>
               </div>
 
-              <div className="p-6 space-y-6">
+              <div className="p-6 space-y-6 bg-slate-50/30">
                 {(() => {
                   const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
                   const normalizedScore = recommendation?.normalizedScore ?? null
@@ -876,15 +915,19 @@ export default function JobsPage() {
                 </div>
 
                 {selectedJob.description && (
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">About This Role</h3>
-                    <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{selectedJob.description}</p>
+                  <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm">
+                    <h3 className="text-lg font-bold text-slate-900 mb-3">About This Role</h3>
+                    <div className="text-slate-600 leading-relaxed">
+                      <ReactMarkdown components={jobMarkdownComponents}>
+                        {selectedJob.description}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 )}
 
-                <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
-                  <h3 className="text-lg font-bold text-gray-900 mb-2">Useful next steps</h3>
-                  <p className="text-sm text-gray-700">
+                <div className="bg-white/90 border border-slate-200 rounded-2xl p-5 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900 mb-2">Useful next steps</h3>
+                  <p className="text-sm text-slate-600 leading-relaxed">
                     Open the job application, review the required skills, and generate a learning path if you want a gap-focused plan before applying.
                   </p>
                 </div>
@@ -904,11 +947,11 @@ export default function JobsPage() {
                 )}
               </div>
 
-              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex gap-3">
+              <div className="sticky bottom-0 z-10 bg-white/95 backdrop-blur-md border-t border-slate-100 p-6 flex gap-3 shadow-[0_-8px_30px_rgba(15,23,42,0.06)]">
                 {appliedJobIds.has(selectedJob.id) ? (
                   <button
                     disabled
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold rounded-lg cursor-not-allowed text-center shadow-sm"
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold rounded-xl cursor-not-allowed text-center shadow-sm"
                   >
                     <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
                     Applied
@@ -917,7 +960,7 @@ export default function JobsPage() {
                   <button
                     onClick={() => handleApply(selectedJob.id)}
                     disabled={applyingId === selectedJob.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-center shadow-sm"
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-center shadow-md shadow-primary-600/10"
                   >
                     {applyingId === selectedJob.id ? (
                       <>
@@ -935,7 +978,7 @@ export default function JobsPage() {
                       handleGenerateLearningPath(selectedJob)
                     }}
                     disabled={learningPathState.loadingId === selectedJob.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-primary-200 text-primary-700 font-semibold hover:bg-primary-50 disabled:opacity-60 transition-colors"
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50 disabled:opacity-60 transition-colors shadow-sm"
                   >
                     {learningPathState.loadingId === selectedJob.id ? (
                       <>
@@ -952,7 +995,7 @@ export default function JobsPage() {
                 )}
                 <button
                   onClick={() => setSelectedJob(null)}
-                  className="px-6 py-3 rounded-lg border border-gray-300 text-gray-900 font-semibold hover:bg-gray-100 transition-colors"
+                  className="px-6 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors bg-white shadow-sm"
                 >
                   Close
                 </button>

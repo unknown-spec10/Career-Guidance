@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { 
-  ArrowLeft, User, MapPin, GraduationCap, Briefcase, Target 
+  ArrowLeft, User, MapPin, GraduationCap, Briefcase, Target,
+  Sparkles, Award, TrendingUp, MessageSquare, BrainCircuit
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -34,6 +35,7 @@ export default function ApplicantDetailsPage() {
   const [recalcLoading, setRecalcLoading] = useState(false)
   const [emailBody, setEmailBody] = useState('')
   const [sendingEmail, setSendingEmail] = useState(false)
+  const [intelligence, setIntelligence] = useState(null)
   const userRole = currentUser?.role || secureStorage.getItem('user')?.role
   const getBackTarget = () => (userRole === 'student' ? '/dashboard' : '/admin/dashboard?tab=applicants')
 
@@ -41,6 +43,7 @@ export default function ApplicantDetailsPage() {
     try {
       setLoading(true)
       setRecommendations(null)
+      setIntelligence(null)
       const apiUrl = `/api/applicant/${applicantId}`
       
       const detailsRes = await api.get(apiUrl)
@@ -58,6 +61,18 @@ export default function ApplicantDetailsPage() {
         setRecommendations(recsRes.data)
       } else {
         setRecommendations({ job_recommendations: [] })
+      }
+
+      // Fetch AI Longitudinal Intelligence for employer/admin
+      if (storedUser?.role !== 'student') {
+        try {
+          const intelRes = await api.get(`/api/interview/candidate-intelligence/${applicantId}`)
+          if (intelRes.data && intelRes.data.status !== 'no_sessions') {
+            setIntelligence(intelRes.data)
+          }
+        } catch (intelErr) {
+          console.error('Failed to load candidate intelligence:', intelErr)
+        }
       }
     } catch (error) {
       console.error('Error fetching applicant data:', error)
@@ -325,6 +340,90 @@ export default function ApplicantDetailsPage() {
 
             {userRole !== 'student' && (
               <div className="space-y-6">
+                {/* AI Candidate Intelligence: Living Model & Patterns */}
+                {intelligence && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="relative overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/10 p-6 shadow-sm space-y-5"
+                  >
+                    <div className="absolute -right-16 -top-16 w-32 h-32 rounded-full bg-indigo-500/5 animate-pulse" />
+                    <div className="flex items-center space-x-2 pb-3 border-b border-indigo-100">
+                      <BrainCircuit className="w-5 h-5 text-indigo-500" />
+                      <h3 className="text-lg font-black text-slate-800">AI Candidate Intelligence</h3>
+                    </div>
+                    
+                    {/* Summary */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                        AI Living Persona Analysis
+                      </h4>
+                      <div className="text-slate-700 text-sm leading-relaxed bg-white/80 border border-indigo-50/50 p-4 rounded-2xl shadow-inner font-semibold italic">
+                        "{intelligence.summary}"
+                      </div>
+                    </div>
+
+                    {/* Answer Patterns Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-inner-sm">
+                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                          <MessageSquare className="w-3 h-3 text-indigo-400" /> Depth
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed font-semibold">{intelligence.answer_patterns?.explanation_depth}</p>
+                      </div>
+                      
+                      <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-inner-sm">
+                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                          <Award className="w-3 h-3 text-indigo-400" /> Examples
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed font-semibold">{intelligence.answer_patterns?.example_coverage}</p>
+                      </div>
+                      
+                      <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-inner-sm">
+                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-indigo-400" /> Pressure
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed font-semibold">{intelligence.answer_patterns?.time_pressure}</p>
+                      </div>
+                      
+                      <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-inner-sm">
+                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                          <User className="w-3 h-3 text-indigo-400" /> Assumptions
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed font-semibold">{intelligence.answer_patterns?.context_assumption}</p>
+                      </div>
+                    </div>
+
+                    {/* Technical Readiness */}
+                    <div className="space-y-3 pt-3 border-t border-indigo-100">
+                      <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <TrendingUp className="w-3.5 h-3.5 text-indigo-500" />
+                        Role Tier Compatibility
+                      </h4>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="text-center bg-slate-50 border border-slate-100 rounded-xl p-2">
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Junior</span>
+                          <div className="text-sm font-black text-indigo-600 mt-0.5">{intelligence.role_readiness?.junior}%</div>
+                        </div>
+                        <div className="text-center bg-slate-50 border border-slate-100 rounded-xl p-2">
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Mid-Level</span>
+                          <div className="text-sm font-black text-indigo-600 mt-0.5">{intelligence.role_readiness?.mid_level}%</div>
+                        </div>
+                        <div className="text-center bg-slate-50 border border-slate-100 rounded-xl p-2">
+                          <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Senior</span>
+                          <div className="text-sm font-black text-indigo-600 mt-0.5">{intelligence.role_readiness?.senior}%</div>
+                        </div>
+                      </div>
+                      
+                      <div className="text-[11px] text-slate-600 leading-relaxed bg-slate-50 border border-slate-100 p-3 rounded-xl font-semibold">
+                        <span className="font-extrabold uppercase text-[9px] text-slate-500 mr-1.5 bg-slate-200/50 px-1.5 py-0.5 rounded">Verdict:</span>
+                        "{intelligence.role_readiness?.verdict}"
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Professional Summary */}
                 {summary && (
                   <motion.div

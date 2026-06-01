@@ -9,6 +9,29 @@ import datetime
 import os
 import uuid
 
+# pgvector SQLAlchemy integration — provides the Vector column type.
+# If pgvector Python binding is not installed, fall back gracefully to JSON.
+try:
+    from pgvector.sqlalchemy import Vector as _PGVector  # type: ignore
+    _PGVECTOR_AVAILABLE = True
+except ImportError:
+    _PGVECTOR_AVAILABLE = False
+    _PGVector = None  # type: ignore
+    import warnings
+    warnings.warn(
+        "pgvector Python binding not installed. "
+        "Run: pip install pgvector  "
+        "The embedding column will be defined as JSON until the binding is installed.",
+        ImportWarning,
+        stacklevel=1,
+    )
+
+# Helper: use Vector(768) if available, else fall back to JSON
+def _vector_column(dim: int = 768) -> Column:
+    if _PGVECTOR_AVAILABLE and _PGVector is not None:
+        return Column(_PGVector(dim), nullable=True)
+    return Column(JSON, nullable=True)  # fallback — no ANN index support
+
 Base = declarative_base()
 
 # ============================================================
@@ -53,6 +76,7 @@ class Applicant(Base):
     location_state = Column(String(100))
     country = Column(String(100), default='India')
     preferred_locations = Column(JSON, nullable=True)  # Array of city/state
+    candidate_profile = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
@@ -94,9 +118,14 @@ class LLMParsedRecord(Base):
     applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), primary_key=True)
     raw_llm_output = Column(JSON, nullable=False)  # Store raw for audit
     normalized = Column(JSON, nullable=False)  # Validated shape
-    field_confidences = Column(JSON, nullable=True)  # Per-field confidences
+    field_confidences = Column(JSON, nullable=True)  # Per-field confidences (legacy)
+    per_section_confidence = Column(JSON, nullable=True)  # Per-section heuristic scores (redesign)
     llm_provenance = Column(JSON, nullable=True)  # Model name, tokens, call id
     needs_review = Column(Boolean, default=False, index=True)
+    # State machine status: 'processing' | 'accepted' | 'pending_review' | 'failed'
+    parse_status = Column(String(32), default='accepted', index=True)
+    # Skills that fell through both normalization passes — not discarded, stored for taxonomy growth
+    unrecognized_skills = Column(JSON, nullable=True)  # [{"name": "K8s", "raw": "K8s"}]
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
@@ -248,6 +277,7 @@ class JobRecommendation(Base):
     explanation = Column(Text, nullable=True)
     computed_at = Column(DateTime, default=datetime.datetime.utcnow)
     engine_version = Column(String(10), default='v2')
+    is_saved = Column(Boolean, default=False)
     
     # Relationships
     applicant = relationship('Applicant', back_populates='job_recommendations')
@@ -314,6 +344,9 @@ class CanonicalSkill(Base):
     category = Column(String(64))  # 'ml', 'frontend'
     market_score = Column(Float, nullable=True)
     demand_level = Column(String(32), nullable=True)
+    # pgvector embedding for semantic skill normalization (Pass 2)
+    # Populated once by seed_skill_embeddings.py, updated when new skills are added.
+    embedding = _vector_column(768)
 
 
 class AuditLog(Base):
@@ -371,6 +404,7 @@ class InterviewSession(Base):
     total_questions = Column(Integer, nullable=False)      # N configured + reserve pool
     voice_mode = Column(Boolean, default=False)
     topic_focus = Column(String(255), nullable=True)       # Optional user-specified focus
+    interviewer_persona = Column(String(50), nullable=True, default="Friendly Senior Engineer")
 
     # Status
     status = Column(
@@ -577,7 +611,7 @@ class CreditTransaction(Base):
     activity_type = Column(Enum(
         'full_interview', 'micro_session', 'coding_question', 
         'project_idea', 'weekly_refill', 'admin_adjustment',
-        'learning_path_generation',
+        'learning_path_generation', 'recommendation_refresh',
         name='activity_type'
     ), nullable=True, index=True)
     

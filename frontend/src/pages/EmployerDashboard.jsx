@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Briefcase, Users, Eye, CheckCircle, XCircle, 
-  Clock, PlusCircle, AlertTriangle, LogOut, User, X
+  Clock, AlertTriangle, LogOut, X
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
@@ -142,23 +142,6 @@ export default function EmployerDashboard() {
               </div>
               <p className="text-gray-600 max-w-xl">Manage your job postings and applicants</p>
             </div>
-          </div>
-
-          <div className="relative mt-6 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 p-1 shadow-sm">
-            <button
-              onClick={() => navigate('/employer/post-job')}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-xl hover:from-primary-700 hover:to-indigo-700 transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 active:scale-95 duration-200 font-semibold text-sm"
-            >
-              <PlusCircle className="w-4 h-4 text-white" />
-              <span>Post New Job</span>
-            </button>
-            <button
-              onClick={() => navigate('/employer/profile')}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all text-slate-700 shadow-sm active:scale-95 duration-200 font-semibold text-sm"
-            >
-              <User className="w-4 h-4 text-slate-500" />
-              <span>My Profile</span>
-            </button>
           </div>
         </motion.div>
 

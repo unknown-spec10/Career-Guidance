@@ -31,6 +31,7 @@ class StartInterviewRequest(BaseModel):
     num_questions: int = Field(10, ge=5, le=15)
     topic_focus: Optional[str] = Field(None, max_length=200)
     voice_mode: bool = False
+    interviewer_persona: str = Field("Friendly Senior Engineer", pattern="^(Friendly Senior Engineer|Tough FAANG Interviewer|HR Behavioral Round|Startup CTO)$")
 
 
 class StartInterviewResponse(BaseModel):
@@ -66,6 +67,8 @@ class SessionStateResponse(BaseModel):
     answers_submitted: int
     interview_type: str
     difficulty: str
+    voice_mode: bool = False
+    interviewer_persona: Optional[str] = "Friendly Senior Engineer"
 
 
 # ---------------------------------------------------------------------------
@@ -128,3 +131,18 @@ class InterviewHistoryItem(BaseModel):
     topic_focus: Optional[str] = None
     created_at: str
     completed_at: Optional[str] = None
+    interviewer_persona: Optional[str] = "Friendly Senior Engineer"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/interview/session/{session_id}/questions
+# ---------------------------------------------------------------------------
+
+class SessionQuestionItem(BaseModel):
+    id: str
+    text: str
+    question_number: int
+    total_questions: int
+    skill_tag: str
+    user_answer: Optional[str] = None
+    answer_status: Optional[str] = None

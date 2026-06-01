@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from sqlalchemy.orm import Session as DBSession, joinedload
 
-from ..db import InterviewSession, InterviewQuestion, InterviewAnswer, Applicant, LLMParsedRecord
+from ..db import InterviewSession, InterviewQuestion, InterviewAnswer, Applicant, LLMParsedRecord, LearningPath
 from ..constants import INTERVIEW_CONFIG_V2
 from .schemas import SkillBreakdownItem, QuestionReviewItem
 
@@ -45,6 +45,7 @@ def create_session(
     topic_focus: Optional[str],
     questions_data: List[dict],
     db: DBSession,
+    interviewer_persona: Optional[str] = "Friendly Senior Engineer",
 ) -> Tuple[InterviewSession, InterviewQuestion]:
     """
     Persist a new session and all its pre-generated questions.
@@ -61,6 +62,7 @@ def create_session(
         total_questions=total_questions,
         voice_mode=voice_mode,
         topic_focus=topic_focus,
+        interviewer_persona=interviewer_persona,
         status="active",
     )
     db.add(session)
@@ -348,6 +350,17 @@ def build_full_results(session: InterviewSession, db: DBSession) -> dict:
 
     weak_skills = get_weak_skills(session.id, db)
 
+    # Check if a learning path already exists for this session_id inside skill_gaps cache metadata
+    learning_path_id = None
+    existing_paths = db.query(LearningPath).filter(
+        LearningPath.applicant_id == session.applicant_id,
+        LearningPath.generated_from == "interview"
+    ).all()
+    for lp in existing_paths:
+        if lp.skill_gaps and isinstance(lp.skill_gaps, dict) and lp.skill_gaps.get("session_id") == session.id:
+            learning_path_id = lp.id
+            break
+
     return {
         "status": "complete",
         "overall_score": round(overall, 3),
@@ -355,6 +368,7 @@ def build_full_results(session: InterviewSession, db: DBSession) -> dict:
         "questions_review": [q.model_dump() for q in questions_review],
         "weak_skills": weak_skills,
         "study_plan": session.study_plan,
+        "learning_path_id": learning_path_id,
     }
 
 

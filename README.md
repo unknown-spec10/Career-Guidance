@@ -1,156 +1,114 @@
-# Career Guidance AI System
+# Career Guidance AI System (v0.5)
 
-An AI-powered career guidance platform that provides intelligent resume parsing, college recommendations, and job matching using advanced NLP and machine learning techniques.
+An advanced, premium AI-powered career guidance platform designed to orchestrate intelligent resume parsing, semantic skill normalization, college suitability grading, job recommendation, and interactive mock interview practice with live AI feedback.
 
-## � Documentation
+---
 
-Complete documentation is in the **[`docs/`](docs/)** folder:
+## 🌟 What's New in v0.5
 
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Complete system architecture, dual-database design, cost model
-- **[DATABASE.md](docs/DATABASE.md)** - 🆕 Database reference (18 tables, repository pattern, CRUD operations)
-- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Deployment guide for local, Docker, and GCP Cloud Run
-- **[IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md)** - Developer guide for repository pattern and features
-- **[QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** - Quick reference for common commands
-- **[DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md)** - Project delivery summary and handoff notes
-- **[DOCS_INDEX.md](docs/DOCS_INDEX.md)** - Navigation hub for all documentation
+The **v0.5 Release** focuses on high performance, cost optimization, rate-limit resilience, and flawless visual overlays:
 
-## 🚀 Features
+1. **Groq-Gemini Hybrid Parser Pipeline**:
+   - **Groq Parallel Parser**: Swapped core extraction to Groq (`llama-3.3-70b-versatile`) running 6 concurrent parallel requests in an `asyncio.gather` pool. Highly robust, structured JSON extraction with zero Gemini rate-limiting overhead.
+   - **Gemini Vision (Type B/C PDFs)**: Google Gemini is retained exclusively for scanned/image-based resumes requiring OCR-Vision processing.
+   - **Semantic Embeddings**: Gemini embeddings are used for advanced skill mapping (fuzzy + semantic passes) to ensure high-accuracy profile alignments.
 
-### Core Functionality
-- **AI Resume Parsing**: Extract structured data from resumes using Google Gemini AI
-- **Smart College Recommendations**: Match applicants with suitable colleges based on eligibility and profile
-- **Job Matching**: Intelligent job recommendations with skill-based scoring
-- **Modern Web Interface**: React-based dashboard with real-time data visualization
-- **Comprehensive Database**: Track applicants, colleges, jobs, and recommendations
-- **RESTful API**: FastAPI backend with complete CRUD operations
-- **Mock Interviews**: AI-powered practice sessions with skill assessments
-- **Credit System**: Fair-use quota management to prevent API cost overruns
-- **PostgreSQL Database**: Single, reliable database via SQLAlchemy repository pattern
+2. **Recommendation Cooldown & Quota Bypass**:
+   - Added a **24-hour refresh cooldown** on AI recommendations to control server and token overhead.
+   - **Real-Time Countdown**: Interactive, animated timer in the Student Dashboard dynamically displays hours, minutes, and seconds remaining.
+   - **Premium Bypass**: Added a 5-credit quota bypass mechanic with double-confirm modal, communicating instantly with `CreditService`.
 
-### Security & Authentication
-- **User Authentication**: JWT-based authentication with role-based access control
-- **Email Verification**: Gmail SMTP integration with HTML email templates
-- **Password Reset**: Secure password reset with 6-digit verification codes
-- **XSS Protection**: Comprehensive input sanitization on both client and server
-- **Rate Limiting**: Protection against brute force attacks on sensitive endpoints
+3. **Premium Floating Overlay Portals**:
+   - Integrated React Portals (`createPortal`) for both the **CreditWidget** and the **ApplicationTracker** status boards.
+   - Completely resolves clipping, hidden overflows, or `z-index` stack context interference from parent flex columns/Framer Motion cards. Modals now render directly at `document.body` level with elegant glassmorphic backdrops.
 
-### UX Enhancements
-- **Skeleton Loaders**: Smooth loading states with 6 variants (Stats, Card, Table, List, Profile, Dashboard)
-- **Error Boundaries**: Graceful error handling with recovery options
-- **Toast Notifications**: Consistent, accessible notifications across all actions
-- **Optimistic Updates**: Instant UI feedback with automatic rollback on errors
-- **Progressive Loading**: Paginated lists with smooth load-more functionality
-- **Loading Animations**: Framer Motion animations for better perceived performance
+4. **Dynamic Application Tracking Board**:
+   - Upgraded the **ApplicationTracker** card to perform self-contained data fetching from `/api/student/applications/jobs` with 30s auto-refresh.
+   - Decoupled from static props, ensuring real-time application pipelines (Sent, Interview, Offers, Closed) with complete fallback support for both nested and flat API data models.
 
-## 📋 System Architecture
+---
+
+## 📂 Repository Layout
 
 ```
-Career Guidance/
-├── frontend/                    # React + Vite frontend
+Career Guidence/
+├── deploy/                # Deployment & Docker orchestration
+│   ├── docker/
+│   │   ├── docker-compose.yml       # Production/Local orchestrator with GROQ environment support
+│   │   ├── docker-help.sh
+│   │   └── docker-help.bat
+│   ├── scripts/
+│   │   ├── redeploy.ps1             # PowerShell automated redeployment
+│   │   └── setup_dual_db.sh
+│   └── aws/
+│       └── .env.aws.example
+├── frontend/              # React 18 + Vite 5 + Tailwind CSS + Framer Motion (JavaScript/JSX)
 │   ├── src/
-│   │   ├── components/         # Reusable UI components
-│   │   ├── pages/              # Application pages
-│   │   └── App.jsx             # Main app component
-│   └── package.json
-│
-├── resume_pipeline/            # Python backend
-│   ├── resume_pipeline/        # Main package
-│   │   ├── app.py             # FastAPI application
-│   │   ├── db.py              # Database models (18 tables)
-│   │   ├── config.py          # Configuration management
-│   │   ├── utils.py           # Utility functions
-│   │   ├── resume/            # Resume parsing module
-│   │   │   ├── parse_service.py
-│   │   │   ├── llm_gemini.py
-│   │   │   ├── preprocessor.py
-│   │   │   └── skill_taxonomy_builder.py
-│   │   ├── college/           # College recommendation
-│   │   ├── interview/         # Mock interview system
-│   │   └── core/              # Core interfaces
-│   │
-│   ├── scripts/               # Utility scripts
-│   │   ├── init_db.py         # Initialize database
-│   │   ├── seed_database.py   # Seed with sample data
-│   │   └── verify_data.py     # Verify data integrity
-│   │
-│   └── tests/                 # Unit tests
-│
-├── data/                      # File storage
-│   └── raw_files/            # Uploaded resumes
-│
-├── myenv/                    # Python virtual environment
-├── .env                      # Environment variables (not in git)
-├── .env.example             # Example environment config
-└── README.md                # This file
+│   │   ├── components/    # Reusable UI (CreditWidget, ApplicationTracker, etc. with Portals)
+│   │   ├── pages/         # Core views (StudentDashboard, LiveInterview, LearningPaths)
+│   │   └── config/        # API and local state secure storage config
+├── resume_pipeline/       # FastAPI backend (Python 3.11)
+│   ├── resume_pipeline/   # Main package
+│   │   ├── app.py         # Entry point; core API routes, CORS alignment, startup self-healing DDL
+│   │   ├── db.py          # SQLAlchemy models (18 relational tables)
+│   │   ├── config.py      # Pydantic v2 settings (environment-injected)
+│   │   ├── constants.py   # CREDIT_CONFIG, API_MESSAGES, RECOMMENDATION_WEIGHTS
+│   │   ├── resume/        # Parsing: Groq extractor, Gemini Vision preprocessor, fuzzy skill taxomony
+│   │   ├── interview/     # Gemini audio interview session scoring engine
+│   │   ├── core/          # CreditService, abstract base interfaces
+│   │   ├── rag/           # FAISS vector store + Groq RAG Q&A pipeline
+│   │   └── repos/         # Repository pattern for database decoupling
+│   ├── tests/             # Pytest suite
+│   └── scripts/           # DB init, sample data seeding, and integrity verification
+└── README.md
 ```
+
+---
 
 ## 🛠️ Technology Stack
 
 ### Backend
-- **FastAPI**: High-performance web framework with async support
-- **SQLAlchemy**: ORM for database operations
-- **psycopg2**: PostgreSQL database driver
-- **Google Gemini**: LLM for resume parsing & interview evaluation
-- **Pydantic**: Data validation and serialization
-- **JWT**: Token-based authentication
-- **bcrypt**: Password hashing
-- **smtplib**: Gmail SMTP email integration
+- **FastAPI**: Asynchronous high-performance web framework
+- **Groq API (`llama-3.3-70b-versatile`)**: High-speed, structured resume section JSON extraction
+- **Google Gemini API**: Scanned PDF OCR-Vision preprocessing + skill embedding generation
+- **SQLAlchemy 2.0**: Modern database mapper using the Repository Pattern
+- **psycopg2-binary**: PostgreSQL adapter
+- **PGVector**: Database vector columns for RAG and semantic searches
+- **Sentence-Transformers & FAISS**: Core RAG vector indexing and Q&A engine
+- **Pydantic v2**: Structured runtime validation and settings management
+- **JWT + bcrypt**: Token-based authentication and secure password encryption
+- **smtplib**: Automated email verification with 6-digit verification code workflow
 
 ### Frontend
-- **React 18**: UI library with hooks
-- **Vite**: Build tool and dev server
-- **Tailwind CSS**: Utility-first CSS framework
-- **Framer Motion**: Animation library for smooth transitions
-- **Axios**: HTTP client with interceptors
-- **React Router**: Client-side routing
-- **Lucide React**: Modern icon library
-- **Custom Hooks**: useToast, useOptimistic, useAuth for state management
+- **React 18**: Dynamic component-driven interface
+- **Vite 5**: Next-generation frontend bundler
+- **Tailwind CSS**: Elegant utilities with premium HSL color palettes
+- **Framer Motion**: Smooth micro-animations and slide-overs
+- **React Router**: Single Page App SPA routing
+- **Lucide React**: Clean vector icon suite
+- **React DOM Portals**: High-z-index overlays decoupled from nested layouts
 
-### Database
-- **PostgreSQL 16**: All environments — local dev, Docker, and cloud production
-  - Core: Users, Applicants, Uploads, LLMParsedRecords
-  - College-side: Colleges, Eligibility, Programs, Metadata, ApplicabilityLogs
-  - Job-side: Employers, Jobs, JobMetadata, JobRecommendations
-  - Interview: InterviewSessions, InterviewQuestions, InterviewAnswers
-  - Credit: CreditAccounts, CreditTransactions, CreditUsageStats
-  - Auxiliary: CanonicalSkills, AuditLogs, HumanReviews
+---
 
 ## 🚦 Quick Start
 
-For detailed setup instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+For a detailed multi-node deployment walkthrough, please review **`docs/DEPLOYMENT.md`**.
 
-### ⚡ 5-Minute Local Setup
+### ⚡ 5-Minute Local Dev Setup
 
-```powershell
-# 1. Backend
-cd "D:\Career Guidence\resume_pipeline"
+#### 1. Backend Server Setup
+Ensure PostgreSQL is running locally, then execute in Windows Command Prompt:
+```cmd
+cd "resume_pipeline"
 python -m venv ..\myenv
-..\myenv\Scripts\Activate.ps1
+call ..\myenv\Scripts\activate.bat
 pip install -r requirements.txt
-
-# 2. Configure (copy .env.example to .env and fill credentials)
-Copy-Item .env.example .env
-# Edit .env with your API keys
-
-# 3. Start backend
-uvicorn resume_pipeline.app:app --reload --port 8000
-
-# 4. Frontend (new terminal)
-cd ..\frontend
-npm install
-npm run dev
 ```
 
-**Access**:
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-
-### Environment Variables
-
-Create `.env` in `resume_pipeline/`:
+#### 2. Configure Environment
+Copy `.env.example` to `.env` inside `resume_pipeline/` and fill in your API credentials:
 ```env
-# PostgreSQL
+# Database Credentials
 PG_HOST=localhost
 PG_PORT=5432
 PG_USER=postgres
@@ -161,528 +119,97 @@ PG_DB=career_guidance
 GEMINI_API_KEY=your_gemini_api_key
 GROQ_API_KEY=your_groq_api_key
 
-# Email (Gmail SMTP)
+# Email (Gmail SMTP App Password)
 GMAIL_USER=your-email@gmail.com
 GMAIL_APP_PASSWORD=your_16_char_app_password
 
-# Security
+# Authentication Secret
 SECRET_KEY=your-super-secret-jwt-key-min-32-chars
 
-# Frontend
-FRONTEND_URL=http://localhost:5173
-CORS_ORIGINS=http://localhost:5173
+# App URLs
+FRONTEND_URL=http://localhost:3000
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
-**Get API Keys**:
-- Gemini: https://aistudio.google.com/apikey
-- Gmail App Password: https://myaccount.google.com/apppasswords
-
-### Database Setup
-
-**Option A: Docker (Recommended)**
-```powershell
-docker run -d --name career-postgres `
-  -e POSTGRES_PASSWORD=yourpassword `
-  -e POSTGRES_DB=career_guidance `
-  -e POSTGRES_USER=postgres `
-  -p 5432:5432 postgres:16
+#### 3. Initialize & Seed PostgreSQL Database
+```cmd
+python scripts/init_db.py
+python scripts/seed_database.py
+python scripts/verify_data.py
 ```
 
-**Option B: Docker Compose (full stack)**
-```powershell
-docker compose -f deploy/docker/docker-compose.yml up -d
-```
-
----
-
-## 📊 Database Schema
-
-### Database Tables (PostgreSQL)
-
-#### Core Tables/Collections
-- `users`: User accounts with roles (student/employer/college/admin)
-- `applicants`: Applicant profiles with location preferences
-- `uploads`: File uploads (resumes, marksheets)
-- `llm_parsed_records`: Parsed resume data with confidence scores
-- `embeddings_index`: Vector embeddings for semantic search
-
-#### College Recommendation
-- `colleges`: College master data
-- `college_eligibility`: Admission criteria (JEE, CGPA)
-- `college_programs`: Available programs and courses
-- `college_metadata`: Additional info (skills, popularity)
-- `college_applicability_logs`: Recommendation history
-- `college_recommendations`: Applicant → College matches
-
-#### Job Matching
-- `employers`: Company information
-- `jobs`: Job listings with requirements
-- `job_metadata`: Tags and popularity scores
-- `job_recommendations`: Job matches with scoring
-
-#### Interview & Assessment
-- `interview_sessions`: Mock interview sessions with scores
-- `interview_questions`: Questions for each session
-- `interview_answers`: Student answers with AI evaluation
-- `skill_assessments`: Skill verification quizzes
-- `learning_paths`: Personalized learning recommendations
-
-#### Credit System
-- `credit_accounts`: User credit balances and refill timestamps
-- `credit_transactions`: Audit log of all credit activity
-- `credit_usage_stats`: Daily/weekly rate limiting counters
-- `system_configuration`: Admin-configurable system settings
-
-#### Auxiliary
-- `canonical_skills`: Standardized skill taxonomy
-- `audit_logs`: System activity tracking
-- `human_reviews`: Manual corrections and feedback
-
----
-
-## 🔌 API Endpoints
-
-For complete API documentation, see [ARCHITECTURE.md](ARCHITECTURE.md#api-contracts).
-
-### Key Endpoints
-
-**Public**:
-- `GET /api/stats` - Dashboard statistics
-- `GET /api/colleges` - List colleges (paginated)
-- `GET /api/jobs?location={loc}` - List active jobs
-- `POST /upload` - Upload resume
-- `POST /parse/{applicant_id}` - Parse resume
-
-**Authenticated**:
-- `GET /api/recommendations/{applicant_id}` - Get recommendations
-- `POST /api/interview/start` - Start mock interview
-- `GET /api/credit/account` - User credit balance
-- `GET /api/interview/history` - Interview sessions
-
-**Admin**:
-- `POST /api/admin/college` - Create college
-- `POST /api/admin/job` - Create job
-- `GET /api/admin/users` - List all users
-
----
-
-## 📈 Data Flow
-
-1. **Resume Upload**: User uploads resume through frontend
-2. **File Storage**: Backend saves file to `/data/raw_files/` (local) or `/tmp/data/` (cloud)
-3. **AI Parsing**: Google Gemini extracts structured data (education, skills, experience)
-4. **Normalization**: Data validated and normalized via Pydantic schemas
-5. **Skill Mapping**: Skills matched against canonical taxonomy (word-boundary regex)
-6. **Recommendation**: Scoring algorithm rates colleges/jobs:
-   - 35% JEE rank
-   - 25% CGPA
-   - 25% skill match
-   - 15% interview score
-   - 20% academic/experience fit
-7. **Interview Optional**: Students can boost scores with mock interviews (up to 15 points)
-8. **Display**: Results shown in interactive dashboard with status tracking
-
----
-
-## 🏗️ Repository Pattern Architecture
-
-This project uses the **repository pattern** to keep business logic decoupled from the database.
-All repositories use PostgreSQL via SQLAlchemy (`pg_impl.py`), accessed through `factory.py`.
-
-**Benefits**:
-- ✅ Business logic is database-agnostic
-- ✅ Easy to test with mocks
-- ✅ Single consistent data store across all environments
-
-For implementation details, see [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md).
-
----
-
-## 🔐 Security
-
-### Authentication & Authorization
-- **JWT Tokens**: Secure bearer token authentication
-- **Password Hashing**: bcrypt with salt for password storage
-- **Role-Based Access**: Student, College, Employer, Admin roles
-- **Email Verification**: Mandatory email verification with 6-digit codes
-- **Password Reset**: Secure reset flow with time-limited codes (30-minute expiry)
-- **Rate Limiting**: Protection on login, register, and password reset endpoints
-
-### Data Protection
-- **XSS Prevention**: Client-side and server-side input sanitization
-  - HTML escape for text fields
-  - Tag removal for rich text
-  - URL protocol validation
-  - Filename path traversal protection
-- **SQL Injection**: SQLAlchemy ORM with parameterized queries
-- **CSRF Protection**: Token validation for state-changing operations
-- **File Upload Validation**: Type checking, size limits, secure storage
-- **Environment Variables**: Sensitive data in `.env` (never committed)
-
----
-
-## 📧 Email Verification Setup
-
-This application uses Gmail SMTP to send email verification links to new users during registration.
-
-### Setup Steps
-
-#### 1. Enable 2-Factor Authentication on Gmail
-1. Go to your Google Account: https://myaccount.google.com/
-2. Navigate to **Security** → **2-Step Verification**
-3. Follow the prompts to enable 2FA if not already enabled
-
-#### 2. Generate App Password
-1. Go to: https://myaccount.google.com/apppasswords
-2. Select **App**: Choose "Mail" or "Other (Custom name)"
-3. Select **Device**: Choose your device or enter a custom name
-4. Click **Generate**
-5. Copy the 16-character password (remove spaces)
-
-#### 3. Configure Environment Variables
-Update `.env`:
-```env
-GMAIL_USER=your-email@gmail.com
-GMAIL_APP_PASSWORD=your-16-char-app-password
-FRONTEND_URL=http://localhost:5173
-```
-
-**Important:**
-- Use your full Gmail address for `GMAIL_USER`
-- Use the 16-character App Password (not your regular Gmail password)
-- For production, update `FRONTEND_URL` to your production domain
-
-#### 4. Restart Backend Server
-```bash
-cd resume_pipeline
-uvicorn resume_pipeline.app:app --reload
-```
-
-### Email Verification Flow
-1. User registers on frontend
-2. Backend generates secure verification token (32 bytes)
-3. Email sent to user's inbox (valid for 24 hours)
-4. User clicks verification link
-5. Account activated, user can login with full access
-
-### Troubleshooting Email Issues
-- **Email not received**: Check spam/junk folder; verify credentials in `.env`
-- **SMTPAuthenticationError**: Ensure 2FA enabled and using App Password
-- **Connection refused**: Check firewall; verify Gmail SMTP not blocked
-- **Token expired**: Tokens valid for 24 hours; use "Resend verification" link
-
----
-
-## 💳 Credit System
-
-### Overview
-The credit-based quota system manages interview practice sessions and prevents API cost overruns.
-
-### How It Works
-- **Initial Credits**: 60 credits per new user
-- **Auto-refill**: Every 7 days (max 2 weeks accumulation = 120 credits)
-- **Cost per Activity**:
-  - Full mock interview (30 min, 7 MCQ + 3 short answer): 10 credits
-  - Micro-session (5 min, 1 question): 1 credit
-  - Coding question generation: 2 credits
-  - Project idea generation: 3 credits
-
-### Features
-✅ **Rolling 7-day refills** - Auto-refills every 7 days, max 2 weeks accumulation
-✅ **Rate limiting** - Daily/weekly limits prevent abuse
-✅ **Progressive difficulty** - Blocks full interviews if previous score < 40%
-✅ **Smart bonuses** - Awards 5 credits for 20%+ score improvement
-✅ **Transaction logging** - Complete audit trail
-✅ **Admin management** - Admins can adjust credits for users
-
-### Student Workflow
-1. Login → See credit balance in dashboard widget
-2. Navigate to Interview page
-3. Choose session type (Full 10 credits or Micro 1 credit)
-4. System checks eligibility (credits + rate limits)
-5. Start session → Credits deducted immediately
-6. Complete session → Possible bonus if score improved
-7. View transaction history anytime
-
-### Configuration
-Located in `resume_pipeline/constants.py`:
-```python
-CREDIT_CONFIG = {
-    "costs": {
-        "full_interview": 10,
-        "micro_session": 1,
-        "coding_question": 2,
-        "project_idea": 3
-    },
-    "limits": {
-        "default_weekly_credits": 60,
-        "max_daily_credits": 30,
-        "max_micro_sessions_daily": 10,
-        "max_full_interviews_weekly": 4,
-        "refill_interval_days": 7,
-        "max_accumulated_weeks": 2
-    }
-}
-```
-
----
-
-## 🎯 Mock Interviews & Skill Assessment
-
-### Features
-- **Interview Types**: Technical, HR, Behavioral, Mixed
-- **Difficulty Levels**: Easy, Medium, Hard
-- **Duration**: 30 minutes (full) or 5 minutes (micro-session)
-- **Question Format**: Multiple Choice + Short Answer
-- **AI Evaluation**: Real-time feedback using Google Gemini
-- **Daily Limit**: Up to 10 sessions per day (rate limited by credits)
-- **Score Validity**: 6 months (prompts retake for optimal recommendations)
-
-### Interview Scoring
-- **Excellent** (≥80%): +15 recommendation points
-- **Good** (60-79%): +10 points
-- **Average** (40-59%): +5 points
-- **Below 40%**: No bonus, suggests micro-practice
-
-### Personalized Learning Paths
-After completing an interview, students receive:
-- **Skill Gap Analysis**: Skills categorized as weak/moderate/strong
-- **Recommended Courses**: From Udemy, Coursera, YouTube
-- **Practice Problems**: From LeetCode, HackerRank, CodeChef
-- **Project Suggestions**: Hands-on projects to build skills
-
-### Google Search Integration
-- **Coding Problems**: Fetched from LeetCode, HackerRank
-- **Interview Questions**: From GeeksForGeeks, InterviewBit
-- **Learning Resources**: Courses and tutorials from popular platforms
-- **Caching**: 30-day cache to optimize API usage
-- **Fallback**: Automatic Gemini generation if quota exhausted
-
-### Pages
-- `/dashboard/interview` - Interview dashboard and history
-- `/dashboard/interview/:sessionId` - Live interview interface
-- `/dashboard/interview/results/:sessionId` - Results and feedback
-- `/dashboard/learning-path/:pathId` - Personalized learning resources
-
----
-
-## 🧪 Testing
-
-Run backend tests:
-```bash
-cd resume_pipeline
-pytest tests/
-```
-
-Test specific module:
-```bash
-pytest tests/test_api.py -v
-pytest tests/test_parsing.py -v
-```
-
-Sample data:
-- Use files in `data/raw_files/*/sample_resume_*.txt` to exercise parsers
-
----
-
-## 📝 Development
-
-For detailed development guides, see [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md).
-
-### Quick Development Workflow
-
-**Backend**:
-```powershell
-cd resume_pipeline
-myenv\Scripts\Activate.ps1
+#### 4. Run Development Server
+```cmd
 uvicorn resume_pipeline.app:app --reload --port 8000
-pytest tests/ -v  # Run tests
 ```
 
-**Frontend**:
-```powershell
-cd frontend
-npm run dev      # Start dev server
-npm run build    # Build for production
+#### 5. Frontend UI Setup
+Open a separate terminal window and execute:
+```cmd
+cd "frontend"
+npm install
+npm run dev
 ```
 
-### Adding New Features
-
-See [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md#adding-new-features) for:
-- Adding new repository interfaces
-- Implementing PostgreSQL repositories
-- Integrating with FastAPI routes
-- Writing tests
-
-### Database Inspection
-
-**PostgreSQL**:
-```sql
-psql -U postgres -d career_guidance
-\dt            -- list tables
-SELECT * FROM applicants LIMIT 5;
-```
+*   **Frontend Access**: `http://localhost:3000` (Proxies requests to API on port `8000`)
+*   **FastAPI Docs**: `http://localhost:8000/docs`
 
 ---
 
-## 🚀 Deployment
+## 📊 Database Schema Summary
 
-For complete deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+The relational layout consists of **18 PostgreSQL tables** built using SQLAlchemy:
 
-### Quick Deploy with Docker Compose
+*   **Core Accounts**: `users`, `applicants`, `uploads`, `llm_parsed_records`
+*   **Vector & Taxonomy**: `embeddings_index`, `canonical_skills`
+*   **College Portal**: `colleges`, `college_eligibility`, `college_programs`, `college_metadata`, `college_recommendations`, `college_applicability_logs`
+*   **Job Portal**: `employers`, `jobs`, `job_metadata`, `job_recommendations`
+*   **AI Quota Audit**: `credit_accounts`, `credit_transactions`, `credit_usage_stats`
+*   **Interview Engine**: `interview_sessions`, `interview_questions`, `interview_answers`, `learning_paths`
 
-```powershell
-# From project root
-docker compose -f deploy/docker/docker-compose.yml up -d
+---
 
-# Initialize database
-docker compose -f deploy/docker/docker-compose.yml exec backend python scripts/init_db.py
-docker compose -f deploy/docker/docker-compose.yml exec backend python scripts/seed_database.py
-```
+## 💳 Credit Quotas & Recommendation Rules
 
-### Pre-Deployment Checklist
+To ensure fair-use protection and safeguard against massive API cost overruns:
 
-- [ ] All tests passing (`pytest tests/`)
-- [ ] No console errors in browser
-- [ ] Email verification working
-- [ ] File uploads functional
-- [ ] Environment variables configured (`PG_HOST`, `PG_USER`, `PG_PASSWORD`, `PG_DB`, `GEMINI_API_KEY`, `SECRET_KEY`)
-- [ ] PostgreSQL database reachable and initialized (`init_db.py`)
-- [ ] CORS origins updated for production
-- [ ] Strong `SECRET_KEY` generated (32+ characters)
+*   **Base Allocation**: 60 credits allocated on user creation.
+*   **Automatic Refills**: Full credit reset every 7 days (caps at a 120-credit cumulative ceiling).
+*   **Execution Costs**:
+    *   *Full Mock Session*: 10 Credits
+    *   *Micro Practice Answer*: 1 Credit
+    *   *Coding Challenge Generation*: 2 Credits
+    *   *Skill Roadmap Blueprint*: 2 Credits
+    *   *Recommendation Quota Bypass*: 5 Credits
+*   **The Recommendation Cooldown System**:
+    *   Recommendations are locked for **24 hours** after generation.
+    *   Free updates are unavailable while cooldown is active.
+    *   Users can choose to **bypass the cooldown** instantly by spending 5 credits via the bypass confirmation modal.
 
+---
 
+## 🧪 Testing Suite
 
-### Backend Deployment
+We provide a solid automated test suite. Always verify changes before pushing:
 
-#### Linux/Mac with Gunicorn
-```bash
-pip install gunicorn
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker resume_pipeline.app:app --bind 0.0.0.0:8000
+```cmd
+# Run all tests (from resume_pipeline directory with venv active)
+pytest tests/ -q
+
+# Run single unit or integration test
+pytest tests/test_parsing.py -v
+pytest tests/test_api.py -v
 ```
 
 ---
 
-## 📦 Project Statistics
-
-- **50+ Applicants** with complete profiles
-- **10+ Colleges** with eligibility criteria
-- **40+ Job Listings** from multiple employers
-- **PostgreSQL**: Single database for all environments
-- **18 Database Tables**: Users, Applicants, Colleges, Jobs, Recommendations, Interviews, Credits
-- **~85% Average Match Score** for recommendations
+## 🔒 Security Features
+*   **JWT Tokens**: Secure bearer tokens with custom expiration.
+*   **bcrypt Password Hashing**: Adaptive work factors for robust storage protection.
+*   **Multi-Layer XSS Protection**: Strict sanitization of user strings (HTML escaping) on both client and server inputs.
+*   **Double-Verification Guard**: Accounts require 6-digit verification codes sent via secure SMTP to prevent bot registrations.
 
 ---
 
-## 🐛 Troubleshooting
-
-For detailed troubleshooting, see [DEPLOYMENT.md](DEPLOYMENT.md#troubleshooting).
-
-### Common Issues
-
-**Port already in use**:
-```powershell
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
-```
-
-**PostgreSQL connection refused**:
-```powershell
-# Check PostgreSQL is running
-Get-Service postgresql*
-
-# Test connection
-psql -h localhost -U postgres -d career_guidance
-```
-
-**Gemini API errors**:
-- Verify API key in `.env`
-- Check rate limits: https://aistudio.google.com/apikey
-- Test API key with sample request
-
-**CORS errors in browser**:
-- Verify `CORS_ORIGINS` includes frontend URL
-- Restart backend after changing `.env`
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Make changes with proper tests
-4. Update documentation
-5. Commit changes (`git commit -m 'Add amazing feature'`)
-6. Push to branch (`git push origin feature/amazing-feature`)
-7. Submit pull request
-
----
-
-## 📄 License
-
-This project is for educational purposes. See LICENSE file for details.
-
----
-
-## 📞 Support & Resources
-
-- **Documentation**: See [ARCHITECTURE.md](ARCHITECTURE.md), [DEPLOYMENT.md](DEPLOYMENT.md), [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
-- **API Docs**: http://localhost:8000/docs (when running locally)
-- **Issues**: Create GitHub issue for bugs or feature requests
-
----
-
-## 🎯 Future Enhancements
-
-- [ ] Email notifications for recommendations
-- [ ] Advanced filters and search
-- [ ] Applicant portal for profile management
-- [ ] College/employer dashboards
-- [ ] ML-based recommendation scoring improvements
-- [ ] Resume builder tool
-- [ ] Interview preparation resources
-- [ ] Career path visualization
-- [ ] Skills gap analysis reports
-- [ ] Integration with job boards
-- [ ] Question/Answer caching to reduce API costs
-- [ ] Abuse detection for rate limit enforcement
-- [ ] Premium tier with higher credit limits
-- [ ] Learning analytics and credit ROI tracking
-
----
-
-## 📚 Key Components
-
-### Frontend Components
-- **ErrorBoundary**: Catches React errors with recovery UI
-- **SkeletonLoader**: Loading states (Stats, Card, Table, List, Profile, Dashboard)
-- **ProgressiveList**: Paginated lists with smooth loading
-- **ToastContainer**: Consistent notification system
-- **CreditWidget**: Displays credit balance and usage
-- **Protected Routes**: Authentication-gated pages
-
-### Backend Utilities
-- **sanitize_text()**: Server-side XSS prevention
-- **validate_email()**: RFC-compliant email validation
-- **send_verification_code_email()**: HTML email templates
-- **send_password_reset_code_email()**: Password reset emails
-- **validate_env()**: Startup environment validation
-
-### Core Services
-- **ResumeParserService**: Orchestrates resume parsing pipeline
-- **InterviewService**: Manages mock interview sessions and evaluation
-- **CreditService**: Manages credit accounts and eligibility
-- **RecommendationEngine**: Scores and ranks colleges/jobs
-
-### Security Utilities
-- **sanitizeInput()**: HTML escape for text
-- **sanitizeHTML()**: Tag removal
-- **sanitizeURL()**: Protocol validation
-- **sanitizeEmail()**: Email normalization
-- **sanitizeFilename()**: Path traversal prevention
-- **sanitizeObject()**: Recursive object sanitization
-
----
-
-**Last Updated**: March 12, 2026
-**Version**: 3.0.0 (PostgreSQL, no Firebase)
+**Last Updated**: June 2026  
+**Application Version**: 0.5.0 (Groq Parallel Extraction, Hybrid OCR-Vision, Quota Bypass & Portals)

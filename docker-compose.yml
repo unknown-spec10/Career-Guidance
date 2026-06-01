@@ -41,6 +41,9 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       FILE_STORAGE_PATH: /app/data/raw_files
       GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-false}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:5173}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
     ports:
       - "8000:8000"
     volumes:

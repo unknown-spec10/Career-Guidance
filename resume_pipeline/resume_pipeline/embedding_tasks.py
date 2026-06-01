@@ -15,8 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
-    """Parse resume, persist normalized output, and chain embedding->recommendation tasks."""
+    """Parse resume, persist normalized output, and chain embedding→recommendation tasks.
+    
+    Uses the redesigned async pipeline (run_parse_async) with a DB session for
+    two-pass skill normalization. Only triggers recommendations for AUTO_ACCEPT parses.
+    """
+    import asyncio
     from .resume.parse_service import ResumeParserService
+    from .constants import PARSE_STATUS_ACCEPTED, PARSE_STATUS_PENDING_REVIEW
 
     db = SessionLocal()
     try:
@@ -28,24 +34,66 @@ def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
         if not applicant:
             return {"ok": False, "reason": "applicant_not_found", "applicant_id": applicant_id}
 
+        # Mark parse as in-progress — ensure frontend polling returns 'processing' not 'not_started'
+        llm_record_existing = db.query(LLMParsedRecord).filter(
+            LLMParsedRecord.applicant_id == applicant.id
+        ).first()
+        if llm_record_existing:
+            llm_record_existing.parse_status = "processing"  # type: ignore
+            db.commit()
+        else:
+            # Create a minimal placeholder so polling endpoint shows 'processing'
+            # rather than 'not_started' for brand-new uploads
+            placeholder = LLMParsedRecord(
+                applicant_id=applicant.id,
+                raw_llm_output={},
+                normalized={},
+                parse_status="processing",
+                needs_review=False,
+            )
+            db.add(placeholder)
+            db.commit()
+            llm_record_existing = placeholder
+
         parser = ResumeParserService()
-        parsed_result = parser.run_parse(str(p), applicant_id)
+
+        # Run the new async pipeline in a fresh event loop (we're in a sync background thread)
+        parsed_result = asyncio.run(
+            parser.run_parse_async(str(p), applicant_id, db_session=db)
+        )
+
         normalized = parsed_result.get("normalized", {})
+        parse_status = parsed_result.get("parse_status", PARSE_STATUS_ACCEPTED)
+        unrecognized_skills = parsed_result.get("unrecognized_skills", [])
+        per_section_confidence = parsed_result.get("per_section_confidence", {})
 
-        personal_info = normalized.get("personal_info") or normalized.get("personal", {})
-        if personal_info.get("name"):
-            applicant.display_name = personal_info["name"]
-        if personal_info.get("location"):
-            location_parts = str(personal_info["location"]).split(",")
-            applicant.location_city = location_parts[0].strip() if location_parts else None  # type: ignore
-            applicant.location_state = location_parts[1].strip() if len(location_parts) > 1 else None  # type: ignore
+        # ── Taxonomy expansion: fire-and-forget in a daemon thread ──────────
+        # Skills that failed both fuzzy and semantic normalization are sent to
+        # SkillTaxonomyBuilder.append_new_skills() → Google Search enrichment
+        # → canonical_skills DB sync, so future parses can recognise them.
+        if unrecognized_skills:
+            from .background_tasks import expand_unrecognized_skills_background
+            expand_unrecognized_skills_background(unrecognized_skills)
 
-        llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant.id).first()
-        if llm_record:
-            llm_record.raw_llm_output = parsed_result  # type: ignore
-            llm_record.normalized = normalized  # type: ignore
-            llm_record.llm_provenance = parsed_result.get("llm_provenance", {})  # type: ignore
-            llm_record.needs_review = parsed_result.get("needs_review", False)
+        # Update applicant profile fields from contact section
+        personal_info = normalized.get("personal") or normalized.get("personal_info") or {}
+        if isinstance(personal_info, dict):
+            if personal_info.get("name"):
+                applicant.display_name = personal_info["name"]  # type: ignore
+            if personal_info.get("location"):
+                location_parts = str(personal_info["location"]).split(",")
+                applicant.location_city = location_parts[0].strip() if location_parts else None  # type: ignore
+                applicant.location_state = location_parts[1].strip() if len(location_parts) > 1 else None  # type: ignore
+
+        # Persist parsed record with all new v2 fields
+        if llm_record_existing:
+            llm_record_existing.raw_llm_output = parsed_result  # type: ignore
+            llm_record_existing.normalized = normalized  # type: ignore
+            llm_record_existing.llm_provenance = parsed_result.get("llm_provenance", {})  # type: ignore
+            llm_record_existing.needs_review = parsed_result.get("needs_review", False)  # type: ignore
+            llm_record_existing.parse_status = parse_status  # type: ignore
+            llm_record_existing.unrecognized_skills = unrecognized_skills  # type: ignore
+            llm_record_existing.per_section_confidence = per_section_confidence  # type: ignore
         else:
             db.add(
                 LLMParsedRecord(
@@ -54,34 +102,90 @@ def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
                     normalized=normalized,
                     llm_provenance=parsed_result.get("llm_provenance", {}),
                     needs_review=parsed_result.get("needs_review", False),
+                    parse_status=parse_status,
+                    unrecognized_skills=unrecognized_skills,
+                    per_section_confidence=per_section_confidence,
                 )
             )
 
         db.commit()
 
-        # Call resume embedding and recommendation sequential tasks synchronously in the background thread
-        logger.info("Generating embedding for applicant (db_id=%s) in background...", applicant.id)
-        embedding_res = generate_resume_embedding_task(applicant.id)
-        
-        logger.info("Generating recommendations for applicant (db_id=%s) in background...", applicant.id)
-        generate_recommendations_task(embedding_res, applicant.id)
+        # Create human review entry for NEEDS_REVIEW parses
+        if parse_status == PARSE_STATUS_PENDING_REVIEW:
+            _create_human_review_entry(db, applicant.id, per_section_confidence)
+
+        # Only chain embedding + recommendations for AUTO_ACCEPT quality data
+        if parse_status == PARSE_STATUS_ACCEPTED:
+            logger.info(
+                "AUTO_ACCEPT: generating embedding+recommendations for applicant (db_id=%s)",
+                applicant.id,
+            )
+            embedding_res = generate_resume_embedding_task(applicant.id)
+            generate_recommendations_task(embedding_res, applicant.id)
+        else:
+            logger.info(
+                "parse_status=%s for applicant (db_id=%s) — skipping recommendations",
+                parse_status,
+                applicant.id,
+            )
 
         logger.info(
-            "Parsed applicant %s (db_id=%s) and generated embedding & recommendations in background",
+            "Parsed applicant %s (db_id=%s) — status=%s, confidence=%.3f",
             applicant_id,
             applicant.id,
+            parse_status,
+            parsed_result.get("overall_confidence", 0.0),
         )
 
         return {
             "ok": True,
             "applicant_id": applicant_id,
             "db_applicant_id": applicant.id,
-            "status": "parsed",
-            "embedding_task_id": applicant_id,
-            "recommendation_task_id": applicant_id,
+            "status": parse_status,
+            "overall_confidence": parsed_result.get("overall_confidence", 0.0),
         }
     finally:
         db.close()
+
+
+def _create_human_review_entry(db, applicant_db_id: int, section_scores: dict) -> None:
+    """
+    Create a human_reviews entry flagging which sections had low confidence.
+    Used by NEEDS_REVIEW state machine output.
+    """
+    from .db import HumanReview
+    import json
+
+    low_sections = {
+        section: score
+        for section, score in section_scores.items()
+        if section != "overall" and isinstance(score, float) and score < 0.70
+    }
+
+    if not low_sections:
+        return
+
+    try:
+        review = HumanReview(
+            applicant_id=applicant_db_id,
+            field="parse_confidence",
+            original_value=json.dumps({"low_confidence_sections": low_sections}),
+            corrected_value=None,
+            reason=(
+                f"Auto-flagged by parse pipeline v2: "
+                f"low confidence sections: {', '.join(low_sections.keys())}"
+            ),
+        )
+        db.add(review)
+        db.commit()
+        logger.info(
+            "Created human review entry for applicant %s — low sections: %s",
+            applicant_db_id,
+            low_sections,
+        )
+    except Exception as e:
+        logger.error(f"Failed to create human review entry: {e}")
+        db.rollback()
 
 
 def generate_recommendations_task(

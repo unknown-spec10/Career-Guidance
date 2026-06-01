@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Coins, TrendingUp, Clock, AlertCircle, Zap, Award, X } from 'lucide-react'
 import api from '../config/api'
@@ -126,7 +127,7 @@ const CreditWidget = ({ compact = false }) => {
 
       {/* Details Modal */}
       <AnimatePresence>
-        {showModal && (
+        {showModal && createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={closeModal}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -258,7 +259,8 @@ const CreditWidget = ({ compact = false }) => {
                 </div>
               </div>
             </motion.div>
-          </div>
+          </div>,
+          document.body
         )}
       </AnimatePresence>
     </>

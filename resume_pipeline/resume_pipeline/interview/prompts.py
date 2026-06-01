@@ -1,9 +1,38 @@
-"""
-Interview System v2 — Groq Prompt Templates
-All prompts used for question generation, evaluation, study plan, and hints.
-"""
-
 GROQ_MODEL = "llama-3.3-70b-versatile"
+
+# ---------------------------------------------------------------------------
+# Interviewer Persona Configuration
+# ---------------------------------------------------------------------------
+PERSONA_PROMPTS = {
+    "Friendly Senior Engineer": {
+        "description": "Warm, collaborative, encouraging, and gives helpful hints.",
+        "generation_instruction": "Act as a supportive, friendly senior engineer. Frame questions constructively, reference the candidate's potential, and keep them motivated.",
+        "evaluation_instruction": "Evaluate with mild leniency. Focus on conceptual understanding and core developer capability. Provide constructive, warm, and encouraging feedback.",
+        "hint_instruction": "Provide a warm, gentle, and highly supportive nudge that guides them to the right path without directly giving away the solution.",
+        "study_plan_instruction": "Generate an encouraging, structured study plan focused on building confidence and bridging gaps constructively."
+    },
+    "Tough FAANG Interviewer": {
+        "description": "Minimal reactions, high technical bar, direct and strict scoring, no helpful hints.",
+        "generation_instruction": "Act as a strict, direct interviewer from a top-tier tech firm. Frame questions around deep optimization, edge cases, scalability, and strict algorithmic or architectural efficiency.",
+        "evaluation_instruction": "Evaluate with extreme strictness. High technical bar. Expect optimal time/space complexity, precise explanations, and complete coverage of edge cases. No leniency.",
+        "hint_instruction": "DO NOT provide any helpful tips or nudges. Output exactly the following phrase: 'No hints are provided in this mode. Let\\'s move to the next question.'",
+        "study_plan_instruction": "Provide highly direct, uncompromising feedback focusing strictly on optimal performance, deep architectural gaps, and high-scale technical execution."
+    },
+    "HR Behavioral Round": {
+        "description": "Focuses heavily on behavioral traits, soft skills, and the STAR methodology.",
+        "generation_instruction": "Act as an experienced HR professional. Frame questions around behavioral scenarios: team conflict, leadership, adaptability, learning from failure, and communication. Do not ask deep technical coding questions.",
+        "evaluation_instruction": "Evaluate based on behavioral maturity, emotional intelligence, clarity of communication, and specifically how well they structure their answer using the STAR (Situation, Task, Action, Result) method.",
+        "hint_instruction": "Remind the candidate to structure their behavioral answer using the STAR method (Situation, Task, Action, Result) and prompt them to highlight their personal contribution.",
+        "study_plan_instruction": "Focus the study plan on behavioral storytelling, communication skills, structured narrative practice, and STAR method formulation."
+    },
+    "Startup CTO": {
+        "description": "Pragmatic, product-focused, prioritizes shipping fast, simplicity, and trade-offs over complex theories.",
+        "generation_instruction": "Act as a fast-paced Startup CTO. Frame questions around pragmatism, rapid prototyping, feature delivery under tight deadlines, simple architecture choices, trade-offs, and practical execution over academic theory.",
+        "evaluation_instruction": "Evaluate pragmatically. Value real-world viability, execution speed, simple solutions, and solid cost/benefit trade-offs. De-prioritize academic perfection or unnecessary over-engineering.",
+        "hint_instruction": "Provide a pragmatic, business-oriented nudge focusing on MVP delivery, shipping speed, or simple solutions.",
+        "study_plan_instruction": "Focus the study plan on practical shipping skills, building MVPs, architectural simplification, and real-world system delivery."
+    }
+}
 
 # ---------------------------------------------------------------------------
 # System prompt — establishes the interviewer persona for conversation history
@@ -35,8 +64,6 @@ in the candidate's resume. Make the interview feel personalized.
 """
 
 # ---------------------------------------------------------------------------
-# Question generation — called once at session start
-# ---------------------------------------------------------------------------
 QUESTION_GENERATION_PROMPT = """Generate exactly {total_count} interview questions for this candidate.
 The first {num_questions} are the main interview questions.
 The remaining {reserve_count} are RESERVE questions used for adaptive difficulty (harder variants).
@@ -48,24 +75,37 @@ Interview type: {interview_type}
 Difficulty: {difficulty}
 Topic focus (if any): {topic_focus}
 
+Interviewer Persona Instructions (You MUST generate questions adhering strictly to this persona):
+{persona_instruction}
+
 {growth_context}
 
-Rules:
-- Each question must test a specific skill from the candidate's profile
-- Distribute questions across different skills (do not repeat the same skill more than twice in the main set)
-- Mix question types: conceptual explanation, practical scenario, problem-solving
-- Main questions: match the specified difficulty
-- Reserve questions: one difficulty level HARDER than specified (for adaptive difficulty)
-- If topic_focus is provided, emphasize that topic for at least 40% of the questions
+{past_questions}
+
+STRICT diversity rules:
+1. Deduplication: You MUST NOT generate any questions that are identical or highly similar to the list of previously asked questions provided above.
+2. No repeating concepts: No two questions may test the same specific topic or concept.
+3. Granular skill tags: Make the "skill_tag" highly granular using the format "Base Skill — Subtopic" (e.g. "React — performance optimization", "React — state management", "Python — decorators", "SQL — indexing"). Never return bare/generic skills like "React" or "Python".
+4. Vary question types: Integrate a rich, even distribution of:
+   - Conceptual (explain how X works)
+   - Scenario-based (you're building X, how would you...)
+   - Debugging (what's wrong with this code...)
+   - Trade-off (when would you choose X over Y...)
+   - System design (design a system that...)
+5. Distribute across skills: Max 2 questions per base skill.
+
+Main questions: match the specified difficulty.
+Reserve questions: one difficulty level HARDER than specified (for adaptive difficulty).
+If topic_focus is provided, emphasize that topic for at least 40% of the questions.
 
 Respond ONLY with a valid JSON array. No preamble, no markdown, no explanation.
 Format:
 [
   {{
     "question_text": "...",
-    "skill_tag": "React",
+    "skill_tag": "React — state management",
     "difficulty": "medium",
-    "expected_keywords": ["hooks", "state", "lifecycle", "functional component"],
+    "expected_keywords": ["useState", "reducer", "context", "re-render"],
     "question_type": "conceptual",
     "is_reserve": false
   }},
@@ -85,6 +125,9 @@ Skill being tested: {skill_tag}
 Expected key concepts: {expected_keywords}
 Candidate's answer: {answer_text}
 
+Interviewer Persona Instructions (Evaluate strictness, scoring and tone using these guidelines):
+{persona_instruction}
+
 Evaluate objectively. Consider:
 - Accuracy of technical content
 - Depth of understanding (not just surface-level)
@@ -95,8 +138,8 @@ Respond ONLY with valid JSON. No preamble.
 Format:
 {{
   "score": 0.75,
-  "feedback": "Good understanding of X. Missing discussion of Y and Z.",
-  "strength": "Clear explanation of the core mechanism",
+  "feedback": "...",
+  "strength": "...",
   "missing_concepts": ["concept1", "concept2"],
   "hint_for_next": null
 }}
@@ -116,6 +159,9 @@ Current mock interview results:
 - Current weak skills: {weak_skills}
 - Gaps identified: {missing_concepts_summary}
 
+Interviewer Persona Style Guidelines (Frame recommendation tone based on this):
+{persona_instruction}
+
 {history_context}
 
 For each weak skill, provide:
@@ -132,14 +178,135 @@ Use markdown formatting with clear headings per skill and per week.
 # ---------------------------------------------------------------------------
 # Mid-interview hint — streamed before next question on weak answer
 # ---------------------------------------------------------------------------
-HINT_PROMPT = """A candidate gave a weak answer in a mock interview. Write a brief, encouraging nudge
+HINT_PROMPT = """A candidate gave a weak answer in a mock interview. Write a brief nudge
 (1-2 sentences) that naturally transitions to the next question without revealing the answer.
 
 The candidate struggled with: {skill_tag}
 What they missed: {missing_concepts}
 
-The hint should feel like a real interviewer saying: "Interesting take. Before we move on,
-could you touch on [specific concept] specifically?" — natural, not condescending.
+Interviewer Persona Guidelines (You must write the nudge using this style):
+{persona_instruction}
 
-Respond with ONLY the hint text. No preamble, no labels, no JSON.
+Respond with ONLY the nudge text. No preamble, no labels, no JSON.
 """
+
+
+SKILL_GAP_ANALYSIS_PROMPT = """You are performing a skill gap analysis for a {experience_level} developer targeting a {target_role} role.
+
+Mock interview results:
+- Skill scores: {skill_scores_json}
+- Missing concepts identified: {missing_concepts}
+
+{history_context}
+
+For each weak or moderate skill (score below 0.70), produce a structured analysis.
+Respond ONLY with valid JSON. No markdown, no preamble, no explanation. Exact schema:
+
+{{
+  "skills": [
+    {{
+      "skill": "SkillName",
+      "score": 0.32,
+      "level": "Needs Work",
+      "why_it_matters": "One sentence: why this skill is critical for their target role specifically",
+      "key_gaps": ["concept1", "concept2", "concept3"],
+      "quick_win": "One specific, concrete action they can take in the next 3 days"
+    }}
+  ],
+  "overall_verdict": "2-3 sentence honest summary of where they stand and what to prioritise",
+  "priority_order": ["Skill1", "Skill2", "Skill3"]
+}}
+
+Rules:
+- Include all skills with score < 0.70
+- Level must be exactly one of: "Needs Work" (< 0.40), "Moderate" (0.40-0.59), "Good" (0.60-0.69)
+- key_gaps must come from the missing_concepts provided — do not invent new ones
+- why_it_matters must be specific to {target_role}, not generic
+- quick_win must be a concrete task (e.g. "Build a REST API endpoint using async/await in Python"), not vague advice
+"""
+
+
+LEARNING_PATH_QUERY_GENERATION_PROMPT = """Generate YouTube search queries for a student who needs to improve these skills: {weak_skills}
+Target role: {target_role}
+Experience level: {experience_level}
+Specific gaps to address: {missing_concepts}
+
+Respond ONLY with a valid JSON array. No markdown, no preamble.
+
+[
+  {{
+    "skill": "SkillName",
+    "query": "specific youtube search query here",
+    "priority": "high"
+  }}
+]
+
+Rules:
+- One query per skill
+- Queries must be specific enough to find a free full tutorial (e.g. "python async await tutorial for beginners 2024" not just "python tutorial")
+- priority is "high" for critical gaps, "medium" for moderate ones
+- Prefer queries that would find tutorials from freeCodeCamp, CS50, or similar educational channels
+"""
+
+
+CANDIDATE_INTELLIGENCE_PROMPT = """You are analyzing the technical mock interview performance of a candidate to build a living, cumulative model of their strengths, weaknesses, role readiness, and technical growth.
+
+Inputs provided:
+1. Candidate Resume details: {resume_context}
+2. Previous cumulative AI profile JSON (if any): {current_profile_json}
+3. The latest completed mock interview session results (questions asked, answer texts, AI-evaluated scores, strengths, weaknesses, and missing concepts): {latest_session_data}
+4. High-level summaries of all past sessions: {past_sessions_summary}
+
+Your objective:
+Generate an updated, cumulative candidate profile JSON. It MUST merge previous knowledge with the latest session data to paint a comprehensive, text-based and score-based trajectory of the candidate.
+
+Strictest Rules for JSON Output:
+1. Return ONLY valid JSON. No markdown boxes, no backticks (```json ... ```), no introductory or concluding text.
+2. In 'summary', write a high-level living model of the candidate that captures their actual persona: how they explain technical concepts (conceptual vs. system design), how they handle time pressure, their communication strengths, and how their style shifts under probing.
+3. In 'strengths', list 3-5 bulleted technical and behavioral strengths.
+4. In 'weaknesses', list 3-5 technical gaps or behavioral habits needing improvement (e.g. struggles under time pressure, lacks examples in code design).
+5. In 'answer_patterns', perform an in-depth behavioral analysis focusing on:
+   - 'explanation_depth': Does the candidate provide surface-level or detailed answers?
+   - 'example_coverage': Do they give concrete examples or keep answers abstract?
+   - 'time_pressure': How do they perform under pressure?
+   - 'context_assumption': Do they explain things clearly or assume too much pre-existing context?
+6. In 'technical_skills', map specific skills evaluated (e.g. "React", "Python", "System Design", "SQL"). For each:
+   - 'level': "Strong" | "Good" | "Moderate" | "Needs Work"
+   - 'score_history': list of average scores (0.0 to 1.0) across all sessions where it was tested, in chronological order.
+   - 'trend_summary': a one-sentence summary of their trajectory for this skill.
+7. In 'role_readiness', output a percentage score (0 to 100) indicating suitability for:
+   - 'junior': percentage
+   - 'mid_level': percentage
+   - 'senior': percentage
+   - 'verdict': a 1-2 sentence overall summary of which role tier they are ready for and where the gaps lie.
+8. Update 'sessions_count' (increment by 1 from the previous profile, or set to 1 if no previous profile).
+
+Expected JSON Structure:
+{{
+  "summary": "...",
+  "strengths": ["...", "...", "..."],
+  "weaknesses": ["...", "...", "..."],
+  "answer_patterns": {{
+    "explanation_depth": "...",
+    "example_coverage": "...",
+    "time_pressure": "...",
+    "context_assumption": "..."
+  }},
+  "technical_skills": {{
+    "SkillName": {{
+      "level": "...",
+      "score_history": [0.35, 0.62, 0.85],
+      "trend_summary": "..."
+    }}
+  }},
+  "role_readiness": {{
+    "junior": 85,
+    "mid_level": 60,
+    "senior": 25,
+    "verdict": "..."
+  }},
+  "sessions_count": 3,
+  "last_updated": "ISO-8601-datetime"
+}}
+"""
+

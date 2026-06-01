@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Briefcase, Building2, TrendingUp, Clock,
-  CheckCircle, XCircle, AlertTriangle, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2, RefreshCcw, X
+  CheckCircle, XCircle, AlertTriangle, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2, RefreshCcw, X, Coins, Bookmark, Award, Check
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -13,7 +13,6 @@ import { SkeletonStats, SkeletonCard } from '../components/SkeletonLoader'
 import useOptimistic from '../hooks/useOptimistic'
 import CreditWidget from '../components/CreditWidget'
 import ApplicationTracker from '../components/ApplicationTracker'
-import ProfileHealth from '../components/ProfileHealth'
 
 const normalizeMatchScore = (rawScore) => {
   const numericScore = Number(rawScore)
@@ -65,6 +64,14 @@ export default function StudentDashboard() {
   const [applicantId, setApplicantId] = useState(null)
   const [noApplicantProfile, setNoApplicantProfile] = useState(false)
   const [recalcLoading, setRecalcLoading] = useState(false)
+
+  // Cooldown & Bypass State
+  const [cooldownActive, setCooldownActive] = useState(false)
+  const [cooldownExpiresAt, setCooldownExpiresAt] = useState(null)
+  const [cooldownTimeLeft, setCooldownTimeLeft] = useState('')
+  const [bypassCost, setBypassCost] = useState(5)
+  const [showBypassModal, setShowBypassModal] = useState(false)
+  const [creditsBalance, setCreditsBalance] = useState(null)
 
   // Modal States
   const [easyApplyOpen, setEasyApplyOpen] = useState(false)
@@ -206,7 +213,25 @@ export default function StudentDashboard() {
         console.log('📊 Recommendations API response:', recRes.data)
         console.log('📊 Job recommendations count:', recRes.data.job_recommendations?.length || 0)
         setRecommendations(recRes.data.job_recommendations || [])
+        
+        if (recRes.data.cooldown_active) {
+          setCooldownActive(true)
+          setCooldownExpiresAt(recRes.data.cooldown_expires_at)
+          setBypassCost(recRes.data.bypass_cost || 5)
+        } else {
+          setCooldownActive(false)
+          setCooldownExpiresAt(null)
+        }
+        
         setNoApplicantProfile(false)
+      }
+
+      // Credit Balance
+      try {
+        const balanceRes = await api.get('/api/credits/balance')
+        setCreditsBalance(balanceRes.data?.current_credits ?? 0)
+      } catch (creditsErr) {
+        console.error('Failed to load credit balance:', creditsErr)
       }
     } catch (err) {
       console.error(err)
@@ -220,20 +245,91 @@ export default function StudentDashboard() {
     fetchAll()
   }, [])
 
-  const handleRecomputeRecommendations = async () => {
+  // Cooldown Countdown Timer
+  useEffect(() => {
+    if (!cooldownActive || !cooldownExpiresAt) {
+      setCooldownTimeLeft('')
+      return undefined
+    }
+
+    const calculateTimeLeft = () => {
+      const difference = +new Date(cooldownExpiresAt) - +new Date()
+      if (difference <= 0) {
+        setCooldownActive(false)
+        setCooldownExpiresAt(null)
+        setCooldownTimeLeft('')
+        return
+      }
+
+      const hours = Math.floor(difference / (1000 * 60 * 60))
+      const minutes = Math.floor((difference / 1000 / 60) % 60)
+      const seconds = Math.floor((difference / 1000) % 60)
+
+      setCooldownTimeLeft(
+        `${hours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`
+      )
+    }
+
+    calculateTimeLeft()
+    const interval = setInterval(calculateTimeLeft, 1000)
+    return () => clearInterval(interval)
+  }, [cooldownActive, cooldownExpiresAt])
+
+  const handleRecomputeRecommendations = async (bypass = false) => {
     if (!applicantId) return
+
+    if (cooldownActive && !bypass) {
+      try {
+        const balanceRes = await api.get('/api/credits/balance')
+        setCreditsBalance(balanceRes.data?.current_credits ?? 0)
+      } catch (e) {}
+      setShowBypassModal(true)
+      return
+    }
+
     try {
       setRecalcLoading(true)
-      await api.post(`/api/applicant/${applicantId}/generate-recommendations`)
-      await fetchAll()
+      const url = `/api/applicant/${applicantId}/generate-recommendations${bypass ? '?bypass_cooldown=true' : ''}`
+      const response = await api.post(url)
+      
       toast.success('Recommendations updated')
+      
+      if (response.data?.cooldown_active) {
+        setCooldownActive(true)
+        setCooldownExpiresAt(response.data.cooldown_expires_at)
+      } else {
+        setCooldownActive(false)
+        setCooldownExpiresAt(null)
+      }
+      
+      if (response.data?.credits_left !== undefined) {
+        setCreditsBalance(response.data.credits_left)
+      }
+      
+      setShowBypassModal(false)
+      
+      await fetchAll()
+      
       // Scroll to recommendations after refresh
       if (recommendationsRef.current) {
         recommendationsRef.current.scrollIntoView({ behavior: 'smooth' })
       }
     } catch (err) {
-      const detail = err?.response?.data?.detail || 'Failed to regenerate recommendations'
-      toast.error(detail)
+      const status = err.response?.status
+      const data = err.response?.data
+      
+      if (status === 400 && data?.status === 'cooldown') {
+        setCooldownActive(true)
+        setCooldownExpiresAt(data.cooldown_expires_at)
+        setBypassCost(data.bypass_cost || 5)
+        setShowBypassModal(true)
+        toast.info('Recommendations are in cooldown. Spend credits to refresh now!')
+      } else if (status === 402) {
+        toast.error(`Insufficient credits: ${data?.detail || 'Upgrade or wait for refill.'}`)
+      } else {
+        const detail = data?.detail || err.message || 'Failed to regenerate recommendations'
+        toast.error(detail)
+      }
     } finally {
       setRecalcLoading(false)
     }
@@ -247,6 +343,46 @@ export default function StudentDashboard() {
   } = useOptimistic(recommendations, setRecommendations)
 
   // --- Action Handlers ---
+  const toggleSaveJob = async (recId, currentSavedState) => {
+    try {
+      // Optimistic update
+      setRecommendations(prev => prev.map(r => r.id === recId ? { ...r, is_saved: !currentSavedState } : r))
+      await api.patch(`/api/job-recommendation/${recId}/save`, { is_saved: !currentSavedState })
+      toast.success(!currentSavedState ? 'Job saved to tracker!' : 'Job removed from tracker.')
+    } catch (err) {
+      console.error('Failed to toggle save state:', err)
+      toast.error('Failed to update saved status.')
+      // Rollback
+      setRecommendations(prev => prev.map(r => r.id === recId ? { ...r, is_saved: currentSavedState } : r))
+    }
+  }
+
+  const updateTrackStatus = async (jobId, recId, newStatus) => {
+    const previousRecs = [...recommendations]
+    try {
+      // Optimistically update recommendations local status
+      setRecommendations(prev => prev.map(r => {
+        if (r.id === recId) {
+          return {
+            ...r,
+            application_status: newStatus,
+            status: newStatus === 'applied' ? 'applied' : r.status
+          }
+        }
+        return r
+      }))
+      
+      await api.patch(`/api/student/jobs/${jobId}/track`, { status: newStatus })
+      toast.success(`Job tracker updated to ${newStatus === 'interviewing' ? 'Interview Scheduled' : newStatus === 'offered' ? 'Offer Received' : 'Applied'}!`)
+      fetchAll() // Reload to keep everything completely sync
+    } catch (err) {
+      console.error('Failed to update tracker status:', err)
+      toast.error('Failed to update job tracking status.')
+      // Rollback
+      setRecommendations(previousRecs)
+    }
+  }
+
   const openEasyApply = (rec) => {
     setEasyApplyRec(rec)
     setEasyApplyError(null)
@@ -258,34 +394,7 @@ export default function StudentDashboard() {
     setDetailsOpen(true)
   }
 
-  const generateLearningPath = async (rec) => {
-    const jobId = rec?.job?.id || rec?.job_id
-    if (!jobId) return
-
-    setLearningPathState({ loadingId: jobId, error: null, success: null })
-    try {
-      const response = await api.post(`/api/jobs/${jobId}/learning-path`)
-      const pathId = response?.data?.id
-      const alreadyExists = response?.data?.already_exists
-      setLearningPathState({
-        loadingId: null,
-        error: null,
-        success: { jobId, pathId, alreadyExists: !!alreadyExists }
-      })
-      toast.success(alreadyExists ? 'Learning path already exists for this job' : 'Learning path generated (2 credits used)')
-      // Refresh credit balance
-      fetchAll()
-    } catch (err) {
-      const detail = err?.response?.data?.detail || 'Failed to generate learning path'
-      const status = err?.response?.status
-      if (status === 402) {
-        toast.error('Insufficient credits. ' + detail)
-      } else {
-        toast.error(detail)
-      }
-      setLearningPathState({ loadingId: null, error: detail, success: null })
-    }
-  }
+  // Learning-path generation feature removed; no handler needed
 
   const submitEasyApply = async (e) => {
     e.preventDefault()
@@ -376,26 +485,6 @@ export default function StudentDashboard() {
             </div>
 
             <div className="flex flex-col gap-4 lg:items-end lg:justify-end lg:min-w-[360px]">
-              <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-                <ProfileHealth profileData={studentProfile} />
-
-                <button
-                  onClick={() => navigate('/dashboard/interview')}
-                  className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-xl hover:from-primary-700 hover:to-indigo-700 transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 active:scale-95 duration-200"
-                >
-                  <Zap className="w-5 h-5 text-white animate-pulse" />
-                  <span className="font-bold text-white">Start Practice</span>
-                </button>
-
-                <button
-                  onClick={() => navigate('/dashboard/learning-paths')}
-                  className="inline-flex items-center gap-2 px-5 py-3 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 transition-all text-slate-700 shadow-sm active:scale-95 duration-200"
-                >
-                  <BookOpen className="w-5 h-5 text-slate-500" />
-                  <span className="font-bold">Learning Paths</span>
-                </button>
-              </div>
-
               <div className="grid w-full gap-3 md:grid-cols-2">
                 <CreditWidget compact />
                 <ApplicationTracker jobApps={jobApplications} compact />
@@ -426,24 +515,38 @@ export default function StudentDashboard() {
               Recommended for You
             </h2>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigate('/jobs')}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm text-sm"
-              >
-                View All Jobs
-              </button>
-              <button
-                onClick={handleRecomputeRecommendations}
-                disabled={recalcLoading}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border font-semibold transition-all text-sm shadow-sm ${
-                  recalcLoading
-                    ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
-                }`}
-              >
-                <RefreshCcw className={`w-4 h-4 ${recalcLoading ? 'animate-spin' : ''}`} />
-                <span>{recalcLoading ? 'Updating...' : 'Re-run AI'}</span>
-              </button>
+              {cooldownActive ? (
+                <button
+                  onClick={() => handleRecomputeRecommendations(false)}
+                  disabled={recalcLoading}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all text-sm shadow-md border duration-200 active:scale-95 ${
+                    recalcLoading
+                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600 border-amber-400 text-white shadow-amber-500/20 hover:shadow-amber-500/30'
+                  }`}
+                >
+                  <Zap className={`w-4 h-4 text-white ${recalcLoading ? '' : 'animate-bounce'}`} />
+                  <span>{recalcLoading ? 'Updating...' : `Refresh Now (${bypassCost}c)`}</span>
+                  {cooldownTimeLeft && (
+                    <span className="ml-1 text-[10px] font-medium bg-black/25 px-2 py-0.5 rounded-full font-mono text-amber-100">
+                      {cooldownTimeLeft}
+                    </span>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleRecomputeRecommendations(false)}
+                  disabled={recalcLoading}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border font-semibold transition-all text-sm shadow-sm ${
+                    recalcLoading
+                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  <RefreshCcw className={`w-4 h-4 ${recalcLoading ? 'animate-spin' : ''}`} />
+                  <span>{recalcLoading ? 'Updating...' : 'Re-run AI'}</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -467,31 +570,44 @@ export default function StudentDashboard() {
                     <h3 className="font-bold text-lg leading-tight mb-1 text-slate-900 group-hover:text-primary-900 transition-colors">{rec.job?.title || rec.title}</h3>
                     <p className="text-sm font-semibold text-slate-500">{rec.job?.company || rec.company}</p>
                   </div>
-                  {(() => {
-                    const rawScore = rec.match_score ?? rec.match_percentage ?? rec.score ?? null
-                    const score = normalizeMatchScore(rawScore)
-                    if (score === null || score === 0) return null
-                    const percentage = Math.round(score)
-                    
-                    let bgGradient = 'from-slate-400 to-slate-500'
-                    let label = 'Weak'
-                    if (percentage >= 85) {
-                      bgGradient = 'from-emerald-500 to-teal-500'
-                      label = 'Good'
-                    } else if (percentage >= 70) {
-                      bgGradient = 'from-primary-500 to-indigo-500'
-                      label = 'Good'
-                    } else if (percentage >= 55) {
-                      bgGradient = 'from-amber-500 to-orange-500'
-                      label = 'Avg'
-                    }
-                    
-                    return (
-                      <div className={`bg-gradient-to-r ${bgGradient} text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase shadow-sm flex-shrink-0`}>
-                        {label}
-                      </div>
-                    )
-                  })()}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => toggleSaveJob(rec.id, rec.is_saved)}
+                      className={`p-1.5 rounded-lg border transition-all ${
+                        rec.is_saved 
+                          ? 'bg-amber-50 border-amber-200 text-amber-500 shadow-sm' 
+                          : 'bg-slate-50/50 border-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'
+                      }`}
+                      title={rec.is_saved ? 'Unsave job' : 'Save job'}
+                    >
+                      <Bookmark className="w-4 h-4" style={{ fill: rec.is_saved ? 'currentColor' : 'none' }} />
+                    </button>
+                    {(() => {
+                      const rawScore = rec.match_score ?? rec.match_percentage ?? rec.score ?? null
+                      const score = normalizeMatchScore(rawScore)
+                      if (score === null || score === 0) return null
+                      const percentage = Math.round(score)
+                      
+                      let bgGradient = 'from-slate-400 to-slate-500'
+                      let label = 'Weak'
+                      if (percentage >= 85) {
+                        bgGradient = 'from-emerald-500 to-teal-500'
+                        label = 'Good'
+                      } else if (percentage >= 70) {
+                        bgGradient = 'from-primary-500 to-indigo-500'
+                        label = 'Good'
+                      } else if (percentage >= 55) {
+                        bgGradient = 'from-amber-500 to-orange-500'
+                        label = 'Avg'
+                      }
+                      
+                      return (
+                        <div className={`bg-gradient-to-r ${bgGradient} text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase shadow-sm flex-shrink-0`}>
+                          {label}
+                        </div>
+                      )
+                    })()}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
@@ -502,7 +618,7 @@ export default function StudentDashboard() {
                   <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg text-slate-600 capitalize font-medium">
                     {rec.job?.work_type || 'Full-time'}
                   </span>
-                  {rec.status === 'applied' && (
+                  {(rec.status === 'applied' || rec.application_status === 'applied') && (
                     <span className="text-xs bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg text-emerald-700 font-bold flex items-center gap-1">
                       <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
                       Applied
@@ -520,50 +636,157 @@ export default function StudentDashboard() {
                   </div>
                 )}
 
+                {/* Stepper tracker */}
+                {(() => {
+                  const getTrackerStep = (rec) => {
+                    const status = rec.application_status;
+                    if (status === 'offered') return 3;
+                    if (status === 'interviewing') return 2;
+                    if (status === 'applied' || status === 'under_review' || status === 'shortlisted') return 1;
+                    if (rec.is_saved) return 0;
+                    return -1;
+                  };
+                  const activeStep = getTrackerStep(rec);
+                  const steps = ['Saved', 'Applied', 'Interview', 'Offered'];
+                  return (
+                    <div className="mb-4 bg-slate-50/50 border border-slate-100/80 rounded-2xl p-3">
+                      <div className="flex justify-between items-center mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        <span>Tracker Workflow</span>
+                        <span className="text-slate-600 font-extrabold text-[9px] lowercase first-letter:uppercase">
+                          {activeStep === 3 ? 'Offer Received! 🎉' : activeStep === 2 ? 'Interview Scheduled 🗓️' : activeStep === 1 ? 'Applied ✉️' : activeStep === 0 ? 'Saved ⭐️' : 'Not Tracked'}
+                        </span>
+                      </div>
+                      <div className="relative flex justify-between items-center w-full mt-2 px-2 pb-1">
+                        {/* Progress bar line */}
+                        <div className="absolute left-4 right-4 h-0.5 bg-slate-200 top-1/2 -translate-y-1/2 z-0" />
+                        <div 
+                          className="absolute left-4 h-0.5 bg-gradient-to-r from-primary-500 to-indigo-500 top-1/2 -translate-y-1/2 z-0 transition-all duration-500" 
+                          style={{ 
+                            width: activeStep >= 0 
+                              ? `${(activeStep / (steps.length - 1)) * 88}%` 
+                              : '0%' 
+                          }} 
+                        />
+                        
+                        {steps.map((step, sIdx) => {
+                          const isCompleted = activeStep >= sIdx;
+                          return (
+                            <div key={sIdx} className="flex flex-col items-center z-10 relative">
+                              <div 
+                                className={`w-5 h-5 rounded-full flex items-center justify-center border transition-all duration-300 ${
+                                  isCompleted 
+                                    ? 'bg-gradient-to-r from-primary-600 to-indigo-600 border-primary-500 text-white shadow-sm shadow-primary-500/10' 
+                                    : 'bg-white border-slate-200 text-slate-400'
+                                }`}
+                              >
+                                {isCompleted ? (
+                                  <Check className="w-2.5 h-2.5 text-white" />
+                                ) : (
+                                  <span className="text-[8px] font-extrabold">{sIdx + 1}</span>
+                                )}
+                              </div>
+                              <span className={`text-[8px] mt-1 font-extrabold ${isCompleted ? 'text-slate-800' : 'text-slate-400'}`}>{step}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <div className="text-xs text-slate-500 leading-relaxed mb-6 bg-slate-50/50 rounded-xl p-3 border border-slate-100">
                   {rec.explanation || rec.explain?.reasons?.[0] || 'Matched based on your profile strength and skill overlap.'}
                 </div>
 
-                <div className="mt-auto pt-4 border-t border-slate-100 flex gap-2">
-                  <button
-                    onClick={() => openDetails(rec)}
-                    className="flex-1 py-2 px-3 text-xs font-bold border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-700 active:scale-95 duration-200"
-                  >
-                    Details
-                  </button>
-                  <button
-                    onClick={() => generateLearningPath(rec)}
-                    disabled={
-                      learningPathState.loadingId === (rec.job?.id || rec.job_id) ||
-                      (learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.success?.alreadyExists)
-                    }
-                    className="flex-1 py-2 px-3 text-xs font-bold rounded-xl border border-primary-200 text-primary-700 hover:bg-primary-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1 active:scale-95 duration-200"
-                  >
-                    {learningPathState.loadingId === (rec.job?.id || rec.job_id) ? (
-                      <span className="flex items-center justify-center gap-1">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        Generating...
-                      </span>
-                    ) : (
-                      (learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.success?.alreadyExists)
-                        ? 'Path Generated'
-                        : <>
-                            <BookOpen className="w-3.5 h-3.5 text-primary-600" />
-                            <span>Path (2c)</span>
-                          </>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => openEasyApply(rec)}
-                    disabled={rec.status === 'applied' || rec.status === 'accepted'}
-                    className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-all active:scale-95 duration-200 ${
-                      rec.status === 'applied'
-                        ? 'bg-emerald-50 text-emerald-700 cursor-not-allowed border border-emerald-200 flex items-center justify-center gap-1'
-                        : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm shadow-primary-500/10'
-                    }`}
-                  >
-                    {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
-                  </button>
+                <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
+                  <div className="flex gap-2 w-full">
+                    <button
+                      onClick={() => openDetails(rec)}
+                      className="flex-1 py-2 px-3 text-xs font-bold border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-700 active:scale-95 duration-200"
+                    >
+                      Details
+                    </button>
+                    
+                    {(() => {
+                      const getTrackerStep = (rec) => {
+                        const status = rec.application_status;
+                        if (status === 'offered') return 3;
+                        if (status === 'interviewing') return 2;
+                        if (status === 'applied' || status === 'under_review' || status === 'shortlisted') return 1;
+                        if (rec.is_saved) return 0;
+                        return -1;
+                      };
+                      const activeStep = getTrackerStep(rec);
+                      
+                      // Offered (Phase 3)
+                      if (activeStep === 3) {
+                        return (
+                          <div className="flex-1 py-2 px-3 text-xs font-extrabold rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200 text-center flex items-center justify-center gap-1">
+                            <CheckCircle className="w-4 h-4 text-emerald-600 animate-pulse" />
+                            Offer Received!
+                          </div>
+                        );
+                      }
+                      
+                      // Interviewing (Phase 2)
+                      if (activeStep === 2) {
+                        return (
+                          <button
+                            onClick={() => updateTrackStatus(rec.job?.id || rec.job_id, rec.id, 'offered')}
+                            className="flex-1 py-2 px-3 text-xs font-extrabold rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-sm shadow-emerald-500/10 active:scale-95 duration-200"
+                          >
+                            🎉 Got Offer
+                          </button>
+                        );
+                      }
+                      
+                      // Applied (Phase 1)
+                      if (activeStep === 1) {
+                        return (
+                          <button
+                            onClick={() => updateTrackStatus(rec.job?.id || rec.job_id, rec.id, 'interviewing')}
+                            className="flex-1 py-2 px-3 text-xs font-extrabold rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white shadow-sm shadow-indigo-500/10 active:scale-95 duration-200"
+                          >
+                            🗓️ Interviewed
+                          </button>
+                        );
+                      }
+                      
+                      // Saved or none
+                      return (
+                        <button
+                          onClick={() => openEasyApply(rec)}
+                          disabled={rec.status === 'applied' || rec.status === 'accepted'}
+                          className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-all active:scale-95 duration-200 ${
+                            rec.status === 'applied'
+                              ? 'bg-emerald-50 text-emerald-700 cursor-not-allowed border border-emerald-200 flex items-center justify-center gap-1'
+                              : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm shadow-primary-500/10'
+                          }`}
+                        >
+                          {rec.status === 'applied' ? 'Applied' : 'Easy Apply'}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                  
+                  {(() => {
+                    const getTrackerStep = (rec) => {
+                      const status = rec.application_status;
+                      if (status === 'offered') return 3;
+                      if (status === 'interviewing') return 2;
+                      if (status === 'applied' || status === 'under_review' || status === 'shortlisted') return 1;
+                      if (rec.is_saved) return 0;
+                      return -1;
+                    };
+                    return getTrackerStep(rec) <= 0 && (
+                      <button
+                        onClick={() => updateTrackStatus(rec.job?.id || rec.job_id, rec.id, 'applied')}
+                        className="text-[9px] text-primary-600 font-extrabold hover:underline self-center pt-0.5"
+                      >
+                        Applied outside portal? Mark as Applied
+                      </button>
+                    );
+                  })()}
                 </div>
 
                 {learningPathState.success?.jobId === (rec.job?.id || rec.job_id) && learningPathState.loadingId === null && (
@@ -590,11 +813,32 @@ export default function StudentDashboard() {
             </p>
             <div className="mt-5 flex items-center justify-center gap-3">
               <button
-                onClick={handleRecomputeRecommendations}
+                onClick={() => handleRecomputeRecommendations(false)}
                 disabled={recalcLoading}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-60 shadow-sm"
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all text-sm shadow-md border duration-200 active:scale-95 ${
+                  recalcLoading
+                    ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                    : cooldownActive
+                    ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600 border-amber-400 text-white shadow-amber-500/20'
+                    : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm border-primary-500'
+                }`}
               >
-                {recalcLoading ? 'Updating...' : 'Re-run Recommendations'}
+                {cooldownActive ? (
+                  <>
+                    <Zap className="w-4 h-4 text-white animate-bounce" />
+                    <span>{recalcLoading ? 'Updating...' : `Refresh Now (${bypassCost} Credits)`}</span>
+                    {cooldownTimeLeft && (
+                      <span className="ml-1 text-[10px] font-medium bg-black/25 px-2 py-0.5 rounded-full font-mono text-amber-100">
+                        {cooldownTimeLeft}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <RefreshCcw className={`w-4 h-4 ${recalcLoading ? 'animate-spin' : ''}`} />
+                    <span>{recalcLoading ? 'Updating...' : 'Re-run Recommendations'}</span>
+                  </>
+                )}
               </button>
               <button
                 onClick={() => navigate('/dashboard/learning-paths')}
@@ -604,6 +848,118 @@ export default function StudentDashboard() {
                 View Paths
               </button>
             </div>
+          </div>
+        )}
+
+        {/* --- MODALS --- */}
+
+        {/* Cooldown Bypass Confirmation Modal */}
+        {showBypassModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="w-full max-w-md rounded-3xl border border-slate-100 bg-white/95 backdrop-blur shadow-2xl p-6 relative overflow-hidden"
+            >
+              {/* Gold gradient top glow */}
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+              
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl p-2.5 bg-amber-50 text-amber-600 border border-amber-100 shadow-sm">
+                    <Zap className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-xl text-slate-900">Instant AI Refresh</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Bypass active recommendation cooldown</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowBypassModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 my-4">
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    AI recommendations utilize complex multi-tiered embedding matching and RAG pipelines. To cover computational limits, refreshes are <strong className="text-slate-900 font-bold">free once every 24 hours</strong>.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex flex-col justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cooldown Left</span>
+                    <span className="text-base font-extrabold text-amber-600 mt-1 font-mono">
+                      {cooldownTimeLeft || "calculating..."}
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex flex-col justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Balance</span>
+                    <span className="text-base font-extrabold text-slate-800 mt-1">
+                      {creditsBalance !== null ? `${creditsBalance} Credits` : "Loading..."}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl flex items-center justify-between shadow-sm">
+                  <div className="flex items-center space-x-2">
+                    <Coins className="w-5 h-5 text-amber-500" />
+                    <div>
+                      <div className="text-xs font-bold text-amber-900">Bypass Refresh Cost</div>
+                      <div className="text-[10px] text-slate-400 font-semibold">Instant recomputation</div>
+                    </div>
+                  </div>
+                  <div className="text-lg font-black text-amber-600">
+                    -{bypassCost} Credits
+                  </div>
+                </div>
+
+                {creditsBalance !== null && creditsBalance < bypassCost && (
+                  <div className="p-3 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-rose-500 mt-0.5 flex-shrink-0 animate-bounce" />
+                    <div>
+                      <h4 className="text-xs font-bold text-rose-800">Insufficient Credits</h4>
+                      <p className="text-[10px] text-rose-700 mt-0.5 leading-normal">
+                        You need at least {bypassCost} credits to bypass this cooldown. Please wait for the cooldown or weekly refill to refresh.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={() => setShowBypassModal(false)}
+                  className="flex-1 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-bold text-slate-700 text-sm active:scale-95 duration-200"
+                >
+                  Wait for Cooldown
+                </button>
+                <button
+                  disabled={recalcLoading || (creditsBalance !== null && creditsBalance < bypassCost)}
+                  onClick={() => handleRecomputeRecommendations(true)}
+                  className={`flex-1 py-3 text-sm font-bold text-white rounded-xl shadow-md border duration-200 active:scale-95 flex items-center justify-center gap-1.5 ${
+                    recalcLoading || (creditsBalance !== null && creditsBalance < bypassCost)
+                      ? 'bg-slate-200 border-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                      : 'bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600 border-amber-400 shadow-amber-500/10'
+                  }`}
+                >
+                  {recalcLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Coins className="w-4 h-4 text-white" />
+                      <span>Spend {bypassCost} Credits</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
           </div>
         )}
 

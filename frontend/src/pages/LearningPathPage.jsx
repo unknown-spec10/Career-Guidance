@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../config/api'
-import { BookOpen, ExternalLink, Code, Video, FileText, Award, Target, ArrowRight } from 'lucide-react'
+import { BookOpen, ExternalLink, Code, Video, FileText, Award, Target, ArrowRight, X, Check } from 'lucide-react'
+import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
 
 const LearningPathPage = () => {
   const { pathId } = useParams()
   const navigate = useNavigate()
   const [learningPath, setLearningPath] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [activeLightboxVideo, setActiveLightboxVideo] = useState(null)
+  const toast = useToast()
 
   useEffect(() => {
     fetchLearningPath()
@@ -20,10 +24,21 @@ const LearningPathPage = () => {
       setLearningPath(response.data)
     } catch (error) {
       console.error('Error fetching learning path:', error)
-      alert('Failed to load learning path')
+      toast.error('Failed to load learning path')
       navigate('/dashboard/interview')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleMarkCompleted = async () => {
+    try {
+      const response = await api.post(`/api/learning-paths/${pathId}/complete`)
+      setLearningPath(response.data)
+      toast.success("Congratulations! Learning path marked as completed.")
+    } catch (error) {
+      console.error('Error completing learning path:', error)
+      toast.error('Failed to mark learning path as completed.')
     }
   }
 
@@ -179,16 +194,47 @@ const LearningPathPage = () => {
                           {item.description}
                         </p>
 
-                        {(item.url || item.platform) && (
-                          <a
-                            href={item.url || '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`inline-flex items-center px-4 py-2 ${colorScheme.circle} text-white rounded-lg text-sm font-medium hover:shadow-lg transition-shadow`}
+                        {/* YouTube Player or Thumbnail Preview */}
+                        {item.type === 'course' && item.video_id && (
+                          <div className="mb-4">
+                            <div
+                              className="relative group/thumb cursor-pointer overflow-hidden rounded-lg shadow-md"
+                              onClick={() => setActiveLightboxVideo(item)}
+                            >
+                              <img
+                                src={item.thumbnail_url || item.thumbnail || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=500'}
+                                alt={item.title}
+                                className="w-full h-40 object-cover group-hover/thumb:scale-105 transition-transform duration-300"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/40 group-hover/thumb:bg-black/50 transition-colors">
+                                <div className="bg-white/90 text-indigo-600 rounded-full p-3 shadow-lg group-hover/thumb:scale-110 transition-transform">
+                                  <Video size={24} className="fill-current" />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {item.type === 'course' ? (
+                          <button
+                            onClick={() => setActiveLightboxVideo(item)}
+                            className={`inline-flex items-center px-4 py-2 ${colorScheme.circle} text-white rounded-lg text-sm font-medium hover:shadow-lg transition-all w-full justify-center`}
                           >
-                            {item.type === 'course' ? 'Start Course' : item.type === 'project' ? 'View Project' : 'Solve Problem'}
-                            <ExternalLink size={14} className="ml-2" />
-                          </a>
+                            Play Video
+                            <Video size={14} className="ml-2" />
+                          </button>
+                        ) : (
+                          (item.url || item.platform) && (
+                            <a
+                              href={item.url || '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`inline-flex items-center px-4 py-2 ${colorScheme.circle} text-white rounded-lg text-sm font-medium hover:shadow-lg transition-shadow w-full justify-center`}
+                            >
+                              {item.type === 'project' ? 'View Project' : 'Solve Problem'}
+                              <ExternalLink size={14} className="ml-2" />
+                            </a>
+                          )
                         )}
                       </div>
                     </div>
@@ -257,6 +303,15 @@ const LearningPathPage = () => {
           >
             Back to Dashboard
           </button>
+          {learningPath?.status !== 'completed' && (
+            <button
+              onClick={handleMarkCompleted}
+              className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Check size={18} />
+              Mark Finished
+            </button>
+          )}
           <button
             onClick={() => navigate('/jobs')}
             className="px-8 py-3 border border-indigo-600 text-indigo-600 hover:bg-indigo-50 font-medium rounded-lg transition-colors"
@@ -264,6 +319,27 @@ const LearningPathPage = () => {
             Explore More Opportunities
           </button>
         </div>
+        {/* Full Screen Theater Lightbox Modal */}
+        {activeLightboxVideo && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 sm:p-8 animate-in fade-in duration-200">
+            <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col aspect-video animate-in zoom-in-95 duration-200">
+              <button
+                onClick={() => setActiveLightboxVideo(null)}
+                className="absolute top-4 right-4 z-10 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/50 hover:border-slate-700 transition-all"
+              >
+                <X size={20} />
+              </button>
+              <iframe
+                src={`https://www.youtube.com/embed/${activeLightboxVideo.video_id}?autoplay=1`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                title={activeLightboxVideo.title}
+                className="w-full h-full border-0"
+              />
+            </div>
+          </div>
+        )}
+        <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       </div>
     </div>
   )

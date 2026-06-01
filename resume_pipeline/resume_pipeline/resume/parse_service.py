@@ -1,294 +1,580 @@
-import json
-from pathlib import Path
-from typing import Tuple
-import zipfile
-import xml.etree.ElementTree as ET
-from jsonschema import validate, ValidationError  # type: ignore
+"""
+parse_service.py
+----------------
+Redesigned resume parse pipeline (v2.0).
+
+Architecture:
+  Layer 1: FileTypeRouter — detects resume type, routes to pdfplumber or Gemini Vision
+  Layer 2: Decomposed concurrent LLM extraction — 6 section-scoped prompts via asyncio.gather()
+  Layer 3: Two-pass skill normalization — rapidfuzz → pgvector cosine similarity
+  Layer 4: Heuristic confidence scoring + state machine (AUTO_ACCEPT / NEEDS_REVIEW / RE_PARSE)
+
+The pipeline runs entirely as a FastAPI BackgroundTask and is non-blocking from the API.
+
+Public API:
+    service = ResumeParserService()
+    result = await service.run_parse_async(applicant_root, applicant_id, db_session)
+"""
+
+import asyncio
 import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from ..config import settings
+from ..constants import (
+    PARSE_AUTO_ACCEPT_THRESHOLD,
+    PARSE_REVIEW_THRESHOLD,
+    PARSE_STATUS_ACCEPTED,
+    PARSE_STATUS_FAILED,
+    PARSE_STATUS_PENDING_REVIEW,
+    SECTION_RETRY_THRESHOLD,
+)
+from ..core.interfaces import ParserService
+from .confidence_scorer import ConfidenceScorer
+from .file_type_router import FileTypeRouter, ResumeType
+from .llm_gemini import GeminiLLMClient
+from .llm_groq import (
+    extract_contact,
+    extract_education,
+    extract_experience,
+    extract_extras,
+    extract_projects,
+    extract_skills,
+)
+from .skill_normalizer import SkillNormalizer
 
 logger = logging.getLogger(__name__)
 
-from ..config import settings
-from ..core.interfaces import ParserService
-from .llm_gemini import GeminiLLMClient
-from .preprocessor import PdfTextExtractor, TesseractOCR, clean_text, extract_numeric_snippets
-from .validators_numeric import SimpleNumericValidator
-from .skill_mapper_simple import SimpleSkillMapper
-from .skill_taxonomy_builder import SkillTaxonomyBuilder
 
-SCHEMA_PATH = Path(__file__).resolve().parents[2] / 'schema.json'
-SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding='utf-8'))
+def _count_words(text: str) -> int:
+    return len(text.split()) if text else 0
 
-STRICT_SYSTEM = (
-    "Return ONLY JSON matching the schema. Unknown numerics -> null and flag 'numeric_uncertain'. No extra text."
-)
-STRICTER_SYSTEM = STRICT_SYSTEM + " If invalid, minimize keys and ensure strict schema."
+
+def _safe_get(d: Any, key: str, default: Any = None) -> Any:
+    """Safely get a key from a dict that might be an error dict."""
+    if not isinstance(d, dict) or "error" in d:
+        return default
+    return d.get(key, default)
+
+
+def _merge_sections(
+    contact: dict,
+    education: dict,
+    experience: dict,
+    skills: dict,
+    projects: dict,
+    extras: dict,
+) -> dict:
+    """Merge all six section dicts into a single normalized resume dict."""
+    return {
+        "personal": {
+            "name":          _safe_get(contact, "name"),
+            "email":         _safe_get(contact, "email"),
+            "phone":         _safe_get(contact, "phone"),
+            "location":      _safe_get(contact, "location"),
+            "linkedin_url":  _safe_get(contact, "linkedin_url"),
+            "github_url":    _safe_get(contact, "github_url"),
+            "portfolio_url": _safe_get(contact, "portfolio_url"),
+        },
+        "education":       _safe_get(education, "education",  []) or [],
+        "experience":      _safe_get(experience, "experience", []) or [],
+        "skills":          [],   # filled in after normalization
+        "projects":        _safe_get(projects, "projects",    []) or [],
+        "certifications":  _safe_get(extras, "certifications", []) or [],
+        "awards":          _safe_get(extras, "awards",         []) or [],
+        "languages_spoken": _safe_get(extras, "languages_spoken", []) or [],
+        "publications":    _safe_get(extras, "publications",   []) or [],
+        "volunteer":       _safe_get(extras, "volunteer",      []) or [],
+        "jee_rank":        None,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class ResumeParserService(ParserService):
+    """
+    Async-first resume parser service.
+
+    Provides:
+      - run_parse_async(): full v2 pipeline (primary)
+      - run_parse(): legacy sync shim for backward compatibility
+    """
+
     def __init__(self):
         self.llm = GeminiLLMClient()
-        self.text = PdfTextExtractor()
-        self.ocr = TesseractOCR()
-        self.num = SimpleNumericValidator()
-        self.skills = SimpleSkillMapper()
+        self.router = FileTypeRouter(
+            llm_client=self.llm,
+            vision_model=settings.GEMINI_SMALL_MODEL,  # gemini-2.5-flash
+        )
+        self.scorer = ConfidenceScorer()
 
-    def _build_payload(self, applicant_id: str, pre: dict) -> dict:
-        doc_text = pre.get('doc_text_summary') or pre.get('doc_text') or ''
-        ocr_snips = pre.get('ocr_snippets', {})
-        payload = {
-            'applicant_id': applicant_id,
-            'doc_text': doc_text,
-            'ocr_snippets': ocr_snips,
-            'canonical_skill_list': list(self.skills.get_canonical_skills().keys()),
-            'instructions_schema': SCHEMA,
-            'metadata': {'page_count': pre.get('page_count', 0)}
+    # ─────────────────────────────────────────────────────────
+    # Primary async pipeline
+    # ─────────────────────────────────────────────────────────
+
+    async def run_parse_async(
+        self,
+        applicant_root: str,
+        applicant_id: str,
+        db_session=None,
+    ) -> dict:
+        """
+        Full v2 async pipeline. Returns a result dict consumed by embedding_tasks.py.
+
+        Result keys:
+            applicant_id, normalized, flags, needs_review, parse_status,
+            per_section_confidence, overall_confidence, unrecognized_skills,
+            llm_provenance, resume_type, retry_used
+        """
+        p = Path(applicant_root)
+        result: dict = {
+            "applicant_id":         applicant_id,
+            "normalized":           {},
+            "flags":                [],
+            "needs_review":         False,
+            "parse_status":         PARSE_STATUS_ACCEPTED,
+            "per_section_confidence": {},
+            "overall_confidence":   0.0,
+            "unrecognized_skills":  [],
+            "llm_provenance":       {},
+            "resume_type":          "unknown",
+            "retry_used":           False,
         }
-        return payload
 
-    def _validate_response(self, data: dict) -> Tuple[bool, list[str]]:
-        flags = []
+        # ── Step 1: Find resume file ──────────────────────────────────────
+        resume_path = self._find_resume_file(p)
+        if not resume_path:
+            logger.error(f"No resume file found in {applicant_root}")
+            result["flags"].append("no_resume_file")
+            result["parse_status"] = PARSE_STATUS_FAILED
+            return result
+
+        # ── Step 2: Layer 1 — FileTypeRouter ─────────────────────────────
         try:
-            validate(instance=data, schema=SCHEMA)
-            return True, flags
-        except ValidationError as e:
-            flags.append(f'schema_invalid:{e.message}')
-            return False, flags
+            raw_text, resume_type = self.router.extract(resume_path)
+            result["resume_type"] = resume_type.value
+            logger.info(
+                f"Extracted {len(raw_text)} chars from {resume_path} "
+                f"(type={resume_type.value})"
+            )
+        except Exception as e:
+            logger.error(f"FileTypeRouter failed for {resume_path}: {e}")
+            result["flags"].append(f"extraction_error:{e!s}")
+            result["parse_status"] = PARSE_STATUS_FAILED
+            return result
 
-    def _post_validate_normalize(self, resp: dict, ocr_snips: dict):
-        flags = []
-        needs_review = False
-        cgpa_snip = ocr_snips.get('cgpa')
-        jee_snip = ocr_snips.get('jee_rank')
+        if not raw_text or len(raw_text.strip()) < 50:
+            result["flags"].append("empty_extracted_text")
+            result["parse_status"] = PARSE_STATUS_FAILED
+            return result
 
-        llm_cgpa = None
-        for edu in resp.get('education', []) or []:
-            if 'grade' in edu and edu.get('grade') is not None:
-                llm_cgpa = edu['grade']
-                break
-        llm_jee = resp.get('jee_rank')
+        word_count = _count_words(raw_text)
+        model = settings.GROQ_CHAT_MODEL
+        api_key = settings.GROQ_API_KEY
+        base_url = settings.GROQ_API_BASE_URL
 
-        if cgpa_snip is not None:
-            det_cg = self.num.normalize_cgpa(str(cgpa_snip))
-            if det_cg['flags']:
-                flags.extend([f'cgpa_{f}' for f in det_cg['flags']])
-            det_val = det_cg['normalized']
-            if det_val is not None:
-                if llm_cgpa is not None and abs(float(llm_cgpa) - float(det_val)) > settings.CGPA_MISMATCH_THRESHOLD:
-                    flags.append('cgpa_mismatch_overridden')
-                    for edu in resp.get('education', []) or []:
-                        if 'grade' in edu:
-                            edu['grade'] = float(det_val)
-                            edu['grade_scale'] = '10'
-                            break
-                elif llm_cgpa is None:
-                    for edu in resp.get('education', []) or []:
-                        if 'grade' in edu:
-                            edu['grade'] = float(det_val)
-                            edu['grade_scale'] = '10'
-                            break
-        if jee_snip is not None:
-            det_jee = self.num.parse_numeric(str(jee_snip))
-            if det_jee is not None:
-                if llm_jee is not None and int(llm_jee) != int(det_jee):
-                    flags.append('jee_rank_mismatch_overridden')
-                    resp['jee_rank'] = int(det_jee)
-                elif llm_jee is None:
-                    resp['jee_rank'] = int(det_jee)
+        # ── Step 3: Layer 2 — Six concurrent section prompts ─────────────
+        contact, education, experience, skills, projects, extras = \
+            await self._extract_all_sections(raw_text, model, api_key, base_url)
 
-        for edu in resp.get('education', []) or []:
-            v = self.num.validate_dates(edu.get('start_date'), edu.get('end_date'))
-            if not v['ok'] or v['flags']:
-                flags.extend(['education_' + f for f in v['flags']])
+        # ── Step 4: Per-section confidence + retry ────────────────────────
+        contact, education, experience, skills, projects, extras, retry_used = \
+            await self._retry_low_confidence_sections(
+                raw_text, word_count, model, api_key, base_url,
+                contact, education, experience, skills, projects, extras
+            )
+        result["retry_used"] = retry_used
 
-        if isinstance(resp.get('skills'), list):
-            names = [s.get('name') if isinstance(s, dict) else str(s) for s in resp['skills']]
-            resp['skills'] = self.skills.map([n for n in names if n])
-            unknowns = [x for x in resp['skills'] if x['canonical_id'] is None]
-            if len(unknowns) > settings.MAX_UNKNOWN_SKILLS:
-                flags.append('many_unknown_skills')
+        # ── Step 5: Compute confidence scores ────────────────────────────
+        scores = self.scorer.score_all(
+            contact, education, experience, skills, projects, extras,
+            resume_text=raw_text,
+            resume_word_count=word_count,
+        )
+        result["per_section_confidence"] = scores
+        result["overall_confidence"] = scores["overall"]
 
-        try:
-            if float(resp.get('llm_confidence', 0)) < settings.LLM_CONFIDENCE_THRESHOLD:
-                needs_review = True
-        except Exception:
-            needs_review = True
-        if flags:
-            needs_review = True
+        # ── Step 6: Layer 3 — Skill normalization ─────────────────────────
+        raw_skills = _safe_get(skills, "skills", []) or []
+        if not isinstance(raw_skills, list):
+            raw_skills = []
 
-        return resp, flags, needs_review
+        normalized_skills, unrecognized = self._normalize_skills(raw_skills, db_session)
+        result["unrecognized_skills"] = unrecognized
 
-    def _preprocess_applicant(self, applicant_dir: str) -> dict:
-        def _extract_docx_text(path: str) -> str:
-            """Extract visible text from a .docx file without external dependencies."""
-            try:
-                with zipfile.ZipFile(path) as zf:
-                    xml_bytes = zf.read("word/document.xml")
-                root = ET.fromstring(xml_bytes)
-                texts = [node.text for node in root.iter() if node.tag.endswith("}t") and node.text]
-                return "\n".join(texts)
-            except Exception:
-                return ""
+        # ── Step 7: Merge sections ────────────────────────────────────────
+        normalized = _merge_sections(contact, education, experience, skills, projects, extras)
+        normalized["skills"] = normalized_skills
+        result["normalized"] = normalized
 
-        p = Path(applicant_dir)
-        resume_files = list(p.glob('*'))
-        resume_path = None
-        for f in resume_files:
-            if f.suffix.lower() in ['.pdf', '.docx', '.doc', '.txt'] and 'metadata.json' not in f.name:
-                resume_path = str(f)
-                break
-        result = { 'doc_text': None, 'ocr_snippets': {}, 'page_count': 0 }
-        if resume_path:
-            ext = Path(resume_path).suffix.lower()
-            raw = ""
+        # ── Step 8: Layer 4 — State machine ──────────────────────────────
+        parse_status, needs_review = self._state_machine(
+            scores["overall"],
+            result,
+        )
+        result["parse_status"] = parse_status
+        result["needs_review"] = needs_review
 
-            if ext == '.pdf':
-                raw = self.text.extract_text(resume_path)
-                if not raw or len(raw.strip()) == 0:
-                    pages = self.ocr.ocr_pdf_pages(resume_path)
-                    raw = "\n\n".join(pages.values())
-                    result['page_count'] = len(pages)
-            elif ext == '.txt':
-                raw = Path(resume_path).read_text(encoding='utf-8', errors='ignore')
-            elif ext == '.docx':
-                raw = _extract_docx_text(resume_path)
+        # ── Step 9: RE_PARSE escalation — Vision fallback ─────────────────
+        if parse_status == PARSE_STATUS_FAILED and resume_type == ResumeType.TEXT:
+            logger.info(
+                f"RE_PARSE triggered for {applicant_id} — retrying with Gemini Vision"
+            )
+            vision_result = await self._reparse_with_vision(
+                resume_path, applicant_id, db_session
+            )
+            if vision_result.get("overall_confidence", 0) >= PARSE_REVIEW_THRESHOLD:
+                logger.info(
+                    f"Vision re-parse improved confidence to "
+                    f"{vision_result['overall_confidence']} for {applicant_id}"
+                )
+                vision_result["retry_used"] = True
+                return vision_result
             else:
-                # .doc extraction requires external converters; keep empty and rely on OCR path only for images.
-                raw = ""
+                result["flags"].append("reparse_failed")
+                result["parse_status"] = PARSE_STATUS_FAILED
+                logger.warning(f"Vision re-parse still below threshold for {applicant_id}")
 
-            result['doc_text'] = clean_text(raw)
-            result['ocr_snippets'] = extract_numeric_snippets(raw)
-        else:
-            agg = []
-            for f in resume_files:
-                if f.suffix.lower() in ['.png', '.jpg', '.jpeg', '.tiff']:
-                    agg.append(self.ocr.ocr_image(str(f)))
-            full = "\n\n".join(agg)
-            result['doc_text'] = clean_text(full)
-            result['ocr_snippets'] = extract_numeric_snippets(full)
-        if len((result['doc_text'] or '').split()) > 2000:
-            result['doc_text_summary'] = self.text.summarize(result['doc_text'], max_sentences=10)
-        else:
-            result['doc_text_summary'] = result['doc_text']
+        result["llm_provenance"] = {
+            "model": model,
+            "resume_type": resume_type.value,
+            "word_count": word_count,
+            "sections_extracted": 6,
+            "retry_used": result["retry_used"],
+        }
+
         return result
+
+    # ─────────────────────────────────────────────────────────
+    # Internal helpers
+    # ─────────────────────────────────────────────────────────
+
+    def _find_resume_file(self, p: Path) -> Optional[str]:
+        """Find the first resume file in the applicant directory."""
+        for f in p.glob("*"):
+            if f.suffix.lower() in [".pdf", ".docx", ".doc", ".txt", ".png", ".jpg", ".jpeg"] \
+                    and "metadata.json" not in f.name:
+                return str(f)
+        return None
+
+    async def _extract_all_sections(
+        self,
+        text: str,
+        model: str,
+        api_key: str,
+        base_url: str,
+    ) -> Tuple[dict, dict, dict, dict, dict, dict]:
+        """Fire all 6 section prompts concurrently under a semaphore. Returns tuple of section dicts."""
+        sem = asyncio.Semaphore(2)
+
+        async def _wrapped(coro):
+            async with sem:
+                return await coro
+
+        results = await asyncio.gather(
+            _wrapped(extract_contact(text, model, api_key, base_url)),
+            _wrapped(extract_education(text, model, api_key, base_url)),
+            _wrapped(extract_experience(text, model, api_key, base_url)),
+            _wrapped(extract_skills(text, model, api_key, base_url)),
+            _wrapped(extract_projects(text, model, api_key, base_url)),
+            _wrapped(extract_extras(text, model, api_key, base_url)),
+            return_exceptions=False,
+        )
+        contact, education, experience, skills, projects, extras = results
+        logger.info(
+            f"Section extraction complete — latencies: "
+            f"contact={contact.get('_latency', '?'):.2f}s "
+            f"edu={education.get('_latency', '?'):.2f}s "
+            f"exp={experience.get('_latency', '?'):.2f}s "
+            f"skills={skills.get('_latency', '?'):.2f}s "
+            f"proj={projects.get('_latency', '?'):.2f}s "
+            f"extras={extras.get('_latency', '?'):.2f}s"
+        )
+        return contact, education, experience, skills, projects, extras
+
+    async def _retry_low_confidence_sections(
+        self,
+        text: str,
+        word_count: int,
+        model: str,
+        api_key: str,
+        base_url: str,
+        contact: dict,
+        education: dict,
+        experience: dict,
+        skills: dict,
+        projects: dict,
+        extras: dict,
+    ) -> Tuple[dict, dict, dict, dict, dict, dict, bool]:
+        """
+        For any section with confidence < SECTION_RETRY_THRESHOLD,
+        fire a single retry concurrently. Uses the same model and full text.
+        Returns (contact, education, experience, skills, projects, extras, retry_used).
+        """
+        # Score each section individually for retry decision
+        section_scores = {
+            "contact":    self.scorer.score_contact(contact),
+            "education":  self.scorer.score_education(education, word_count),
+            "experience": self.scorer.score_experience(experience, word_count),
+            "skills":     self.scorer.score_skills(skills),
+            "projects":   self.scorer.score_projects(projects),
+            "extras":     self.scorer.score_extras(extras, text),
+        }
+
+        retry_tasks = {}
+        section_map = {
+            "contact":    (contact,    extract_contact),
+            "education":  (education,  extract_education),
+            "experience": (experience, extract_experience),
+            "skills":     (skills,     extract_skills),
+            "projects":   (projects,   extract_projects),
+            "extras":     (extras,     extract_extras),
+        }
+
+        for name, score in section_scores.items():
+            if score < SECTION_RETRY_THRESHOLD:
+                logger.info(
+                    f"Section '{name}' confidence {score:.2f} < {SECTION_RETRY_THRESHOLD} — retrying"
+                )
+                _, prompt_fn = section_map[name]
+                retry_tasks[name] = prompt_fn(text, model, api_key, base_url)
+
+        if not retry_tasks:
+            return contact, education, experience, skills, projects, extras, False
+
+        # Fire retries concurrently under a semaphore
+        sem = asyncio.Semaphore(2)
+        async def _wrapped(coro):
+            async with sem:
+                return await coro
+
+        retry_keys = list(retry_tasks.keys())
+        retry_results = await asyncio.gather(
+            *[_wrapped(task) for task in retry_tasks.values()],
+            return_exceptions=False,
+        )
+
+        updated = {
+            "contact":    contact,
+            "education":  education,
+            "experience": experience,
+            "skills":     skills,
+            "projects":   projects,
+            "extras":     extras,
+        }
+
+        for key, retry_result in zip(retry_keys, retry_results):
+            if not isinstance(retry_result, dict) or "error" in retry_result:
+                logger.warning(f"Retry for '{key}' also failed — keeping original")
+            else:
+                updated[key] = retry_result
+                logger.info(f"Section '{key}' updated with retry result")
+
+        return (
+            updated["contact"],
+            updated["education"],
+            updated["experience"],
+            updated["skills"],
+            updated["projects"],
+            updated["extras"],
+            True,
+        )
+
+    def _normalize_skills(
+        self,
+        raw_skills: List[Any],
+        db_session=None,
+    ) -> Tuple[List[dict], List[str]]:
+        """
+        Run two-pass skill normalization.
+        Returns (normalized_skill_list, unrecognized_skill_names).
+        Falls back to legacy name-only list if DB session unavailable.
+        """
+        # Coerce to strings
+        names = []
+        for s in raw_skills:
+            if isinstance(s, dict):
+                n = s.get("name") or s.get("skill") or ""
+            else:
+                n = str(s)
+            n = n.strip()
+            if n:
+                names.append(n)
+
+        # Deduplicate preserving order
+        seen = set()
+        unique_names = []
+        for n in names:
+            if n.lower() not in seen:
+                seen.add(n.lower())
+                unique_names.append(n)
+
+        if db_session is None:
+            logger.warning(
+                "SkillNormalizer: no DB session provided — returning raw skill names only"
+            )
+            return [{"name": n, "canonical_id": None, "match_type": "raw"} for n in unique_names], []
+
+        try:
+            normalizer = SkillNormalizer(db_session)
+            norm_result = normalizer.normalize(unique_names)
+            skill_list = normalizer.to_legacy_format(norm_result)
+            unrecognized = norm_result.unrecognized
+            return skill_list, unrecognized
+        except Exception as e:
+            logger.error(f"Skill normalization failed: {e}")
+            return [{"name": n, "canonical_id": None, "match_type": "raw"} for n in unique_names], []
+
+    def _state_machine(
+        self,
+        overall_confidence: float,
+        result: dict,
+    ) -> Tuple[str, bool]:
+        """
+        Apply confidence gate and return (parse_status, needs_review).
+
+        ≥ 0.85 → AUTO_ACCEPT  (accepted)
+        0.60–0.84 → NEEDS_REVIEW (pending_review)
+        < 0.60 → RE_PARSE     (failed — caller handles Vision fallback)
+        """
+        if overall_confidence >= PARSE_AUTO_ACCEPT_THRESHOLD:
+            logger.info(
+                f"State machine: AUTO_ACCEPT (confidence={overall_confidence:.3f})"
+            )
+            return PARSE_STATUS_ACCEPTED, False
+
+        if overall_confidence >= PARSE_REVIEW_THRESHOLD:
+            logger.info(
+                f"State machine: NEEDS_REVIEW (confidence={overall_confidence:.3f})"
+            )
+            result["flags"].append(
+                f"low_confidence:{overall_confidence:.3f}"
+            )
+            return PARSE_STATUS_PENDING_REVIEW, True
+
+        logger.warning(
+            f"State machine: RE_PARSE (confidence={overall_confidence:.3f})"
+        )
+        result["flags"].append(
+            f"very_low_confidence:{overall_confidence:.3f}"
+        )
+        return PARSE_STATUS_FAILED, True
+
+    async def _reparse_with_vision(
+        self,
+        resume_path: str,
+        applicant_id: str,
+        db_session=None,
+    ) -> dict:
+        """
+        Retry parsing a text-based PDF using Gemini Vision.
+        This is the RE_PARSE fallback — only triggered when overall_confidence < 0.60.
+        """
+        from .file_type_router import ResumeType
+
+        result: dict = {
+            "applicant_id": applicant_id,
+            "normalized": {},
+            "flags": ["vision_reparse"],
+            "needs_review": True,
+            "parse_status": PARSE_STATUS_FAILED,
+            "per_section_confidence": {},
+            "overall_confidence": 0.0,
+            "unrecognized_skills": [],
+            "llm_provenance": {},
+            "resume_type": ResumeType.VISUAL.value,
+            "retry_used": True,
+        }
+
+        try:
+            # Force Vision extraction by rendering the PDF as an image and bypassing classification routing
+            raw_text = self.router._vision_from_pdf(resume_path, ResumeType.VISUAL)
+            resume_type = ResumeType.VISUAL
+        except Exception as e:
+            result["flags"].append(f"vision_reparse_extraction_error:{e!s}")
+            return result
+
+        if not raw_text or len(raw_text.strip()) < 50:
+            result["flags"].append("vision_reparse_empty_text")
+            return result
+
+        model = settings.GROQ_CHAT_MODEL
+        api_key = settings.GROQ_API_KEY
+        base_url = settings.GROQ_API_BASE_URL
+        word_count = _count_words(raw_text)
+
+        contact, education, experience, skills, projects, extras = \
+            await self._extract_all_sections(raw_text, model, api_key, base_url)
+
+        scores = self.scorer.score_all(
+            contact, education, experience, skills, projects, extras,
+            resume_text=raw_text,
+            resume_word_count=word_count,
+        )
+        result["per_section_confidence"] = scores
+        result["overall_confidence"] = scores["overall"]
+
+        raw_skills = _safe_get(skills, "skills", []) or []
+        normalized_skills, unrecognized = self._normalize_skills(raw_skills, db_session)
+        result["unrecognized_skills"] = unrecognized
+
+        normalized = _merge_sections(contact, education, experience, skills, projects, extras)
+        normalized["skills"] = normalized_skills
+        result["normalized"] = normalized
+
+        parse_status, needs_review = self._state_machine(scores["overall"], result)
+        result["parse_status"] = parse_status
+        result["needs_review"] = needs_review
+        result["llm_provenance"] = {
+            "model": model,
+            "resume_type": ResumeType.VISUAL.value,
+            "word_count": word_count,
+            "sections_extracted": 6,
+            "retry_used": True,
+            "vision_reparse": True,
+        }
+
+        return result
+
+    # ─────────────────────────────────────────────────────────
+    # Legacy sync shim (backward compatibility)
+    # ─────────────────────────────────────────────────────────
 
     def run_parse(self, applicant_root: str, applicant_id: str) -> dict:
-        pre = self._preprocess_applicant(applicant_root)
-        
-        # Log extracted text for debugging
-        doc_text = pre.get('doc_text') or ''
-        logger.info(f"Extracted text length: {len(doc_text)} characters")
-        logger.info(f"First 500 chars: {doc_text[:500]}")
-        logger.info(f"OCR snippets: {pre.get('ocr_snippets', {})}")
-        
-        payload = self._build_payload(applicant_id, pre)
-
-        resp = self.llm.call_parse(settings.GEMINI_SMALL_MODEL, payload, images=None, system_instruction=STRICT_SYSTEM)
-        retry_used = False
-
-        if not isinstance(resp, dict) or 'error' in resp:
-            resp = self.llm.call_parse(settings.GEMINI_SMALL_MODEL, payload, images=None, system_instruction=STRICTER_SYSTEM)
-            retry_used = True
-
-        ok, val_flags = self._validate_response(resp if isinstance(resp, dict) else {})
-        flags = list(val_flags)
-
-        low_conf = float(resp.get('llm_confidence', 0)) < settings.LLM_CONFIDENCE_THRESHOLD if isinstance(resp, dict) else True
-        if (not ok) or low_conf:
-            big = self.llm.call_parse(settings.GEMINI_LARGE_MODEL, payload, images=None, system_instruction=STRICT_SYSTEM)
-            if isinstance(big, dict) and 'error' not in big:
-                resp = big
-                ok, more = self._validate_response(resp)
-                flags.extend(more)
-
-        normalized, more_flags, needs_review = self._post_validate_normalize(resp if isinstance(resp, dict) else {}, payload.get('ocr_snippets', {}))
-        flags.extend(more_flags)
-
-        provenance = resp.get('_provenance', {}) if isinstance(resp, dict) else {}
-        result = {
-            'applicant_id': applicant_id,
-            'normalized': normalized,
-            'flags': flags,
-            'needs_review': needs_review,
-            'llm_provenance': provenance,
-            'preprocess': {'page_count': pre.get('page_count', 0)},
-            'retry_used': retry_used,
-        }
-
-        # After normalization, append any new skills to taxonomy JSONs
+        """
+        Synchronous wrapper around the async pipeline.
+        Used by any existing sync callers (direct /parse/{id} endpoint fallback).
+        NOTE: Does NOT pass a DB session, so skill normalization uses raw names only.
+              Prefer run_parse_async() from within an async context with a DB session.
+        """
         try:
-            skills_list = normalized.get('skills', []) or []
-            raw_skill_names = []
-            for s in skills_list:
-                if isinstance(s, dict):
-                    nm = s.get('name')
-                    if nm:
-                        raw_skill_names.append(str(nm))
-            # Identify unknown skills (no canonical_id assigned)
-            unknown = [s for s in skills_list if isinstance(s, dict) and not s.get('canonical_id') and s.get('name')]
-            unknown_names = [str(s.get('name')) for s in unknown]
-
-            if unknown_names:
-                builder = SkillTaxonomyBuilder()
-                repo_root = Path(__file__).resolve().parents[2]
-                mapping_path = str(repo_root / 'skill_taxonomy.json')
-                metadata_path = str(repo_root / 'skill_taxonomy_metadata.json')
-                added = builder.append_new_skills(unknown_names, mapping_path, metadata_path)
-                if added:
-                    # Reload mapper and re-map skills to include newly assigned canonical IDs
-                    self.skills.reload_taxonomy()
-                    
-                    # Sync new skills to database
-                    try:
-                        from ..db import SessionLocal, CanonicalSkill
-                        db_session = SessionLocal()
-                        try:
-                            demand_to_score = {
-                                'high': 1.0,
-                                'medium': 0.6,
-                                'low': 0.3,
-                                'unknown': 0.0,
-                            }
-                            for skill_key, metadata in added.items():
-                                display_name = metadata.get('display_name', skill_key)
-                                demand_level = str(metadata.get('market_demand', 'unknown')).lower()
-                                aliases = [skill_key] if skill_key.lower() != str(display_name).lower() else []
-                                existing = db_session.query(CanonicalSkill).filter(
-                                    CanonicalSkill.name == display_name
-                                ).first()
-                                if not existing:
-                                    canonical_skill = CanonicalSkill(
-                                        name=display_name,
-                                        category=metadata.get('category', 'other'),
-                                        aliases=aliases,
-                                        demand_level=demand_level,
-                                        market_score=demand_to_score.get(demand_level, 0.0),
-                                    )
-                                    db_session.add(canonical_skill)
-                            db_session.commit()
-                            logger.info(f"Synced {len(added)} new skills to database")
-                        finally:
-                            db_session.close()
-                    except Exception as db_err:
-                        logger.error(f"Failed to sync skills to database: {db_err}")
-                    
-                    names_for_map = []
-                    for s in skills_list:
-                        if isinstance(s, dict):
-                            n = s.get('name')
-                            if isinstance(n, str):
-                                names_for_map.append(n)
-                        elif isinstance(s, str):
-                            names_for_map.append(s)
-                    remapped = self.skills.map(names_for_map)
-                    normalized['skills'] = remapped
-                    result['taxonomy_updates'] = {
-                        'added_count': len(added),
-                        'added': added,
-                        'db_synced': True
-                    }
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Already in an async context — run in a new thread's event loop
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(
+                        asyncio.run,
+                        self.run_parse_async(applicant_root, applicant_id, db_session=None),
+                    )
+                    return future.result(timeout=120)
+            else:
+                return loop.run_until_complete(
+                    self.run_parse_async(applicant_root, applicant_id, db_session=None)
+                )
         except Exception as e:
-            # Non-fatal; include note in result
-            result['taxonomy_update_error'] = str(e)
-
-        return result
+            logger.error(f"run_parse (sync shim) failed: {e}")
+            return {
+                "applicant_id": applicant_id,
+                "normalized": {},
+                "flags": [f"sync_shim_error:{e!s}"],
+                "needs_review": True,
+                "parse_status": PARSE_STATUS_FAILED,
+                "per_section_confidence": {},
+                "overall_confidence": 0.0,
+                "unrecognized_skills": [],
+                "llm_provenance": {},
+                "retry_used": False,
+            }

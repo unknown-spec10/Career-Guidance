@@ -298,7 +298,7 @@ class LearningPathResponse(BaseModel):
     job_id: Optional[int] = None
     generated_from: str
     source_session_id: Optional[int]
-    skill_gaps: Dict[str, str]
+    skill_gaps: Dict[str, Any]
     recommended_courses: Optional[List[Dict[str, Any]]]
     recommended_projects: Optional[List[Dict[str, Any]]]
     practice_problems: Optional[List[Dict[str, Any]]]

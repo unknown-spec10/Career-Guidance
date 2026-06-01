@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Briefcase, PlusCircle, Trash2, LogOut, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Briefcase, PlusCircle, Trash2, LogOut, AlertTriangle, CheckCircle, Sparkles } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
@@ -26,6 +26,47 @@ export default function EmployerPostJob() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
+  const [optimizing, setOptimizing] = useState(false)
+
+  const handleOptimizeDescription = async () => {
+    if (!description.trim()) {
+      toast.error('Please write a brief draft in the description field first before optimizing.')
+      return
+    }
+    setOptimizing(true)
+    try {
+      const res = await api.post('/api/employer/jobs/optimize', {
+        prompt: description,
+        title: title || null
+      })
+      if (res.data) {
+        setDescription(res.data.optimized_description)
+        
+        // Auto-populate required skills if returned
+        if (res.data.required_skills && res.data.required_skills.length > 0) {
+          setRequiredSkills(res.data.required_skills.map(sk => ({
+            name: sk.name,
+            level: sk.level || 'basic'
+          })))
+        }
+        
+        // Auto-populate optional skills if returned
+        if (res.data.optional_skills && res.data.optional_skills.length > 0) {
+          setOptionalSkills(res.data.optional_skills.map(sk => ({
+            name: sk.name,
+            level: sk.level || 'basic'
+          })))
+        }
+        
+        toast.success('Description expanded! Recommended tech stack populated.')
+      }
+    } catch (err) {
+      console.error('Error optimizing description:', err)
+      toast.error(err.response?.data?.detail || 'Failed to optimize description with AI.')
+    } finally {
+      setOptimizing(false)
+    }
+  }
 
   const handleLogout = () => {
     secureStorage.clear()
@@ -178,13 +219,30 @@ export default function EmployerPostJob() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Description *</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Description *</label>
+              <button
+                type="button"
+                onClick={handleOptimizeDescription}
+                disabled={optimizing || !description.trim()}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-extrabold rounded-xl transition-all shadow-sm active:scale-95 duration-200 ${
+                  optimizing
+                    ? 'bg-indigo-50 text-indigo-700 border border-indigo-150 animate-pulse'
+                    : description.trim()
+                    ? 'bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white shadow-md'
+                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                }`}
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${optimizing ? 'animate-spin' : ''}`} />
+                <span>{optimizing ? 'Optimizing Description...' : 'Optimize with AI'}</span>
+              </button>
+            </div>
             <textarea
               className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm font-medium text-slate-800 placeholder-slate-400"
-              rows={5}
+              rows={8}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe responsibilities, qualifications, and role impact..."
+              placeholder="Describe responsibilities, qualifications, and role impact... (Tip: Write a short draft and click 'Optimize with AI' to expand it into a professional listing!)"
               required
             />
           </div>

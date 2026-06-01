@@ -16,11 +16,55 @@ const INITIAL_STATE = {
   hint: null,
   hintStreaming: false,
   error: null,
+  voiceMode: false,
+  questions: [],
+  currentIndex: 0,
+  interviewerPersona: 'Friendly Senior Engineer',
 }
 
 export default function useInterviewSession() {
   const [state, setState] = useState(INITIAL_STATE)
   const hintReaderRef = useRef(null)
+
+  // Helper to fetch all questions for the session along with their answer states
+  const fetchSessionQuestions = useCallback(async (sessionId, voiceMode = false, selectFirstUnanswered = true) => {
+    try {
+      const res = await api.get(`/api/interview/session/${sessionId}/questions`)
+      const questionsList = res.data || []
+      
+      // Auto-focus the first unanswered question
+      let targetIndex = 0
+      if (selectFirstUnanswered) {
+        const unansweredIdx = questionsList.findIndex(q => !q.user_answer)
+        if (unansweredIdx !== -1) {
+          targetIndex = unansweredIdx
+        }
+      }
+      
+      const activeQ = questionsList[targetIndex]
+      
+      setState(prev => ({
+        ...prev,
+        sessionId,
+        questions: questionsList,
+        currentIndex: targetIndex,
+        currentQuestion: activeQ ? {
+          id: activeQ.id,
+          text: activeQ.text,
+          question_number: activeQ.question_number,
+          total_questions: activeQ.total_questions,
+          skill_tag: activeQ.skill_tag,
+        } : null,
+        questionNumber: activeQ ? activeQ.question_number : 1,
+        totalQuestions: questionsList.length || prev.totalQuestions,
+        voiceMode,
+      }))
+      return { success: true }
+    } catch (err) {
+      console.error('Failed to load session questions:', err)
+      return { success: false, error: 'Failed to retrieve question list.' }
+    }
+  }, [])
 
   // -------------------------------------------------------------------------
   // Start a new session
@@ -29,21 +73,19 @@ export default function useInterviewSession() {
     setState(prev => ({ ...prev, error: null }))
     try {
       const res = await api.post('/api/interview/start', config)
-      const { session_id, first_question } = res.data
-      setState({
-        ...INITIAL_STATE,
-        sessionId: session_id,
-        currentQuestion: first_question,
-        questionNumber: first_question.question_number,
-        totalQuestions: first_question.total_questions,
-      })
+      const { session_id } = res.data
+      await fetchSessionQuestions(session_id, config.voice_mode || false, false)
+      setState(prev => ({
+        ...prev,
+        interviewerPersona: config.interviewer_persona || 'Friendly Senior Engineer',
+      }))
       return { success: true, sessionId: session_id }
     } catch (err) {
       const message = err.response?.data?.detail || 'Failed to start interview session.'
       setState(prev => ({ ...prev, error: message }))
       return { success: false, error: message }
     }
-  }, [])
+  }, [fetchSessionQuestions])
 
   // -------------------------------------------------------------------------
   // Recover a session on page refresh
@@ -52,28 +94,67 @@ export default function useInterviewSession() {
     try {
       const res = await api.get(`/api/interview/session/${sessionId}`)
       const data = res.data
-      if (data.status !== 'active' || !data.current_question) {
+      if (data.status !== 'active') {
         // Session is completed or abandoned — redirect to results
         return { success: false, redirect: data.status === 'completed' ? 'results' : 'setup' }
       }
-      setState({
-        ...INITIAL_STATE,
-        sessionId,
-        currentQuestion: data.current_question,
-        questionNumber: data.current_question.question_number,
-        totalQuestions: data.total_questions,
-      })
+      await fetchSessionQuestions(sessionId, data.voice_mode || false, true)
+      setState(prev => ({
+        ...prev,
+        interviewerPersona: data.interviewer_persona || 'Friendly Senior Engineer',
+      }))
       return { success: true }
     } catch (err) {
       return { success: false, error: 'Session not found.' }
     }
+  }, [fetchSessionQuestions])
+
+  // -------------------------------------------------------------------------
+  // Navigate backward / forward manually between question indexes
+  // -------------------------------------------------------------------------
+  const navigateToQuestion = useCallback((index) => {
+    setState(prev => {
+      if (index < 0 || index >= prev.questions.length) return prev
+      const q = prev.questions[index]
+      return {
+        ...prev,
+        currentIndex: index,
+        currentQuestion: {
+          id: q.id,
+          text: q.text,
+          question_number: q.question_number,
+          total_questions: q.total_questions,
+          skill_tag: q.skill_tag,
+        },
+        questionNumber: q.question_number,
+      }
+    })
   }, [])
 
   // -------------------------------------------------------------------------
-  // Submit an answer — returns next question or signals interview_complete
+  // Early mid-interview Finish trigger
+  // -------------------------------------------------------------------------
+  const finishSession = useCallback(async () => {
+    const { sessionId } = state
+    if (!sessionId) return { error: 'No active session.' }
+    
+    setState(prev => ({ ...prev, isSubmitting: true }))
+    try {
+      await api.post(`/api/interview/finish/${sessionId}`)
+      setState(prev => ({ ...prev, isSubmitting: false, isComplete: true }))
+      return { success: true }
+    } catch (err) {
+      const message = err.response?.data?.detail || 'Failed to finish interview session early.'
+      setState(prev => ({ ...prev, isSubmitting: false, error: message }))
+      return { error: message }
+    }
+  }, [state])
+
+  // -------------------------------------------------------------------------
+  // Submit an answer — supports regular sequences and re-submissions/updates
   // -------------------------------------------------------------------------
   const submitAnswer = useCallback(async (answerText) => {
-    const { sessionId, currentQuestion } = state
+    const { sessionId, currentQuestion, currentIndex, questions } = state
     if (!sessionId || !currentQuestion || !answerText.trim()) return
 
     setState(prev => ({ ...prev, isSubmitting: true, hint: null, hintStreaming: false, error: null }))
@@ -84,27 +165,48 @@ export default function useInterviewSession() {
         question_id: currentQuestion.id,
         answer_text: answerText,
       })
-      const { status, next_question } = res.data
+      const { status } = res.data
 
-      if (status === 'interview_complete') {
-        setState(prev => ({ ...prev, isSubmitting: false, isComplete: true }))
+      // Update answer text dynamically in local state questions array
+      const updatedQuestions = [...questions]
+      updatedQuestions[currentIndex] = {
+        ...updatedQuestions[currentIndex],
+        user_answer: answerText,
+      }
+
+      // Check if early finish or all questions resolved
+      const nextIndex = currentIndex + 1
+      const isLastQuestion = nextIndex >= questions.length
+
+      if (isLastQuestion && status === 'interview_complete') {
+        setState(prev => ({
+          ...prev,
+          isSubmitting: false,
+          isComplete: true,
+          questions: updatedQuestions,
+        }))
         return { complete: true }
       }
+
+      // Progress automatically to next question in sequence
+      const targetIdx = isLastQuestion ? currentIndex : nextIndex
+      const nextQ = updatedQuestions[targetIdx]
 
       setState(prev => ({
         ...prev,
         isSubmitting: false,
-        currentQuestion: next_question,
-        questionNumber: next_question.question_number,
-        totalQuestions: next_question.total_questions,
+        questions: updatedQuestions,
+        currentIndex: targetIdx,
+        currentQuestion: {
+          id: nextQ.id,
+          text: nextQ.text,
+          question_number: nextQ.question_number,
+          total_questions: nextQ.total_questions,
+          skill_tag: nextQ.skill_tag,
+        },
+        questionNumber: nextQ.question_number,
         hint: null,
       }))
-
-      // If the next question has a pre-computed hint, stream it
-      if (next_question.hint) {
-        // hint is already populated from backend — display directly
-        setState(prev => ({ ...prev, hint: next_question.hint }))
-      }
 
       return { complete: false }
     } catch (err) {
@@ -188,6 +290,8 @@ export default function useInterviewSession() {
     ...state,
     startSession,
     recoverSession,
+    navigateToQuestion,
+    finishSession,
     submitAnswer,
     streamHint,
     abandonSession,

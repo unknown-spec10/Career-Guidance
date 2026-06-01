@@ -19,6 +19,11 @@ import {
   Code,
   Coins,
   ChevronRight,
+  Award,
+  Sparkles,
+  AlertTriangle,
+  Star,
+  RefreshCcw,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
@@ -52,6 +57,12 @@ export default function StudentProfile() {
   const [newSkill, setNewSkill] = useState('')
   const [creditInfo, setCreditInfo] = useState(null)
   const [accountActive, setAccountActive] = useState(true)
+
+  // Scorecard state variables
+  const [scorecard, setScorecard] = useState(null)
+  const [scorecardLoading, setScorecardLoading] = useState(false)
+  const [selectedJobId, setSelectedJobId] = useState('')
+  const [recommendations, setRecommendations] = useState([])
 
   useEffect(() => {
     fetchProfile()
@@ -92,6 +103,36 @@ export default function StudentProfile() {
     }
   }
 
+  const fetchRecommendations = async (profileId) => {
+    try {
+      const recRes = await api.get(`/api/recommendations/${profileId}`)
+      setRecommendations(recRes.data.job_recommendations || [])
+    } catch (err) {
+      console.error('Failed to load recommendations:', err)
+    }
+  }
+
+  const fetchScorecard = async (jobId = null) => {
+    setScorecardLoading(true)
+    try {
+      const url = jobId 
+        ? `/api/student/resume/scorecard?job_id=${jobId}` 
+        : '/api/student/resume/scorecard'
+      const response = await api.get(url)
+      setScorecard(response.data)
+    } catch (err) {
+      console.error('Error fetching scorecard:', err)
+    } finally {
+      setScorecardLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (resumeData) {
+      fetchScorecard(selectedJobId || null)
+    }
+  }, [selectedJobId, resumeData])
+
   const fetchResumeData = async () => {
     try {
       const response = await api.get('/api/student/profile')
@@ -103,6 +144,9 @@ export default function StudentProfile() {
           location: prev.location?.trim() || response.data?.personal_info?.location || '',
           phone: prev.phone?.trim() || response.data?.personal_info?.phone || '',
         }))
+        if (response.data.applicant_id) {
+          fetchRecommendations(response.data.applicant_id)
+        }
       }
     } catch (err) {
       console.error('Error fetching resume data:', err)
@@ -135,6 +179,9 @@ export default function StudentProfile() {
           setParsingResume(false)
           setResumeStatusType('success')
           setResumeStatusMessage('Parsing complete. Your profile has been updated.')
+          if (response.data.applicant_id) {
+            fetchRecommendations(response.data.applicant_id)
+          }
           return
         }
       } catch (err) {
@@ -590,8 +637,170 @@ export default function StudentProfile() {
                 </div>
               )}
 
-              {resumeData ? (
+               {resumeData ? (
                 <div className="space-y-6">
+                  {/* Resume Score Card Sub-section */}
+                  {scorecard && (
+                    <div className="mb-8 p-6 bg-gradient-to-br from-slate-50 to-blue-50/20 border border-slate-200/80 rounded-2xl shadow-sm">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-200/60">
+                        <div>
+                          <h4 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                            <Award className="w-5 h-5 text-amber-500" />
+                            ATS Resume Grader
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1">Rule-based deterministic keyword & format optimizer</p>
+                        </div>
+                        {/* Selector */}
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-slate-600">Scoring Mode:</label>
+                          <select
+                            value={selectedJobId}
+                            onChange={(e) => setSelectedJobId(e.target.value)}
+                            className="text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none font-medium text-slate-800 focus:ring-1 focus:ring-blue-500 transition"
+                          >
+                            <option value="">General Scan (Market Demand)</option>
+                            {recommendations.map((rec) => (
+                              <option key={rec.id} value={rec.job?.id || rec.job_id}>
+                                Job Specific: {rec.job?.title || rec.title} ({rec.job?.company || rec.company})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {scorecardLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+                            className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full"
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                          {/* Left: Dial Column */}
+                          <div className="lg:col-span-4 flex flex-col items-center text-center">
+                            <div className="relative w-36 h-36 flex items-center justify-center">
+                              {/* Circle Background */}
+                              <svg className="w-full h-full transform -rotate-90">
+                                <circle
+                                  cx="72"
+                                  cy="72"
+                                  r="56"
+                                  className="stroke-slate-200 fill-none"
+                                  strokeWidth="10"
+                                />
+                                <motion.circle
+                                  cx="72"
+                                  cy="72"
+                                  r="56"
+                                  className="fill-none"
+                                  strokeWidth="10"
+                                  strokeLinecap="round"
+                                  strokeDasharray={2 * Math.PI * 56}
+                                  initial={{ strokeDashoffset: 2 * Math.PI * 56 }}
+                                  animate={{ strokeDashoffset: 2 * Math.PI * 56 - (scorecard.total / 100) * 2 * Math.PI * 56 }}
+                                  transition={{ duration: 1 }}
+                                  style={{
+                                    stroke: scorecard.total >= 80 
+                                      ? '#10b981' 
+                                      : scorecard.total >= 60 
+                                        ? '#f59e0b' 
+                                        : '#ef4444'
+                                  }}
+                                />
+                              </svg>
+                              <div className="absolute flex flex-col items-center">
+                                <span className="text-3xl font-extrabold text-slate-800 font-mono">
+                                  {scorecard.total}%
+                                </span>
+                                <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase mt-0.5">
+                                  {scorecard.total >= 80 
+                                    ? 'EXCELLENT' 
+                                    : scorecard.total >= 60 
+                                      ? 'AVERAGE' 
+                                      : 'NEEDS FIXES'}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-4 leading-normal max-w-[200px]">
+                              Matched against <strong className="text-slate-700">{scorecard.target_job_title || 'General Market Demand'}</strong>
+                            </p>
+                          </div>
+
+                          {/* Right: Breakdown & Suggs Column */}
+                          <div className="lg:col-span-8 space-y-4">
+                            {/* Progress bars */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                              {Object.entries(scorecard.breakdown || {}).map(([key, val]) => {
+                                const labelMap = {
+                                  keyword_match: 'Keyword Match (35%)',
+                                  completeness: 'Section Completeness (20%)',
+                                  experience_depth: 'Experience Depth (20%)',
+                                  formatting: 'Formatting (15%)',
+                                  contact_info: 'Contact Info (10%)'
+                                };
+                                return (
+                                  <div key={key}>
+                                    <div className="flex justify-between text-xs font-semibold mb-1">
+                                      <span className="text-slate-600">{labelMap[key] || key}</span>
+                                      <span className="font-mono text-slate-800">{val}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                      <div
+                                        className="h-full rounded-full transition-all duration-500"
+                                        style={{
+                                          width: `${val}%`,
+                                          backgroundColor: val >= 80 
+                                            ? '#10b981' 
+                                            : val >= 60 
+                                              ? '#f59e0b' 
+                                              : '#ef4444'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Top Actionable Suggestions */}
+                            {scorecard.suggestions && scorecard.suggestions.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-slate-200/60">
+                                <h5 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2.5 flex items-center gap-1.5">
+                                  <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                                  Improvement Checklist
+                                </h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  {scorecard.suggestions.map((sugg, idx) => {
+                                    const isPositive = sugg.toLowerCase().includes('excellent') || sugg.toLowerCase().includes('great job');
+                                    return (
+                                      <div 
+                                        key={idx} 
+                                        className={`flex items-start gap-2 p-2 rounded-xl text-xs ${
+                                          isPositive 
+                                            ? 'bg-emerald-50/50 text-emerald-800 border border-emerald-100/50' 
+                                            : 'bg-amber-50/50 text-amber-800 border border-amber-100/50'
+                                        }`}
+                                      >
+                                        {isPositive ? (
+                                          <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                        ) : (
+                                          <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                                        )}
+                                        <span className="leading-tight">{sugg}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <h4 className="font-bold text-gray-900 mb-3">Summary</h4>
                     <p className="text-gray-700">{resumeData.summary}</p>

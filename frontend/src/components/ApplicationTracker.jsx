@@ -1,13 +1,61 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, CheckCircle, Clock, XCircle, X, TrendingUp } from 'lucide-react'
+import api from '../config/api'
 
 const ApplicationTracker = ({ jobApps = [], compact = false }) => {
     const [showModal, setShowModal] = useState(false)
-    const totalApps = jobApps.length
-    const interviewingCount = jobApps.filter((app) => app.status?.toLowerCase() === 'interviewing').length
-    const offerCount = jobApps.filter((app) => app.status?.toLowerCase() === 'accepted').length
-    const closedCount = jobApps.filter((app) => ['accepted', 'rejected', 'withdrawn'].includes(app.status?.toLowerCase())).length
+    const [applications, setApplications] = useState(jobApps)
+    const [loading, setLoading] = useState(jobApps.length === 0)
+
+    const fetchApplications = async () => {
+        try {
+            const response = await api.get('/api/student/applications/jobs')
+            setApplications(response.data?.applications || [])
+        } catch (error) {
+            console.error('Error fetching applications in ApplicationTracker:', error)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        fetchApplications()
+        const interval = setInterval(fetchApplications, 30000)
+        return () => clearInterval(interval)
+    }, [])
+
+    useEffect(() => {
+        if (jobApps && jobApps.length > 0) {
+            setApplications(jobApps)
+        }
+    }, [jobApps])
+
+    useEffect(() => {
+        if (!showModal) return undefined
+
+        const previousOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                setShowModal(false)
+            }
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+
+        return () => {
+            document.body.style.overflow = previousOverflow
+            window.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [showModal])
+
+    const totalApps = applications.length
+    const interviewingCount = applications.filter((app) => app.status?.toLowerCase() === 'interviewing').length
+    const offerCount = applications.filter((app) => app.status?.toLowerCase() === 'accepted').length
+    const closedCount = applications.filter((app) => ['accepted', 'rejected', 'withdrawn'].includes(app.status?.toLowerCase())).length
 
     const getStatusColor = (status) => {
         switch (status?.toLowerCase()) {
@@ -78,7 +126,7 @@ const ApplicationTracker = ({ jobApps = [], compact = false }) => {
             </motion.button>
 
             <AnimatePresence>
-                {showModal && (
+                {showModal && createPortal(
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowModal(false)}>
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
@@ -96,14 +144,14 @@ const ApplicationTracker = ({ jobApps = [], compact = false }) => {
 
                             <div className="overflow-y-auto p-4 flex-1">
                                 <div className="space-y-3">
-                                    {jobApps.length === 0 ? (
+                                    {applications.length === 0 ? (
                                         <div className="text-center py-8 text-gray-500">No job applications yet.</div>
                                     ) : (
-                                        jobApps.map((app, idx) => (
+                                        applications.map((app, idx) => (
                                             <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
                                                 <div>
-                                                    <h4 className="font-semibold text-gray-900">{app.job?.title || 'Unknown Job'}</h4>
-                                                    <p className="text-sm text-gray-600">{app.job?.company || 'Unknown Company'}</p>
+                                                    <h4 className="font-semibold text-gray-900">{app.job_title || app.job?.title || 'Unknown Job'}</h4>
+                                                    <p className="text-sm text-gray-600">{app.company || app.job?.company || 'Unknown Company'}</p>
                                                     <p className="text-xs text-gray-500 mt-1">
                                                         Applied: {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : 'N/A'}
                                                     </p>
@@ -118,7 +166,8 @@ const ApplicationTracker = ({ jobApps = [], compact = false }) => {
                                 </div>
                             </div>
                         </motion.div>
-                    </div>
+                    </div>,
+                    document.body
                 )}
             </AnimatePresence>
         </>

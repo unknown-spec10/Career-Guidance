@@ -1224,4 +1224,19 @@ Build in this exact sequence. Each step is independently testable.
 
 ---
 
+## 18. Rate Limiting & Cost Safeguards
+
+To prevent API spams and safeguard against high LLM/Whisper costs, a transactional database-backed rate-limiting system is implemented:
+
+### Configured Thresholds
+- **Session Start**: Max 1 mock session created per 5 minutes per applicant, and an overall limit of 3 mock sessions per day.
+- **Answer Submission**: Max 1 answer submitted per 10 seconds per applicant, and an overall limit of 30 evaluations per day.
+
+### Implementation Blueprint (`limiter.py`)
+Both checks query the transactional indexes of the `interview_sessions` and `interview_answers` tables. This is 100% safe for multi-process environments like Render, as all web processes share the same PostgreSQL database.
+
+On violation, the backend throws an `HTTP 429 Too Many Requests` error with detailed retry instructions, which are seamlessly displayed by the frontend toast alert system.
+
+---
+
 *This document covers everything needed to build the interview system from scratch. Follow the build order in Section 17. Each week produces something testable and shippable.*

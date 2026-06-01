@@ -186,6 +186,9 @@ class CreditService:
                     'credits': getattr(account, 'current_credits', 0),
                     'limit_reached': True
                 }
+        elif activity_type == 'learning_path_generation':
+            config_cost = self.db.query(SystemConfiguration).filter_by(key="learning_path_generation_cost").first()
+            cost = int(config_cost.value) if config_cost else CREDIT_CONFIG.get('LEARNING_PATH_GENERATION_COST', 10)
         else:
             cost = 1  # Default
         
@@ -369,7 +372,11 @@ class CreditService:
                 'micro_session': CREDIT_CONFIG['MICRO_SESSION_COST'],
                 'coding_question': CREDIT_CONFIG['CODING_QUESTION_COST'],
                 'project_idea': CREDIT_CONFIG['PROJECT_IDEA_COST'],
-                'learning_path': CREDIT_CONFIG['LEARNING_PATH_GENERATION_COST'],
+                'learning_path': (
+                    int(self.db.query(SystemConfiguration).filter_by(key="learning_path_generation_cost").first().value)
+                    if self.db.query(SystemConfiguration).filter_by(key="learning_path_generation_cost").first()
+                    else CREDIT_CONFIG['LEARNING_PATH_GENERATION_COST']
+                ),
             }
         }
     

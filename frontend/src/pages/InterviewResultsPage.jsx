@@ -10,7 +10,9 @@ import useResultsPolling from '../hooks/useResultsPolling'
 import useStreamingText from '../hooks/useStreamingText'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
+import SkillGapModal from '../components/SkillGapModal'
 
 const SCORE_COLORS = [
   { min: 0.80, color: 'text-green-600', fill: '#16a34a', bg: 'bg-green-50', border: 'border-green-200', label: 'Strong' },
@@ -244,23 +246,8 @@ export default function InterviewResultsPage() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
   const toast = useToast()
-  const { results, isProcessing, completedCount, totalCount, error } = useResultsPolling(sessionId)
-  const { text: studyPlan, isStreaming: studyPlanStreaming, startStream } = useStreamingText()
-  const [studyPlanOpen, setStudyPlanOpen] = useState(false)
-
-  // Auto-open study plan if it has already been generated
-  useEffect(() => {
-    if (results?.study_plan) {
-      setStudyPlanOpen(true)
-    }
-  }, [results])
-
-  const handleOpenStudyPlan = () => {
-    setStudyPlanOpen(true)
-    if (!studyPlan && !studyPlanStreaming) {
-      startStream(`/api/interview/study-plan/${sessionId}`)
-    }
-  }
+  const { results, isProcessing, completedCount, totalCount, error, refresh } = useResultsPolling(sessionId)
+  const [showGapModal, setShowGapModal] = useState(false)
 
   // Error layout
   if (error) {
@@ -390,58 +377,45 @@ export default function InterviewResultsPage() {
           <motion.div 
             initial={{ opacity: 0, y: 15 }} 
             animate={{ opacity: 1, y: 0, transition: { delay: 0.2 } }}
-            className="bg-gradient-to-br from-primary-50/40 to-indigo-50/20 border border-primary-100/80 rounded-3xl p-6 sm:p-8 mb-6 shadow-sm"
+            className="bg-gradient-to-br from-indigo-500/10 via-indigo-600/5 to-slate-900 border border-indigo-500/20 rounded-3xl p-6 sm:p-8 mb-6 shadow-xl relative overflow-hidden"
           >
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start sm:items-center gap-3">
-                <div className="p-3 bg-primary-100 text-primary-600 rounded-2xl flex-shrink-0">
-                  <BookOpen className="w-5 h-5" />
+            {/* Background absolute glowing blob */}
+            <div className="absolute -right-20 -top-20 w-60 h-60 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
+            
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 relative z-10">
+              <div className="flex items-start sm:items-center gap-4">
+                <div className="p-3.5 bg-indigo-600/10 text-indigo-400 rounded-2xl border border-indigo-600/20 flex-shrink-0">
+                  <Sparkles className="w-6 h-6 animate-pulse" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-gray-950 text-base leading-tight">Personalized 30-Day Study Plan</h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Custom curriculum focusing on gaps: {results.weak_skills.join(', ')}
+                  <h3 className="font-extrabold text-slate-100 text-lg leading-tight flex items-center gap-2">
+                    AI-Driven Skill Gap & Course Roadmap Analysis
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1.5 max-w-lg leading-relaxed">
+                    Identify your technical concepts gaps based on your answers and compile an interactive, flowchart-based week-by-week learning pathway with quality video tutorials, coding practice, and real-world projects.
                   </p>
                 </div>
               </div>
-              {!results.study_plan && !studyPlanOpen && (
+              {results.study_plan && results.study_plan.trim().startsWith("{") ? (
                 <button
-                  id="open-study-plan-btn"
-                  onClick={handleOpenStudyPlan}
-                  disabled={studyPlanStreaming}
-                  className="px-4.5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-60"
+                  id="open-gap-analysis-modal-btn"
+                  onClick={() => setShowGapModal(true)}
+                  className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-600/10 transition-all hover:scale-102 active:scale-98"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{studyPlanStreaming ? 'Generating Plan...' : 'Generate Gap Curriculum'}</span>
+                  <CheckCircle className="w-4 h-4" />
+                  <span>View Skill Gap Diagnosis</span>
+                </button>
+              ) : (
+                <button
+                  id="open-gap-analysis-modal-btn"
+                  onClick={() => setShowGapModal(true)}
+                  className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/10 transition-all hover:scale-102 active:scale-98"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Run Skill Gap Diagnosis</span>
                 </button>
               )}
             </div>
-
-            {/* Study plan stream panel */}
-            <AnimatePresence>
-              {studyPlanOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }} 
-                  animate={{ height: 'auto', opacity: 1 }} 
-                  exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="mt-5 p-6 bg-gradient-to-br from-white to-slate-50/50 border border-slate-200 rounded-3xl text-gray-800 text-sm leading-relaxed whitespace-normal max-h-[500px] overflow-y-auto shadow-[inset_0_2px_4px_rgba(0,0,0,0.01),0_10px_35px_-10px_rgba(0,0,0,0.04)]">
-                    {(studyPlan || results?.study_plan) ? (
-                      <div className="text-left">
-                        <ReactMarkdown components={markdownComponents}>{studyPlan || results.study_plan}</ReactMarkdown>
-                        {studyPlanStreaming && <span className="animate-pulse font-bold text-primary-600 ml-0.5">▌</span>}
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center gap-2 text-xs font-medium text-gray-400 py-6">
-                        <Loader2 className="w-4 h-4 animate-spin text-primary-500" />
-                        <span>Compiling custom curriculum timeline...</span>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </motion.div>
         )}
 
@@ -477,6 +451,19 @@ export default function InterviewResultsPage() {
             Return to Dashboard Workspace
           </button>
         </div>
+
+        {/* Full Screen Overlay Modal */}
+        <SkillGapModal 
+          isOpen={showGapModal}
+          onClose={() => setShowGapModal(false)}
+          sessionId={sessionId}
+          initialSkills={results.skill_breakdown || []}
+          targetRole="Software Developer"
+          experienceLevel="junior"
+          learningPathId={results.learning_path_id}
+          onPathGenerated={refresh}
+          onGapAnalysisCompleted={refresh}
+        />
 
       </div>
     </div>

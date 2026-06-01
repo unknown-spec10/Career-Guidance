@@ -11,7 +11,7 @@ from groq import Groq
 
 from ..config import settings
 from ..constants import INTERVIEW_CONFIG_V2
-from .prompts import GROQ_MODEL, QUESTION_GENERATION_PROMPT
+from .prompts import GROQ_MODEL, QUESTION_GENERATION_PROMPT, PERSONA_PROMPTS
 from .fallback_questions import get_fallback_questions
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ def generate_questions(
     topic_focus: Optional[str] = None,
     past_weak_skills: Optional[List[str]] = None,
     past_missing_concepts: Optional[List[str]] = None,
+    past_question_texts: Optional[List[str]] = None,
+    interviewer_persona: Optional[str] = "Friendly Senior Engineer",
 ) -> List[dict]:
     """
     Generate all questions for a session in a single Groq API call.
@@ -71,6 +73,16 @@ def generate_questions(
         else:
             growth_desc = "GROWTH ORIENTED FOCUS:\nNone. Auto-select topics normally matching candidate resume."
 
+        if past_question_texts:
+            past_q_desc = "PREVIOUSLY ASKED QUESTIONS (DO NOT DUPLICATE OR ASK SIMILAR QUESTIONS):\n"
+            for pq in past_question_texts:
+                past_q_desc += f"- {pq}\n"
+        else:
+            past_q_desc = "PREVIOUSLY ASKED QUESTIONS:\nNone (First session)."
+
+        persona_info = PERSONA_PROMPTS.get(interviewer_persona or "Friendly Senior Engineer", PERSONA_PROMPTS["Friendly Senior Engineer"])
+        persona_instruction = persona_info["generation_instruction"]
+
         prompt = QUESTION_GENERATION_PROMPT.format(
             total_count=total_count,
             num_questions=num_questions,
@@ -81,7 +93,9 @@ def generate_questions(
             interview_type=interview_type,
             difficulty=difficulty,
             topic_focus=topic_focus or "None — auto-select from candidate skills",
+            persona_instruction=persona_instruction,
             growth_context=growth_desc,
+            past_questions=past_q_desc,
         )
 
         response = groq_client.chat.completions.create(

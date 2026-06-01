@@ -34,7 +34,7 @@ from .auth import (
 from pathlib import Path
 import json
 from .resume.parse_service import ResumeParserService
-from .interview import router as interview_router_v2
+from .interview.router import router as interview_router_v2, learning_path_router
 import logging
 from datetime import timedelta
 import secrets
@@ -219,6 +219,7 @@ app.add_middleware(
 
 # Register interview system v2 router (/api/interview/*)
 app.include_router(interview_router_v2)
+app.include_router(learning_path_router)
 
 
 @app.on_event("startup")
@@ -267,6 +268,18 @@ async def startup_event():
             from .db import init_db
             init_db()
             logger.info("✓ PostgreSQL tables initialized (PG_DSN mode)")
+        
+        # Self-healing alteration to inject new enum value for recommendation_refresh
+        try:
+            from sqlalchemy import text
+            from .db import SessionLocal
+            with SessionLocal() as db_session:
+                db_session.execute(text("ALTER TYPE activity_type ADD VALUE 'recommendation_refresh'"))
+                db_session.commit()
+                logger.info("✓ Added 'recommendation_refresh' to activity_type PostgreSQL enum")
+        except Exception as e:
+            # Under SQLite or if the enum value already exists, this will throw an error, which we safely ignore
+            pass
         
         # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible)
         try:
@@ -475,7 +488,7 @@ async def get_current_user_info(current_user = Depends(get_current_user)):
 
 @app.patch("/api/auth/profile")
 async def update_profile(
-    name: str = Body(...),
+    name: str = Body(..., embed=True),
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -642,6 +655,47 @@ async def get_student_profile(
         "summary": summary,
         "personal_info": personal_info,
     }
+
+
+@app.get("/api/student/resume/scorecard")
+async def get_student_resume_scorecard(
+    job_id: Optional[int] = None,
+    current_user = Depends(require_role("student")),
+    db: Session = Depends(get_db)
+):
+    """Calculate and return the student's ATS Resume Score Card"""
+    from .db import Applicant, LLMParsedRecord, Job
+    from .resume.ats_scorer import score_resume
+    
+    # Fetch current student's applicant record
+    applicant = (
+        db.query(Applicant)
+        .filter(Applicant.user_id == current_user.id)
+        .order_by(desc(Applicant.id))
+        .first()
+    )
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found. Please upload a resume first.")
+
+    parsed = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant.id).first()
+    if not parsed:
+        raise HTTPException(status_code=404, detail="No parsed resume data found. Please parse your resume first.")
+
+    normalized = parsed.normalized or {}
+    
+    job_skills = None
+    target_job_title = "General Market Demand"
+    if job_id:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job:
+            job_skills = job.required_skills or []
+            target_job_title = job.title
+
+    result = score_resume(parsed_data=normalized, job_skills=job_skills, db=db)
+    result["target_job_title"] = target_job_title
+    result["job_id"] = job_id
+    
+    return result
 
 
 @app.put("/api/student/profile")
@@ -955,23 +1009,31 @@ async def upload_resume(
     if existing_upload:
         existing_applicant = db.query(Applicant).filter(Applicant.id == existing_upload.applicant_id).first()
         if existing_applicant:
-            logger.info(f"Duplicate resume detected. Returning existing applicant {existing_applicant.applicant_id}")
-            created_str = None
-            if hasattr(existing_applicant, 'created_at'):
-                try:
-                    val = getattr(existing_applicant, 'created_at', None)
-                    if val is not None:
-                        created_str = val.isoformat()
-                except:
-                    pass
-            return JSONResponse({
-                "status": "duplicate",
-                "message": "This resume has already been uploaded",
-                "applicant_id": existing_applicant.applicant_id,
-                "db_id": existing_applicant.id,
-                "resume_hash": resume_hash,
-                "existing_created_at": created_str
-            })
+            from .db import LLMParsedRecord
+            parsed_rec = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == existing_applicant.id).first()
+            
+            # If the previous parse exists and was accepted, treat as duplicate.
+            # Otherwise, allow re-upload/re-parse (e.g. if the previous parse failed due to transient rate limits).
+            if parsed_rec and getattr(parsed_rec, 'parse_status', None) == 'accepted':
+                logger.info(f"Duplicate resume detected with accepted status. Returning existing applicant {existing_applicant.applicant_id}")
+                created_str = None
+                if hasattr(existing_applicant, 'created_at'):
+                    try:
+                        val = getattr(existing_applicant, 'created_at', None)
+                        if val is not None:
+                            created_str = val.isoformat()
+                    except:
+                        pass
+                return JSONResponse({
+                    "status": "duplicate",
+                    "message": "This resume has already been uploaded",
+                    "applicant_id": existing_applicant.applicant_id,
+                    "db_id": existing_applicant.id,
+                    "resume_hash": resume_hash,
+                    "existing_created_at": created_str
+                })
+            else:
+                logger.info(f"Duplicate resume detected for applicant {existing_applicant.applicant_id}, but parse was not accepted (status={getattr(parsed_rec, 'parse_status', None) if parsed_rec else 'None'}). Proceeding to re-parse.")
 
     marks_paths = []
     if marksheets:
@@ -1134,7 +1196,7 @@ async def parse_applicant(
             logger.warning("Failed to queue parse task for %s: %s", applicant_id, e)
             logger.warning("Falling back to sync parse for %s", applicant_id)
     
-    # Run parsing
+    # Run parsing (sync fallback — only used when ASYNC_PARSE_ENABLED=False or ?sync=true)
     result = parser_service.run_parse(str(applicant_dir), applicant_id)
     
     # Save to database
@@ -1147,26 +1209,32 @@ async def parse_applicant(
         
         # Update display name from parsed data if available
         normalized = result.get('normalized', {})
-        # Try both 'personal_info' and 'personal' for backwards compatibility
-        personal_info = normalized.get('personal_info') or normalized.get('personal', {})
-        if personal_info.get('name'):
-            applicant.display_name = personal_info['name']
-        if personal_info.get('location'):
-            location_parts = personal_info['location'].split(',')
-            applicant.location_city = location_parts[0].strip() if location_parts else None  # type: ignore
-            applicant.location_state = location_parts[1].strip() if len(location_parts) > 1 else None  # type: ignore
+        # Try both 'personal' (v2) and 'personal_info' (legacy) key
+        personal_info = normalized.get('personal') or normalized.get('personal_info') or {}
+        if isinstance(personal_info, dict):
+            if personal_info.get('name'):
+                applicant.display_name = personal_info['name']
+            if personal_info.get('location'):
+                location_parts = personal_info['location'].split(',')
+                applicant.location_city = location_parts[0].strip() if location_parts else None  # type: ignore
+                applicant.location_state = location_parts[1].strip() if len(location_parts) > 1 else None  # type: ignore
         
-        # Save or update LLM parsed record
+        # Save or update LLM parsed record (with all v2 fields)
         llm_record = db.query(LLMParsedRecord).filter(
             LLMParsedRecord.applicant_id == applicant.id
         ).first()
+
+        parse_status_val = result.get('parse_status', 'accepted')
         
         if llm_record:
             # Update existing
             llm_record.raw_llm_output = result  # type: ignore
             llm_record.normalized = normalized  # type: ignore
             llm_record.llm_provenance = result.get('llm_provenance', {})  # type: ignore
-            llm_record.needs_review = result.get('needs_review', False)
+            llm_record.needs_review = result.get('needs_review', False)  # type: ignore
+            llm_record.parse_status = parse_status_val  # type: ignore
+            llm_record.unrecognized_skills = result.get('unrecognized_skills', [])  # type: ignore
+            llm_record.per_section_confidence = result.get('per_section_confidence', {})  # type: ignore
         else:
             # Create new
             llm_record = LLMParsedRecord(
@@ -1174,21 +1242,27 @@ async def parse_applicant(
                 raw_llm_output=result,
                 normalized=normalized,
                 llm_provenance=result.get('llm_provenance', {}),
-                needs_review=result.get('needs_review', False)
+                needs_review=result.get('needs_review', False),
+                parse_status=parse_status_val,
+                unrecognized_skills=result.get('unrecognized_skills', []),
+                per_section_confidence=result.get('per_section_confidence', {}),
             )
             db.add(llm_record)
         
         db.commit()
-        logger.info(f"✓ Saved parsed data for applicant {applicant_id} (ID: {applicant.id})")
+        logger.info(
+            f"✓ Saved parsed data for applicant {applicant_id} (ID: {applicant.id}, "
+            f"status={parse_status_val})"
+        )
 
-        # Queue background recommendation calculation.
-        try:
-            from .recommendation.engine import compute_recommendations
-            background_tasks.add_task(compute_recommendations, applicant.id, db)
-            logger.info(f"Queued background task to compute recommendations for applicant {applicant.id}")
-            result['auto_recommendations_generated'] = "queued"
-        except Exception as e:
-            logger.warning(f"Could not enqueue background recommendations for applicant {applicant.id}: {e}")
+        # Queue background recommendation calculation (only for accepted parses)
+        if parse_status_val == 'accepted':
+            try:
+                from .recommendation.engine import compute_recommendations
+                background_tasks.add_task(compute_recommendations, applicant.id, db)
+                result['auto_recommendations_generated'] = "queued"
+            except Exception as e:
+                logger.warning(f"Could not enqueue background recommendations: {e}")
         
         # Add database ID to result
         result['db_applicant_id'] = applicant.id
@@ -1199,6 +1273,61 @@ async def parse_applicant(
         result['database_error'] = str(e)
     
     return JSONResponse(result)
+
+
+@app.get("/api/parse/status/{applicant_id}")
+async def get_parse_status(
+    applicant_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Poll the parse status for an applicant.
+    Returns parse_status, overall_confidence, per_section_confidence, and flags.
+
+    parse_status values:
+      - 'processing'     — background task still running
+      - 'accepted'       — AUTO_ACCEPT (confidence >= 0.85)
+      - 'pending_review' — NEEDS_REVIEW (confidence 0.60–0.84)
+      - 'failed'         — RE_PARSE exhausted
+    """
+    from .db import Applicant, LLMParsedRecord
+
+    applicant = (
+        db.query(Applicant)
+        .filter(Applicant.applicant_id == applicant_id)
+        .options(joinedload(Applicant.parsed_record))
+        .first()
+    )
+
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+
+    parsed = applicant.parsed_record
+    if not parsed:
+        # No parse record yet — directory exists but parse hasn't run
+        return {
+            "applicant_id": applicant_id,
+            "parse_status": "not_started",
+            "overall_confidence": None,
+            "per_section_confidence": {},
+            "flags": [],
+            "unrecognized_skills_count": 0,
+        }
+
+    raw = parsed.raw_llm_output or {}
+    return {
+        "applicant_id": applicant_id,
+        "parse_status": getattr(parsed, 'parse_status', 'unknown') or raw.get('parse_status', 'unknown'),
+        "overall_confidence": raw.get('overall_confidence'),
+        "per_section_confidence": getattr(parsed, 'per_section_confidence', {}) or {},
+        "flags": raw.get('flags', []),
+        "unrecognized_skills_count": len(getattr(parsed, 'unrecognized_skills', None) or []),
+        "needs_review": parsed.needs_review,
+        "resume_type": raw.get('resume_type', 'unknown'),
+    }
+
+
 
 
 # New endpoints for comprehensive features
@@ -1322,12 +1451,38 @@ async def get_applicant_details(applicant_id: str, db: Session = Depends(get_db)
             "location_state": applicant.location_state,
             "country": applicant.country,
             "preferred_locations": applicant.preferred_locations,
-            "created_at": applicant.created_at.isoformat() if applicant.created_at is not None else None
+            "created_at": applicant.created_at.isoformat() if applicant.created_at is not None else None,
+            "user_id": applicant.user_id,
+            "is_active": applicant.user.is_active if applicant.user else True
         },
         "parsed_data": llm_record.normalized if llm_record else None,
         "needs_review": llm_record.needs_review if llm_record else False,
         "field_confidences": llm_record.field_confidences if llm_record else None
     }
+
+from pydantic import BaseModel
+
+class JobOptimizeRequest(BaseModel):
+    prompt: str
+    title: Optional[str] = None
+
+
+@app.post("/api/employer/jobs/optimize")
+async def optimize_job_description_route(
+    data: JobOptimizeRequest,
+    current_user = Depends(require_role("employer"))
+):
+    """Optimize a brief job description draft and suggest skills using AI"""
+    if not data.prompt or not data.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt draft cannot be empty")
+        
+    try:
+        from .recommendation.optimizer import optimize_job_description
+        result = optimize_job_description(prompt_text=data.prompt, title=data.title)
+        return result
+    except Exception as e:
+        logger.error(f"Error in job description optimization: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to optimize job description: {str(e)}")
 
 
 # ============================================================
@@ -1566,13 +1721,31 @@ async def get_job_applicants(
             applied_at_ser = str(applied_at_val)
         else:
             applied_at_ser = None
+
+        match_score = 0.0
+        match_reasons = "Matched based on profile strength."
+        skill_gaps = "No major gaps identified."
+        try:
+            from .recommendation.engine import ensure_applicant_job_recommendation
+            rec = ensure_applicant_job_recommendation(applicant.id, job_id, db)
+            if rec:
+                match_score = float(rec.score or 0.0)
+                if rec.explain:
+                    match_reasons = rec.explain.get("employer_reasons") or rec.explain.get("summary") or match_reasons
+                    skill_gaps = rec.explain.get("employer_gaps") or skill_gaps
+        except Exception as e:
+            logger.error(f"Error getting matching recommendation in get_job_applicants: {e}")
+
         result.append({
             "application_id": app.id,
             "applicant_id": applicant.id,
             "applicant_name": applicant.display_name,
             "status": app.status,
             "applied_at": applied_at_ser,
-            "cover_letter": app.cover_letter
+            "cover_letter": app.cover_letter,
+            "match_score": match_score,
+            "match_reasons": match_reasons,
+            "skill_gaps": skill_gaps
         })
     
     return {"applicants": result, "total": len(result)}
@@ -1698,6 +1871,13 @@ async def apply_to_job(
     
     db.commit()
     db.refresh(application)
+
+    # Pre-compute recommendation for immediate employer dashboard visibility
+    try:
+        from .recommendation.engine import ensure_applicant_job_recommendation
+        ensure_applicant_job_recommendation(applicant.id, job_id, db)
+    except Exception as e:
+        logger.warning(f"Could not pre-compute recommendation on application: {e}")
     
     logger.info(f"Student {applicant.display_name} applied to job {job.title}")
     return application
@@ -1928,33 +2108,91 @@ async def get_admin_job_details(
 async def get_jobs(
     skip: int = 0,
     limit: int = 20,
-    location: Optional[str] = None
+    location: Optional[str] = None,
+    q: Optional[str] = None,
+    work_type: Optional[str] = None,
+    skills: Optional[str] = None,
+    sort: Optional[str] = 'popular',
+    db: Session = Depends(get_db)
 ):
-    """Get all active jobs - Repository pattern version"""
-    job_repo = get_job_repo()
-    jobs = await job_repo.list_active(location=location, limit=limit)
+    """Get all active jobs with advanced search, filtering, and sorting support"""
+    import datetime
+    from sqlalchemy import or_, desc, cast, String
+    from .db import Job, Employer
     
-    result = []
-    for j in jobs:
-        result.append({
-            "id": j.get('id'),
-            "title": j.get('title'),
-            "company": j.get('company'),
-            "location": j.get('location'),
-            "salary_min": j.get('salary_min'),
-            "salary_max": j.get('salary_max'),
-            "currency": j.get('currency', 'LPA'),
-            "description": j.get('description'),
-            "requirements": j.get('requirements', []),
-            "posted_date": j.get('posted_date'),
-            "expires_at": j.get('expires_at')
+    now = datetime.datetime.utcnow()
+    base_query = db.query(Job).filter(
+        Job.status == 'approved',
+        ((Job.expires_at.is_(None)) | (Job.expires_at > now))
+    )
+    
+    # 1. Full-text search
+    if q:
+        search_pattern = f"%{q}%"
+        base_query = base_query.filter(
+            or_(
+                Job.title.ilike(search_pattern),
+                Job.description.ilike(search_pattern),
+                Job.employer.has(Employer.company_name.ilike(search_pattern))
+            )
+        )
+        
+    # 2. Location filter
+    if location:
+        loc_pattern = f"%{location}%"
+        base_query = base_query.filter(
+            or_(
+                Job.location_city.ilike(loc_pattern),
+                Job.location_state.ilike(loc_pattern)
+            )
+        )
+        
+    # 3. Work Type filter
+    if work_type:
+        base_query = base_query.filter(Job.work_type == work_type)
+        
+    # 4. Skills filter
+    if skills:
+        skill_list = [s.strip().lower() for s in skills.split(",") if s.strip()]
+        for s in skill_list:
+            base_query = base_query.filter(cast(Job.required_skills, String).ilike(f"%{s}%"))
+            
+    # 5. Sorting
+    if sort == 'recent':
+        base_query = base_query.order_by(desc(Job.created_at))
+    elif sort == 'title':
+        base_query = base_query.order_by(Job.title.asc())
+    else:  # 'popular' or default
+        base_query = base_query.order_by(desc(Job.created_at))
+        
+    total_count = base_query.count()
+    results = base_query.offset(skip).limit(limit).all()
+    
+    jobs_list = []
+    for job in results:
+        jobs_list.append({
+            "id": job.id,
+            "title": job.title,
+            "company": job.employer.company_name if job.employer else "Unknown",
+            "location_city": job.location_city,
+            "location_state": job.location_state,
+            "work_type": job.work_type,
+            "min_experience_years": job.min_experience_years,
+            "min_cgpa": job.min_cgpa,
+            "min_salary": None,
+            "max_salary": None,
+            "description": job.description,
+            "required_skills": job.required_skills,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "expires_at": job.expires_at.isoformat() if job.expires_at else None
         })
-    
+        
     return {
-        "jobs": result,
-        "total": len(result),
+        "jobs": jobs_list,
+        "total": total_count,
         "next_cursor": None
     }
+
 
 
 @app.post("/api/admin/jobs/{job_id}/disable")
@@ -2227,6 +2465,35 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
         desc(JobRecommendation.score)
     ).all()
     
+    # Cooldown Check
+    from sqlalchemy import func
+    import datetime
+    from .constants import CREDIT_CONFIG
+    
+    last_computed = db.query(func.max(JobRecommendation.computed_at)).filter(
+        JobRecommendation.applicant_id == resolved_id
+    ).scalar()
+    
+    cooldown_hours = CREDIT_CONFIG.get('RECOMMENDATION_REFRESH_COOLDOWN_HOURS', 24)
+    cost = CREDIT_CONFIG.get('RECOMMENDATION_REFRESH_COST', 5)
+    
+    in_cooldown = False
+    cooldown_expires_at = None
+    
+    if last_computed:
+        now_time = datetime.datetime.utcnow()
+        time_passed = now_time - last_computed
+        cooldown_seconds = cooldown_hours * 3600
+        
+        if time_passed.total_seconds() < cooldown_seconds:
+            in_cooldown = True
+            cooldown_expires_at = last_computed + datetime.timedelta(hours=cooldown_hours)
+            
+    # Fetch job applications to determine status tracker
+    from .db import JobApplication
+    job_apps = db.query(JobApplication).filter(JobApplication.applicant_id == resolved_id).all()
+    app_status_map = {app.job_id: app.status for app in job_apps}
+
     return {
         "job_recommendations": [
             {
@@ -2247,9 +2514,16 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
                 "scoring_breakdown": rec.score_breakdown if rec.score_breakdown is not None else rec.scoring_breakdown,
                 "explanation": rec.explanation,
                 "explain": rec.explain,
-                "status": rec.status
+                "status": rec.status,
+                "is_saved": rec.is_saved if rec.is_saved is not None else False,
+                "application_status": app_status_map.get(job.id)
             } for rec, job, employer in job_recs
-        ]
+        ],
+        "last_computed_at": last_computed.isoformat() if last_computed else None,
+        "cooldown_active": in_cooldown,
+        "cooldown_expires_at": cooldown_expires_at.isoformat() if cooldown_expires_at else None,
+        "cooldown_hours": cooldown_hours,
+        "bypass_cost": cost
     }
 
 
@@ -2266,6 +2540,89 @@ async def get_statistics(db: Session = Depends(get_db)):
     }
 
     return stats
+
+@app.patch("/api/job-recommendation/{rec_id}/save")
+def toggle_job_recommendation_saved(
+    rec_id: int,
+    is_saved: bool = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("student"))
+):
+    """Toggle the saved status of a job recommendation for the student"""
+    from .db import JobRecommendation, Applicant
+    
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Student profile not found. Please upload a resume first.")
+        
+    rec = db.query(JobRecommendation).filter(
+        JobRecommendation.id == rec_id,
+        JobRecommendation.applicant_id == applicant.id
+    ).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="Job recommendation not found")
+        
+    rec.is_saved = is_saved
+    db.commit()
+    db.refresh(rec)
+    return {"id": rec.id, "is_saved": rec.is_saved, "message": "Saved status updated successfully"}
+
+
+@app.patch("/api/student/jobs/{job_id}/track")
+def track_job_application_status(
+    job_id: int,
+    status: str = Body(..., embed=True),  # 'applied', 'interviewing', 'offered'
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("student"))
+):
+    """Track or update job application status (applied, interviewing, offered) for the student"""
+    from .db import Job, JobApplication, Applicant
+    
+    valid_statuses = ['applied', 'interviewing', 'offered']
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid tracker status. Must be one of: {valid_statuses}")
+        
+    applicant = db.query(Applicant).filter(Applicant.user_id == current_user.id).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Student profile not found. Please upload a resume first.")
+        
+    # Verify job exists
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    # Check if application already exists
+    app = db.query(JobApplication).filter(
+        JobApplication.applicant_id == applicant.id,
+        JobApplication.job_id == job_id
+    ).first()
+    
+    if not app:
+        # If no application exists, create one with the specified status
+        app = JobApplication(
+            applicant_id=applicant.id,
+            job_id=job_id,
+            status=status,
+            cover_letter="Manually tracked application"
+        )
+        db.add(app)
+        
+        # Also log feedback
+        from .db import UserFeedback
+        feedback = UserFeedback(
+            applicant_id=applicant.id,
+            job_id=job_id,
+            action_type='apply'
+        )
+        db.add(feedback)
+    else:
+        # Update the existing status
+        app.status = status
+        
+    db.commit()
+    db.refresh(app)
+    return {"job_id": job_id, "status": app.status, "message": f"Job application status updated to {status}"}
+
 
 @app.patch("/api/job-recommendation/{rec_id}/status")
 def update_job_recommendation_status(
@@ -2337,14 +2694,20 @@ def update_job_recommendation_status(
 @app.post("/api/applicant/{applicant_id}/generate-recommendations")
 async def generate_recommendations_for_applicant(
     applicant_id: int,
+    bypass_cooldown: bool = False,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Generate or refresh job recommendations for an applicant.
+    """Generate or refresh job recommendations for an applicant with a 24-hour hybrid cooldown.
     
-    Uses the new RecommendationService with normalized 0–1 scores and semantic
-    skill matching. Removes old recommendations before regenerating.
+    If recommendations were computed recently, the user must set bypass_cooldown=True
+    and spend 5 credits to force recalculation. Otherwise, refreshes are free.
     """
+    from sqlalchemy import func
+    import datetime
+    from .constants import CREDIT_CONFIG
+    from .core.credit_service import CreditService
+    
     # Validate applicant and parsed data
     applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
     if not applicant:
@@ -2353,6 +2716,57 @@ async def generate_recommendations_for_applicant(
     llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
     if not llm_record:
         raise HTTPException(status_code=400, detail=API_MESSAGES['NO_PARSED_DATA'])
+
+    # Cooldown Check
+    last_computed = db.query(func.max(JobRecommendation.computed_at)).filter(
+        JobRecommendation.applicant_id == applicant_id
+    ).scalar()
+
+    cooldown_hours = CREDIT_CONFIG.get('RECOMMENDATION_REFRESH_COOLDOWN_HOURS', 24)
+    cost = CREDIT_CONFIG.get('RECOMMENDATION_REFRESH_COST', 5)
+    
+    credits_spent = 0
+    in_cooldown = False
+    cooldown_expires_at = None
+
+    if last_computed:
+        now_time = datetime.datetime.utcnow()
+        time_passed = now_time - last_computed
+        cooldown_seconds = cooldown_hours * 3600
+        
+        if time_passed.total_seconds() < cooldown_seconds:
+            in_cooldown = True
+            cooldown_expires_at = last_computed + datetime.timedelta(hours=cooldown_hours)
+            
+            if not bypass_cooldown:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "status": "cooldown",
+                        "last_computed_at": last_computed.isoformat(),
+                        "cooldown_expires_at": cooldown_expires_at.isoformat(),
+                        "bypass_cost": cost,
+                        "detail": f"Recommendations were refreshed recently. You can wait or spend {cost} credits to bypass."
+                    }
+                )
+            else:
+                # Deduct 5 credits
+                credit_service = CreditService(db)
+                eligible, msg, context = credit_service.check_eligibility(
+                    applicant_id, 
+                    'recommendation_refresh', 
+                    custom_cost=cost
+                )
+                if not eligible:
+                    raise HTTPException(status_code=402, detail=msg)
+                
+                credit_service.spend_credits(
+                    applicant_id,
+                    activity_type='recommendation_refresh',
+                    cost=cost,
+                    description=f"Bypassed recommendations cooldown (charged {cost} credits)"
+                )
+                credits_spent = cost
 
     # Clear existing recommendations
     db.query(JobRecommendation).filter(JobRecommendation.applicant_id == applicant_id).delete()
@@ -2368,11 +2782,20 @@ async def generate_recommendations_for_applicant(
         
         logger.info(f"✓ Generated {job_count} job recommendations for applicant {applicant_id}")
         
-        # Return counts based on generated lists
+        # Get updated credits summary
+        credit_service = CreditService(db)
+        summary = credit_service.get_account_summary(applicant_id)
+        credits_left = summary.get('current_credits', 0)
+        
+        # Return success with metadata and updated balance
         return {
             "status": "success",
             "message": "Recommendations generated successfully",
-            "job_recommendations_count": job_count
+            "job_recommendations_count": job_count,
+            "credits_spent": credits_spent,
+            "credits_left": credits_left,
+            "cooldown_active": in_cooldown,
+            "cooldown_expires_at": cooldown_expires_at.isoformat() if cooldown_expires_at else None
         }
     except Exception as e:
         logger.error(f"Failed to generate recommendations via service: {e}", exc_info=True)
@@ -3091,7 +3514,7 @@ async def get_applicants_needing_review(
             {
                 "applicant_id": applicant.id,
                 "applicant_name": getattr(applicant, 'display_name'),
-                "confidence": getattr(record, 'field_confidences', {}).get('overall', 0),
+                "confidence": (record.field_confidences or {}).get('overall', 0),
                 "created_at": getattr(record, 'created_at').isoformat() if getattr(record, 'created_at', None) else None
             } for record, applicant in records
         ]
@@ -3291,6 +3714,81 @@ def admin_get_applicant_credit_balance(
 
     credit_service = CreditService(db)
     return credit_service.get_account_summary(effective_applicant_id)
+
+
+@app.get("/api/admin/applicants/{applicant_id}/sessions")
+async def get_applicant_sessions(
+    applicant_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("admin"))
+):
+    """Fetch all mock practice sessions for a specific applicant (admin only)."""
+    from .db import InterviewSession
+    sessions = db.query(InterviewSession).filter(
+        InterviewSession.applicant_id == applicant_id
+    ).order_by(desc(InterviewSession.created_at)).all()
+    
+    return [
+        {
+            "id": s.id,
+            "interview_type": s.interview_type,
+            "difficulty": s.difficulty,
+            "total_questions": s.total_questions,
+            "voice_mode": s.voice_mode,
+            "topic_focus": s.topic_focus,
+            "interviewer_persona": s.interviewer_persona,
+            "status": s.status,
+            "overall_score": s.overall_score,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "completed_at": s.completed_at.isoformat() if s.completed_at else None
+        }
+        for s in sessions
+    ]
+
+
+@app.post("/api/admin/users/{user_id}/toggle-active")
+async def toggle_user_active(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("admin"))
+):
+    """Toggle a user's portal active status (admin ban/unban control)."""
+    from .db import User, AuditLog
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Toggle status
+    old_status = user.is_active
+    user.is_active = not old_status  # type: ignore
+    db.commit()
+    
+    # Audit log
+    try:
+        audit = AuditLog(
+            action="user_ban_toggle",
+            target_type="User",
+            target_id=user_id,
+            user_id=current_user.id,
+            details={
+                "old_status": old_status,
+                "new_status": user.is_active,
+                "email": user.email
+            }
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to write suspension audit log: {e}")
+        
+    return {
+        "user_id": user_id,
+        "is_active": user.is_active,
+        "message": f"User account {'reactivated' if user.is_active else 'suspended'} successfully"
+    }
+
+
+
 
 
 @app.post("/api/credits/award-bonus")

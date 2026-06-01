@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Cpu, Users, Heart, Shuffle, Zap, Target, BarChart2, 
-  MessageSquare, AlertTriangle, Clock, ArrowRight, RefreshCw, ChevronLeft, Trophy, Calendar 
+  MessageSquare, AlertTriangle, Clock, ArrowRight, RefreshCw, ChevronLeft, Trophy, Calendar, Mic,
+  Smile, ShieldAlert
 } from 'lucide-react'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
@@ -23,6 +24,13 @@ const DIFFICULTIES = [
   { id: 'hard', label: 'Hard', color: 'text-red-600 bg-red-50 border-red-200 active-border-red-500', desc: 'System design & edge cases' },
 ]
 
+const PERSONAS = [
+  { id: 'Friendly Senior Engineer', label: 'Friendly Senior Engineer', icon: Smile, desc: 'Warm, collaborative, encouraging. Offers helpful hints when you get stuck.', badge: 'Warm & Encouraging', badgeColor: 'bg-green-50 text-green-700 border-green-200 hover:border-green-300' },
+  { id: 'Tough FAANG Interviewer', label: 'Tough FAANG Interviewer', icon: ShieldAlert, desc: 'Strict, minimal reactions, optimal performance focus. Absolutely no hints.', badge: 'Strict & optimal', badgeColor: 'bg-red-50 text-red-700 border-red-200 hover:border-red-300' },
+  { id: 'HR Behavioral Round', label: 'HR Behavioral Round', icon: Users, desc: 'Focuses on soft skills, culture fit, situational judgment, and the STAR method.', badge: 'STAR Stories', badgeColor: 'bg-purple-50 text-purple-700 border-purple-200 hover:border-purple-300' },
+  { id: 'Startup CTO', label: 'Startup CTO', icon: Cpu, desc: 'Pragmatic, values rapid shipping, simplicities, MVPs, and trade-offs over academic theory.', badge: 'Pragmatic Builder', badgeColor: 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-300' },
+]
+
 const QUESTION_COUNTS = [5, 10, 15]
 
 export default function InterviewPage() {
@@ -36,6 +44,7 @@ export default function InterviewPage() {
     num_questions: 10,
     topic_focus: '',
     voice_mode: false,
+    interviewer_persona: 'Friendly Senior Engineer',
   })
   const [isStarting, setIsStarting] = useState(false)
   const [resumeStatus, setResumeStatus] = useState(null) // null | 'parsed' | 'missing'
@@ -101,9 +110,10 @@ export default function InterviewPage() {
       num_questions: session.num_questions,
       topic_focus: session.topic_focus || '',
       voice_mode: false,
+      interviewer_persona: session.interviewer_persona || 'Friendly Senior Engineer',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
-    toast.success(`Loaded configuration: ${session.interview_type} (${session.difficulty}, ${session.num_questions} Qs)`)
+    toast.success(`Loaded configuration: ${session.interview_type} (${session.difficulty}, ${session.num_questions} Qs, Persona: ${session.interviewer_persona || 'Friendly Senior Engineer'})`)
   }
 
   const estimatedTime = Math.round(config.num_questions * 3)
@@ -226,6 +236,42 @@ export default function InterviewPage() {
             </div>
           </div>
 
+          {/* Interviewer Persona Selection */}
+          <div className="mb-8">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4 flex items-center gap-1.5">
+              Select Interviewer Persona
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {PERSONAS.map(({ id, label, icon: Icon, desc, badge, badgeColor }) => {
+                const isSelected = config.interviewer_persona === id
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setConfig(c => ({ ...c, interviewer_persona: id }))}
+                    className={`flex items-start gap-4 p-4 rounded-2xl border text-left transition-all ${
+                      isSelected 
+                        ? 'border-primary-500 bg-primary-50/40 shadow-sm ring-1 ring-primary-500' 
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-xl flex-shrink-0 ${isSelected ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className={`font-bold text-sm ${isSelected ? 'text-primary-950' : 'text-gray-900'}`}>{label}</h4>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${badgeColor}`}>
+                          {badge}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1 leading-normal">{desc}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Difficulty Level */}
           <div className="mb-8">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">
@@ -298,6 +344,40 @@ export default function InterviewPage() {
               maxLength={200}
               className="w-full bg-white border border-gray-300 text-gray-900 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm placeholder:text-gray-400"
             />
+          </div>
+
+          {/* Voice Mode Toggle */}
+          <div className="mb-8 p-4 border border-slate-100 bg-slate-50/50 rounded-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-3">
+                <div className={`p-2 rounded-xl flex-shrink-0 ${config.voice_mode ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <Mic className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                    Interactive Voice Mode
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-normal">
+                    Speak your answers naturally and hear questions read aloud by our premium engine.
+                  </p>
+                </div>
+              </div>
+              
+              <button
+                type="button"
+                id="voice-mode-toggle"
+                onClick={() => setConfig(c => ({ ...c, voice_mode: !c.voice_mode }))}
+                className={`relative inline-flex h-6.5 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500/20 ${
+                  config.voice_mode ? 'bg-primary-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5.5 w-5.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    config.voice_mode ? 'translate-x-5.5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           {/* Pricing Info */}
@@ -421,6 +501,11 @@ export default function InterviewPage() {
                         {/* Question Count Badge */}
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
                           {session.num_questions} Questions
+                        </span>
+
+                        {/* Interviewer Persona Badge */}
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {session.interviewer_persona || 'Friendly Senior Engineer'}
                         </span>
 
                         {/* Status / Score Badge */}

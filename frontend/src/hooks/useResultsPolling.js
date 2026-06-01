@@ -55,5 +55,17 @@ export default function useResultsPolling(sessionId) {
     }
   }, [sessionId, poll])
 
-  return { results, isProcessing, completedCount, totalCount, error }
+  const refresh = useCallback(async () => {
+    if (!sessionId || !mountedRef.current) return
+    try {
+      const res = await api.get(`/api/interview/results/${sessionId}`)
+      if (mountedRef.current) {
+        setResults(res.data)
+      }
+    } catch (err) {
+      console.error('Results refresh error:', err)
+    }
+  }, [sessionId])
+
+  return { results, isProcessing, completedCount, totalCount, error, refresh }
 }

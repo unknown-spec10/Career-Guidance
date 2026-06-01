@@ -17,6 +17,7 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import StudentDashboard from './pages/StudentDashboard'
 import StudentProfile from './pages/StudentProfile'
+import CandidateIntelligencePage from './pages/CandidateIntelligencePage'
 import InterviewPage from './pages/InterviewPage'
 import InterviewSessionPage from './pages/InterviewSessionPage'
 import InterviewResultsPage from './pages/InterviewResultsPage'
@@ -75,6 +76,14 @@ function AppContent() {
             element={
               <ProtectedRoute allowedRoles={['student']}>
                 <StudentDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/intelligence"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <CandidateIntelligencePage />
               </ProtectedRoute>
             }
           />
@@ -196,7 +205,7 @@ function AppContent() {
           />
           <Route
             path="/admin/reviews"
-            element={<Navigate to="/admin/dashboard?tab=jobs" replace />}
+            element={<Navigate to="/admin/dashboard?tab=resume-reviews" replace />}
           />
           <Route
             path="/applicants"

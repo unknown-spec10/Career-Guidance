@@ -71,7 +71,7 @@ export default function DashboardPage() {
       value: stats?.applicants_needing_review || 0,
       icon: AlertCircle,
       color: 'yellow',
-      link: '/admin/dashboard?tab=jobs'
+      link: '/admin/dashboard?tab=resume-reviews'
     }
   ]
 
@@ -89,7 +89,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center space-x-3">
             <Link 
-              to="/admin/dashboard?tab=jobs"
+              to="/admin/dashboard?tab=resume-reviews"
               className="flex items-center space-x-2 px-4 py-2 bg-yellow-900/20 border border-yellow-500/30 rounded-lg hover:bg-yellow-900/30 transition-colors text-yellow-400"
             >
               <AlertCircle className="w-5 h-5" />

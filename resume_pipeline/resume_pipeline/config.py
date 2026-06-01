@@ -57,9 +57,23 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     
-    # Skill taxonomy (optional JSON file path)
-    SKILL_TAXONOMY_PATH: str | None = None
-    SKILL_TAXONOMY_METADATA_PATH: str | None = None
+    # Skill taxonomy JSON file paths
+    # Default: written alongside skill_taxonomy_builder.py inside the resume sub-package
+    SKILL_TAXONOMY_PATH: str = str(
+        Path(__file__).resolve().parent / "resume" / "skill_taxonomy.json"
+    )
+    SKILL_TAXONOMY_METADATA_PATH: str = str(
+        Path(__file__).resolve().parent / "resume" / "skill_taxonomy_metadata.json"
+    )
+
+    # ============================================================================
+    # SKILL NORMALIZATION THRESHOLDS (two-pass redesign)
+    # Configurable via .env so they can be tuned without code changes.
+    # ============================================================================
+    # Pass 1: rapidfuzz WRatio threshold (0-100 scale)
+    SKILL_FUZZY_THRESHOLD: float = 82.0
+    # Pass 2: pgvector cosine similarity threshold (0.0-1.0 scale)
+    SKILL_SEMANTIC_THRESHOLD: float = 0.80
     
     # ============================================================================
     # SEMANTIC SKILL MATCHING CONFIGURATION
@@ -88,6 +102,22 @@ class Settings(BaseSettings):
     
     # Groq API for RAG Q&A system
     GROQ_API_KEY: str | None = None
+    YOUTUBE_API_KEY: str | None = None
+    
+    # YouTube Data API v3 (for Learning Path resource discovery)
+    YOUTUBE_DATA_API_KEY: str = ""
+    YOUTUBE_TRUSTED_CHANNELS: list[str] = [
+        "freeCodeCamp.org",
+        "CS50",
+        "Fireship",
+        "Traversy Media",
+        "Corey Schafer",
+        "Tech With Tim",
+        "MIT OpenCourseWare",
+        "Abdul Bari",
+        "CodeWithHarry",
+        "Jenny's Lectures CS IT"
+    ]
     
     # CORS Origins - configurable for cloud deployments
     # In development: localhost:3000 and localhost:5173
