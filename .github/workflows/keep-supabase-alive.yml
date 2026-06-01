@@ -9,4 +9,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping backend health check
-        run: curl -f https://career-guidance-backend.onrender.com/health || echo "Render was sleeping, woken up"
+        run: curl -f https://career-guidance-backend-i0ty.onrender.com/health || echo "Render was sleeping, woken up"

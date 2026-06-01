@@ -222,6 +222,15 @@ app.include_router(interview_router_v2)
 app.include_router(learning_path_router)
 
 
+@app.get("/")
+def root_endpoint():
+    return {
+        "status": "online",
+        "message": "Welcome to the Career Guidance AI API",
+        "docs": "/docs"
+    }
+
+
 @app.get("/health")
 @app.get("/api/health")
 def health_check():
