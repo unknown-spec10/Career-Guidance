@@ -4,8 +4,8 @@ import { makeRetryable } from '../utils/apiRetry'
 
 // API Base URL configuration
 // In development: uses Vite proxy (/api -> http://localhost:8000/api)
-// In production: uses environment variable VITE_API_URL
-export const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+// In production: uses environment variable VITE_API_BASE_URL or VITE_API_URL
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ''
 
 // Create axios instance with base configuration
 export const api = axios.create({

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     PG_DB: str | None = None
     # PostgreSQL DSN (optional if PG_* fields are provided)
     PG_DSN: str | None = None
+    # Support for standard DATABASE_URL (Render/Supabase style)
+    DATABASE_URL: str | None = None
     FILE_STORAGE_PATH: str = "./data/raw_files"
     GEMINI_API_KEY: str = ""
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
@@ -179,15 +181,32 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# If DATABASE_URL is set, prioritize it to populate PG_DSN
+if settings.DATABASE_URL:
+    settings.PG_DSN = settings.DATABASE_URL
+
+# Normalize postgres:// or postgresql:// to postgresql+psycopg2:// in PG_DSN
+if settings.PG_DSN:
+    if settings.PG_DSN.startswith("postgres://"):
+        settings.PG_DSN = settings.PG_DSN.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif settings.PG_DSN.startswith("postgresql://"):
+        settings.PG_DSN = settings.PG_DSN.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 # ============================================================================
 # Environment auto-detection
-# Supabase hosts always contain "supabase.co" in PG_HOST.
+# Supabase hosts always contain "supabase.co" in PG_HOST or PG_DSN.
 # This controls:
 #   1. Whether SSL is added to the DSN
 #   2. Whether startup skips CREATE DATABASE (Supabase manages the DB)
 # ============================================================================
 _pg_host = settings.PG_HOST or ""
-IS_SUPABASE: bool = "supabase.co" in _pg_host or "supabase.com" in _pg_host
+_pg_dsn = settings.PG_DSN or ""
+IS_SUPABASE: bool = (
+    "supabase.co" in _pg_host or 
+    "supabase.com" in _pg_host or 
+    "supabase.co" in _pg_dsn or 
+    "supabase.com" in _pg_dsn
+)
 
 # SQLite is intentionally unsupported for this deployment profile.
 if settings.PG_DSN and settings.PG_DSN.startswith("sqlite"):

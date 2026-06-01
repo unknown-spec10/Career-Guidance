@@ -18,5 +18,18 @@ if __name__ == "__main__":
         except Exception:
             pass
     print(f"Using DSN: {safe_url}")
+    
+    # Enable pgvector extension before creating tables
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            # Wipe public schema to clear partially created enum types from the previous failed run
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            conn.commit()
+            print("OK: public schema cleaned and pgvector extension enabled successfully")
+    except Exception as e:
+        print(f"WARNING: Could not clean public schema or enable pgvector: {e}")
+        
     init_db()
     print("DB tables created (if not existing).")

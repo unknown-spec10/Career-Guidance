@@ -1,0 +1,12 @@
+name: Keep Supabase Alive
+on:
+  schedule:
+    - cron: '0 8 */5 * *'   # every 5 days at 8am UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health check
+        run: curl -f https://career-guidance-backend.onrender.com/health || echo "Render was sleeping, woken up"

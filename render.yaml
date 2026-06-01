@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: career-guidance-backend
+    runtime: python
+    rootDir: resume_pipeline
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn resume_pipeline.app:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

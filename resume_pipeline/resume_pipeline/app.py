@@ -222,6 +222,12 @@ app.include_router(interview_router_v2)
 app.include_router(learning_path_router)
 
 
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and RAG system on startup"""
