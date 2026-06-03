@@ -1,7 +1,7 @@
 import logging
-from google import genai
-from groq import Groq
+import json
 from ..config import settings
+from ..core.llm_router import llm_router
 
 logger = logging.getLogger(__name__)
 
@@ -59,41 +59,34 @@ def generate_explanation(applicant, job, breakdown) -> tuple[str | None, str | N
     """
     prompt = build_explanation_prompt(applicant, job, breakdown)
 
-    # 1. Primary: Gemini 2.5 Flash (via new google-genai client)
-    gemini_key = settings.GEMINI_API_KEY
-    if gemini_key:
-        try:
-            client = genai.Client(api_key=gemini_key)
-            model_name = settings.GEMINI_INTERVIEW_MODEL or "gemini-2.5-flash"
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            if response.text:
-                explanation = response.text.strip().strip('"')
-                logger.info(f"Generated explanation via Gemini (model={model_name})")
-                return explanation, "gemini"
-        except Exception as e:
-            logger.warning(f"Primary Gemini explanation failed, trying Groq fallback: {e}")
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            provider="gemini",
+            model_name=settings.GEMINI_INTERVIEW_MODEL or "gemini-2.5-flash",
+            temperature=0.7,
+            max_tokens=150,
+            timeout=10
+        )
+        explanation = res["content"].strip().strip('"')
+        logger.info("Generated explanation via LLMRouter (Gemini/Kimi)")
+        return explanation, "gemini"
+    except Exception as e:
+        logger.warning(f"LLMRouter Gemini explanation failed, trying Groq fallback: {e}")
 
-    # 2. Secondary: Groq LLaMA 3
-    groq_key = settings.GROQ_API_KEY
-    if groq_key:
-        try:
-            groq_client = Groq(api_key=groq_key)
-            model_name = settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile"
-            response = groq_client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
-                temperature=0.7
-            )
-            if response.choices and response.choices[0].message.content:
-                explanation = response.choices[0].message.content.strip().strip('"')
-                logger.info(f"Generated explanation via Groq fallback (model={model_name})")
-                return explanation, "groq_fallback"
-        except Exception as e:
-            logger.warning(f"Secondary Groq fallback explanation failed: {e}")
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            provider="groq",
+            model_name=settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile",
+            temperature=0.7,
+            max_tokens=150
+        )
+        explanation = res["content"].strip().strip('"')
+        logger.info("Generated explanation via LLMRouter Groq fallback (Groq/DeepSeek)")
+        return explanation, "groq_fallback"
+    except Exception as e:
+        logger.warning(f"LLMRouter Groq fallback explanation failed: {e}")
 
     # 3. Terminal: Store null, to be retried later
     logger.error("All explainer APIs failed. Storing null explanation.")
@@ -152,49 +145,38 @@ Respond ONLY with a valid JSON object matching this schema:
 }}
 """
     
-    gemini_key = settings.GEMINI_API_KEY
-    if gemini_key:
-        try:
-            client = genai.Client(api_key=gemini_key)
-            model_name = settings.GEMINI_INTERVIEW_MODEL or "gemini-2.5-flash"
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            if response.text:
-                cleaned = response.text.strip()
-                import json
-                if cleaned.startswith("```"):
-                    cleaned = cleaned.split("```")[1]
-                    if cleaned.startswith("json"):
-                        cleaned = cleaned[4:]
-                parsed = json.loads(cleaned.strip())
-                if "reasons" in parsed and "gaps" in parsed:
-                    logger.info(f"Generated employer match analysis via Gemini")
-                    return parsed
-        except Exception as e:
-            logger.warning(f"Failed to generate employer analysis via Gemini, trying Groq fallback: {e}")
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            provider="gemini",
+            model_name=settings.GEMINI_INTERVIEW_MODEL or "gemini-2.5-flash",
+            temperature=0.2,
+            max_tokens=250,
+            response_format={"type": "json_object"},
+            timeout=10
+        )
+        parsed = json.loads(res["content"])
+        if "reasons" in parsed and "gaps" in parsed:
+            logger.info(f"Generated employer match analysis via LLMRouter (Gemini/Kimi)")
+            return parsed
+    except Exception as e:
+        logger.warning(f"Failed to generate employer analysis via LLMRouter Gemini, trying Groq fallback: {e}")
 
-    groq_key = settings.GROQ_API_KEY
-    if groq_key:
-        try:
-            groq_client = Groq(api_key=groq_key)
-            model_name = settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile"
-            response = groq_client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=250,
-                temperature=0.2,
-                response_format={"type": "json_object"}
-            )
-            if response.choices and response.choices[0].message.content:
-                import json
-                parsed = json.loads(response.choices[0].message.content.strip())
-                if "reasons" in parsed and "gaps" in parsed:
-                    logger.info(f"Generated employer match analysis via Groq fallback")
-                    return parsed
-        except Exception as e:
-            logger.warning(f"Failed to generate employer analysis via Groq fallback: {e}")
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            provider="groq",
+            model_name=settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile",
+            temperature=0.2,
+            max_tokens=250,
+            response_format={"type": "json_object"}
+        )
+        parsed = json.loads(res["content"])
+        if "reasons" in parsed and "gaps" in parsed:
+            logger.info(f"Generated employer match analysis via LLMRouter Groq fallback")
+            return parsed
+    except Exception as e:
+        logger.warning(f"Failed to generate employer analysis via LLMRouter Groq fallback: {e}")
 
     # Fallback to local heuristic parsing
     missing_skills = [s for s in job_skills if s not in candidate_skills]

@@ -33,6 +33,7 @@ from typing import Optional, Tuple
 import pdfplumber  # type: ignore
 
 from ..constants import ROUTER_THRESHOLDS
+from ..core.rate_limiter import gemini_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,9 @@ class FileTypeRouter:
         Sends all pages in one call, up to a maximum of 10 pages.
         """
         import requests as _requests
+
+        # Throttle Gemini Vision requests
+        gemini_limiter.acquire_sync()
 
         api_key = self.llm.api_key
         base_url = self.llm.base_url

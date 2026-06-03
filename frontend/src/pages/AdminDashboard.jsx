@@ -4,7 +4,8 @@ import { motion } from 'framer-motion'
 import { 
   Shield, Briefcase, CheckCircle, XCircle, 
   Clock, AlertTriangle, TrendingUp, Search, Coins, Plus, Minus, X,
-  FileText, Activity, Database, Cpu, RefreshCw, Ban, PlayCircle, Eye, GraduationCap, Server, Check, Edit2, Play, Users, Sparkles
+  FileText, Activity, Database, Cpu, RefreshCw, Ban, PlayCircle, Eye, GraduationCap, Server, Check, Edit2, Play, Users, Sparkles,
+  Zap, RotateCcw
 } from 'lucide-react'
 import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
@@ -60,6 +61,7 @@ export default function AdminReviewsPage() {
   const [systemHealthStats, setSystemHealthStats] = useState(null)
   const [systemHealthLoading, setSystemHealthLoading] = useState(false)
   const [systemHealthActionLoading, setSystemHealthActionLoading] = useState(null)
+  const [llmResetLoading, setLlmResetLoading] = useState(false)
 
   // Candidate Mock Practice & Supervision
   const [applicantSessions, setApplicantSessions] = useState([])
@@ -513,16 +515,33 @@ export default function AdminReviewsPage() {
   const fetchSystemHealth = async () => {
     try {
       setSystemHealthLoading(true)
-      const healthResponse = await api.get('/api/embeddings/health')
-      const ragResponse = await api.get('/api/rag/stats')
+      const [healthResponse, ragResponse, llmResponse] = await Promise.allSettled([
+        api.get('/api/embeddings/health'),
+        api.get('/api/rag/stats'),
+        api.get('/api/admin/llm-status'),
+      ])
       setSystemHealthStats({
-        embeddings: healthResponse.data,
-        rag: ragResponse.data
+        embeddings: healthResponse.status === 'fulfilled' ? healthResponse.value.data : null,
+        rag: ragResponse.status === 'fulfilled' ? ragResponse.value.data : null,
+        llm: llmResponse.status === 'fulfilled' ? llmResponse.value.data : null,
       })
     } catch (err) {
       toast.error('Failed to load system health statistics')
     } finally {
       setSystemHealthLoading(false)
+    }
+  }
+
+  const handleResetLLMStats = async () => {
+    try {
+      setLlmResetLoading(true)
+      await api.post('/api/admin/llm-status/reset')
+      toast.success('LLM telemetry statistics reset successfully')
+      fetchSystemHealth()
+    } catch (err) {
+      toast.error('Failed to reset LLM statistics')
+    } finally {
+      setLlmResetLoading(false)
     }
   }
 
@@ -1199,14 +1218,25 @@ export default function AdminReviewsPage() {
                   <Activity className="w-5 h-5 text-primary-500" />
                   <span>System Health & Semantic Indexing Center</span>
                 </h2>
-                <button
-                  onClick={fetchSystemHealth}
-                  disabled={systemHealthLoading}
-                  className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${systemHealthLoading ? 'animate-spin' : ''}`} />
-                  <span>Refresh Stats</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleResetLLMStats}
+                    disabled={llmResetLoading || systemHealthLoading}
+                    className="rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 p-2 text-rose-600 transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200"
+                    title="Reset LLM Telemetry Counters"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${llmResetLoading ? 'animate-spin' : ''}`} />
+                    <span>Reset Telemetry</span>
+                  </button>
+                  <button
+                    onClick={fetchSystemHealth}
+                    disabled={systemHealthLoading}
+                    className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${systemHealthLoading ? 'animate-spin' : ''}`} />
+                    <span>Refresh Stats</span>
+                  </button>
+                </div>
               </div>
 
               {systemHealthLoading && !systemHealthStats ? (
@@ -1348,6 +1378,227 @@ export default function AdminReviewsPage() {
                       </button>
                     </div>
                   </div>
+
+                  {/* ================================================================ */}
+                  {/* LLM Key & Routing Telemetry Panel                                */}
+                  {/* ================================================================ */}
+                  {systemHealthStats.llm && (() => {
+                    const llm = systemHealthStats.llm
+                    const providers = [
+                      {
+                        key: 'groq',
+                        label: 'Groq',
+                        subtitle: llm.provider_stats?.groq?.model || 'llama-3.3-70b-versatile',
+                        accentColor: 'violet',
+                        icon: Zap,
+                        stats: llm.provider_stats?.groq,
+                        showRateLimit: true,
+                      },
+                      {
+                        key: 'gemini',
+                        label: 'Google Gemini',
+                        subtitle: llm.provider_stats?.gemini?.model || 'gemini-2.5-flash',
+                        accentColor: 'blue',
+                        icon: Sparkles,
+                        stats: llm.provider_stats?.gemini,
+                        showRateLimit: false,
+                      },
+                      {
+                        key: 'nvidia_nim',
+                        label: 'Nvidia NIM',
+                        subtitle: llm.provider_stats?.nvidia_nim?.model || 'deepseek / kimi',
+                        accentColor: 'emerald',
+                        icon: Cpu,
+                        stats: llm.provider_stats?.nvidia_nim,
+                        showRateLimit: false,
+                      },
+                    ]
+
+                    const colorMap = {
+                      violet: {
+                        bg: 'bg-violet-50', border: 'border-violet-100', text: 'text-violet-700',
+                        iconBg: 'bg-violet-50 border-violet-100', badgeActive: 'bg-violet-100 text-violet-700 border-violet-200',
+                        bar: 'bg-violet-500', barBg: 'bg-violet-100',
+                      },
+                      blue: {
+                        bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-700',
+                        iconBg: 'bg-blue-50 border-blue-100', badgeActive: 'bg-blue-100 text-blue-700 border-blue-200',
+                        bar: 'bg-blue-500', barBg: 'bg-blue-100',
+                      },
+                      emerald: {
+                        bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-700',
+                        iconBg: 'bg-emerald-50 border-emerald-100', badgeActive: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+                        bar: 'bg-emerald-500', barBg: 'bg-emerald-100',
+                      },
+                    }
+
+                    const fmtNum = (n) => (n == null ? '—' : Number(n).toLocaleString())
+                    const fmtPct = (rem, lim) => {
+                      if (rem == null || lim == null || lim === 0) return null
+                      return Math.round((rem / lim) * 100)
+                    }
+
+                    return (
+                      <div className="pt-6 border-t border-slate-100">
+                        <div className="flex items-center gap-2 mb-4">
+                          <Zap className="w-4 h-4 text-violet-600" />
+                          <h3 className="text-sm font-bold text-slate-800">LLM Key &amp; Routing Telemetry</h3>
+                          <span className="ml-auto text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            Total: {fmtNum(llm.total_requests)} req &bull; {fmtNum(llm.fallback_requests)} fallbacks
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                          {providers.map(({ key, label, subtitle, accentColor, icon: Icon, stats, showRateLimit }) => {
+                            if (!stats) return null
+                            const c = colorMap[accentColor]
+                            const cooldown = stats.retry_after_remaining || 0
+                            const hasCooldown = cooldown > 0
+                            const reqPct = showRateLimit ? fmtPct(stats.rate_limit_requests_remaining, stats.rate_limit_requests_limit) : null
+                            const tokPct = showRateLimit ? fmtPct(stats.rate_limit_tokens_remaining, stats.rate_limit_tokens_limit) : null
+
+                            return (
+                              <div
+                                key={key}
+                                className={`relative rounded-2xl border bg-white shadow-sm overflow-hidden transition-all ${
+                                  hasCooldown ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-100'
+                                }`}
+                              >
+                                {/* Card header */}
+                                <div className={`px-4 py-3 flex items-center justify-between gap-3 border-b ${
+                                  hasCooldown ? 'border-rose-100 bg-rose-50/60' : `${c.bg} ${c.border}`
+                                }`}>
+                                  <div className="flex items-center gap-2.5">
+                                    <div className={`p-1.5 rounded-lg border ${c.iconBg}`}>
+                                      <Icon className={`w-4 h-4 ${c.text}`} />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-black text-slate-900 leading-none">{label}</p>
+                                      <p className="text-[10px] font-semibold text-slate-400 mt-0.5 truncate max-w-[140px]">{subtitle}</p>
+                                    </div>
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${
+                                    hasCooldown
+                                      ? 'bg-rose-100 text-rose-700 border-rose-200'
+                                      : stats.is_configured
+                                        ? c.badgeActive
+                                        : 'bg-slate-100 text-slate-500 border-slate-200'
+                                  }`}>
+                                    {hasCooldown ? 'Cooling Down' : stats.is_configured ? 'Active' : 'Not Set'}
+                                  </span>
+                                </div>
+
+                                {/* 429 Cooldown alert */}
+                                {hasCooldown && (
+                                  <div className="mx-3 mt-3 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+                                    <p className="text-[11px] font-bold text-rose-700">
+                                      Rate limited — retry in <span className="font-black">{cooldown}s</span>
+                                    </p>
+                                  </div>
+                                )}
+
+                                {/* Stats grid */}
+                                <div className="p-4 space-y-3">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Requests</p>
+                                      <p className="text-xl font-black text-slate-800 mt-0.5">{fmtNum(stats.requests)}</p>
+                                      <p className="text-[9px] font-semibold text-emerald-600">{fmtNum(stats.successes)} ok</p>
+                                    </div>
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Avg Latency</p>
+                                      <p className="text-xl font-black text-slate-800 mt-0.5">{stats.avg_latency ?? '—'}s</p>
+                                      <p className="text-[9px] font-semibold text-rose-500">{fmtNum(stats.errors)} err</p>
+                                    </div>
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Fallbacks</p>
+                                      <p className="text-xl font-black text-slate-800 mt-0.5">{fmtNum(stats.fallbacks)}</p>
+                                      <p className="text-[9px] font-semibold text-amber-600">to NIM</p>
+                                    </div>
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Tokens Out</p>
+                                      <p className="text-xl font-black text-slate-800 mt-0.5">{fmtNum(stats.tokens_total)}</p>
+                                      <p className="text-[9px] font-semibold text-slate-400">{fmtNum(stats.tokens_prompt)} in</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Groq-only: rate limit progress bars */}
+                                  {showRateLimit && (
+                                    <div className="space-y-2 pt-1">
+                                      {/* Daily requests bar */}
+                                      <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Daily Requests</span>
+                                          <span className="text-[10px] font-bold text-slate-700">
+                                            {fmtNum(stats.rate_limit_requests_remaining)} / {fmtNum(stats.rate_limit_requests_limit)}
+                                          </span>
+                                        </div>
+                                        <div className={`w-full h-1.5 rounded-full ${c.barBg} overflow-hidden`}>
+                                          <div
+                                            className={`h-full rounded-full transition-all duration-700 ${
+                                              reqPct != null && reqPct < 10 ? 'bg-rose-500' :
+                                              reqPct != null && reqPct < 30 ? 'bg-amber-500' : c.bar
+                                            }`}
+                                            style={{ width: reqPct != null ? `${reqPct}%` : '0%' }}
+                                          />
+                                        </div>
+                                        {stats.rate_limit_reset_requests && (
+                                          <p className="text-[9px] font-semibold text-slate-400 mt-0.5">
+                                            Resets in {stats.rate_limit_reset_requests}
+                                          </p>
+                                        )}
+                                      </div>
+
+                                      {/* Per-minute tokens bar */}
+                                      <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Tokens / Min</span>
+                                          <span className="text-[10px] font-bold text-slate-700">
+                                            {fmtNum(stats.rate_limit_tokens_remaining)} / {fmtNum(stats.rate_limit_tokens_limit)}
+                                          </span>
+                                        </div>
+                                        <div className={`w-full h-1.5 rounded-full ${c.barBg} overflow-hidden`}>
+                                          <div
+                                            className={`h-full rounded-full transition-all duration-700 ${
+                                              tokPct != null && tokPct < 10 ? 'bg-rose-500' :
+                                              tokPct != null && tokPct < 30 ? 'bg-amber-500' : c.bar
+                                            }`}
+                                            style={{ width: tokPct != null ? `${tokPct}%` : '0%' }}
+                                          />
+                                        </div>
+                                        {stats.rate_limit_reset_tokens && (
+                                          <p className="text-[9px] font-semibold text-slate-400 mt-0.5">
+                                            Window clears in {stats.rate_limit_reset_tokens}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Non-Groq providers: token breakdown counters */}
+                                  {!showRateLimit && (
+                                    <div className="pt-1 border-t border-slate-100">
+                                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2">Cumulative Token Usage</p>
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        {[['Prompt', stats.tokens_prompt], ['Completion', stats.tokens_completion], ['Total', stats.tokens_total]].map(([lbl, val]) => (
+                                          <div key={lbl} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                            <p className="text-[9px] font-bold text-slate-400 mb-0.5">{lbl}</p>
+                                            <p className={`text-xs font-black ${c.text}`}>{fmtNum(val)}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                 </div>
               ) : (
                 <div className="py-24 text-center text-slate-400 font-semibold">

@@ -1,8 +1,7 @@
 import logging
 import json
-from google import genai
-from groq import Groq
 from ..config import settings
+from ..core.llm_router import llm_router
 
 logger = logging.getLogger(__name__)
 
@@ -48,47 +47,37 @@ Respond ONLY with a valid JSON object matching this schema:
 }}
 """
 
-    gemini_key = settings.GEMINI_API_KEY
-    if gemini_key:
-        try:
-            client = genai.Client(api_key=gemini_key)
-            model_name = settings.GEMINI_INTERVIEW_MODEL or "gemini-2.5-flash"
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            if response.text:
-                cleaned = response.text.strip()
-                if cleaned.startswith("```"):
-                    cleaned = cleaned.split("```")[1]
-                    if cleaned.startswith("json"):
-                        cleaned = cleaned[4:]
-                parsed = json.loads(cleaned.strip())
-                if "optimized_description" in parsed:
-                    logger.info("Optimized job description via Gemini")
-                    return parsed
-        except Exception as e:
-            logger.warning(f"Failed to optimize job description via Gemini, trying Groq: {e}")
-
-    groq_key = settings.GROQ_API_KEY
-    if groq_key:
-        try:
-            groq_client = Groq(api_key=groq_key)
-            model_name = settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile"
-            response = groq_client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
-                temperature=0.3,
-                response_format={"type": "json_object"}
-            )
-            if response.choices and response.choices[0].message.content:
-                parsed = json.loads(response.choices[0].message.content.strip())
-                if "optimized_description" in parsed:
-                    logger.info("Optimized job description via Groq fallback")
-                    return parsed
-        except Exception as e:
-            logger.warning(f"Failed to optimize job description via Groq fallback: {e}")
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            provider="gemini",
+            model_name=settings.GEMINI_INTERVIEW_MODEL or "gemini-2.5-flash",
+            temperature=0.3,
+            max_tokens=1000,
+            response_format={"type": "json_object"}
+        )
+        parsed = json.loads(res["content"])
+        if "optimized_description" in parsed:
+            logger.info("Optimized job description via LLMRouter (Gemini/Kimi)")
+            return parsed
+    except Exception as e:
+        logger.warning(f"Failed to optimize job description via LLMRouter Gemini, trying Groq fallback: {e}")
+        
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            provider="groq",
+            model_name=settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile",
+            temperature=0.3,
+            max_tokens=1000,
+            response_format={"type": "json_object"}
+        )
+        parsed = json.loads(res["content"])
+        if "optimized_description" in parsed:
+            logger.info("Optimized job description via LLMRouter (Groq/DeepSeek)")
+            return parsed
+    except Exception as e:
+        logger.warning(f"Failed to optimize job description via LLMRouter Groq fallback: {e}")
 
     # Local heuristic fallback
     return {

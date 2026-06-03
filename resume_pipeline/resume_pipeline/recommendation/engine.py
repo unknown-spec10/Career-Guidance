@@ -1,5 +1,6 @@
 import logging
 import datetime
+import time
 from sqlalchemy.orm import Session, joinedload
 from ..db import Applicant, Job, JobRecommendation, LLMParsedRecord
 from .embedder import Embedder, GeminiEmbeddingUnavailable
@@ -153,9 +154,9 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
     temporal_scorer = TemporalScorer()
     document_scorer = DocumentScorer(embedder)
 
-    recommendations_list = []
+    scored_jobs = []
 
-    # 3. Generate matches
+    # 3. Pass 1: Fast scoring pass (no LLM calls)
     for job in active_jobs:
         try:
             breakdown = run_pipeline_for_applicant_job(
@@ -169,7 +170,20 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
                 temporal_scorer=temporal_scorer,
                 document_scorer=document_scorer
             )
+            score_percent = breakdown["final_score"] * 100
+            scored_jobs.append((job, breakdown, score_percent))
+        except Exception as e:
+            logger.error(f"Failed to calculate score for applicant_id={applicant_id}, job_id={job.id}: {e}", exc_info=True)
 
+    # Sort computed recommendations by score descending
+    scored_jobs.sort(key=lambda x: x[2], reverse=True)
+
+    # 4. Pass 2: Generate slow LLM explanations only for the top 5 matching jobs
+    recommendations_list = []
+    top_n_limit = 5
+
+    for i, (job, breakdown, score_percent) in enumerate(scored_jobs):
+        try:
             # Retrieve existing record if present to inspect cached explanations
             existing_rec = db.query(JobRecommendation).filter(
                 JobRecommendation.applicant_id == applicant_id,
@@ -181,7 +195,7 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
             employer_reasons = None
             employer_gaps = None
 
-            # Optimization: check if v2 explanation is already cached in DB to conserve API usage
+            # Optimization: check if v2 explanation is already cached in DB
             if existing_rec and existing_rec.explanation and getattr(existing_rec, "engine_version", "v1") == "v2":
                 explanation = existing_rec.explanation
                 if existing_rec.score_breakdown:
@@ -190,17 +204,19 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
                     employer_reasons = existing_rec.explain.get("employer_reasons")
                     employer_gaps = existing_rec.explain.get("employer_gaps")
 
-            if not explanation:
-                # Generate new natural language explanation
-                explanation, explanation_source = generate_explanation(applicant, job, breakdown)
+            # Only call LLM explanations if it's in the top N scoring list
+            is_top_rec = i < top_n_limit
+            if is_top_rec:
+                if not explanation:
+                    # Generate new natural language explanation
+                    explanation, explanation_source = generate_explanation(applicant, job, breakdown)
 
-            if not employer_reasons or not employer_gaps:
-                analysis = generate_employer_match_analysis(applicant, job, breakdown)
-                employer_reasons = analysis.get("reasons")
-                employer_gaps = analysis.get("gaps")
+                if not employer_reasons or not employer_gaps:
+                    analysis = generate_employer_match_analysis(applicant, job, breakdown)
+                    employer_reasons = analysis.get("reasons")
+                    employer_gaps = analysis.get("gaps")
 
             breakdown["explanation_source"] = explanation_source
-            score_percent = breakdown["final_score"] * 100
 
             # Backward-compatible explain dict for existing frontend logic
             explain_compat = {
@@ -249,8 +265,8 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
         logger.error(f"Failed to save recommendations for applicant_id={applicant_id}: {e}")
         db.rollback()
 
-    # Proactively retry generating missing explanations (null-and-retry pattern)
-    retry_null_explanations(applicant_id, db)
+    # Proactively retry generating missing explanations (only for top 10 candidates)
+    retry_null_explanations(applicant_id, db, limit=top_n_limit)
 
     return {"job_recommendations": recommendations_list}
 
@@ -285,6 +301,8 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
     temporal_scorer = TemporalScorer()
     document_scorer = DocumentScorer(embedder)
 
+    scored_applicants = []
+
     for applicant in applicants:
         try:
             breakdown = run_pipeline_for_applicant_job(
@@ -298,68 +316,109 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
                 temporal_scorer=temporal_scorer,
                 document_scorer=document_scorer
             )
-
-            explanation, explanation_source = generate_explanation(applicant, job, breakdown)
-            breakdown["explanation_source"] = explanation_source
             score_percent = breakdown["final_score"] * 100
-
-            # Generate employer match analysis
-            analysis = generate_employer_match_analysis(applicant, job, breakdown)
-            employer_reasons = analysis.get("reasons")
-            employer_gaps = analysis.get("gaps")
-
-            explain_compat = {
-                "reasons": [explanation] if explanation else ["Matched based on your profile strength and skill overlap."],
-                "summary": explanation or "Your profile aligns well with this role.",
-                "key_strengths": [],
-                "improvement_areas": [],
-                "employer_reasons": employer_reasons,
-                "employer_gaps": employer_gaps
-            }
-
-            existing_rec = db.query(JobRecommendation).filter(
-                JobRecommendation.applicant_id == applicant.id,
-                JobRecommendation.job_id == job.id
-            ).first()
-
-            if existing_rec:
-                existing_rec.score = score_percent
-                existing_rec.score_breakdown = breakdown
-                existing_rec.explanation = explanation
-                existing_rec.explain = explain_compat
-                existing_rec.computed_at = now
-                existing_rec.engine_version = "v2"
-            else:
-                new_rec = JobRecommendation(
-                    applicant_id=applicant.id,
-                    job_id=job.id,
-                    score=score_percent,
-                    score_breakdown=breakdown,
-                    explanation=explanation,
-                    explain=explain_compat,
-                    computed_at=now,
-                    engine_version="v2"
-                )
-                db.add(new_rec)
-
+            scored_applicants.append((applicant, breakdown, score_percent))
         except Exception as e:
-            logger.error(f"Error executing backfill matching for applicant_id={applicant.id}, job_id={job_id}: {e}")
+            logger.error(f"Error calculating score in backfill matching for applicant_id={applicant.id}, job_id={job_id}: {e}")
+
+    # Sort scored applicants by score descending
+    scored_applicants.sort(key=lambda x: x[2], reverse=True)
+
+    batch_size = 5
+    top_n_limit = 5
+    batch_pause_secs = 2.0
+
+    for batch_start in range(0, len(scored_applicants), batch_size):
+        batch = scored_applicants[batch_start : batch_start + batch_size]
+
+        for idx, (applicant, breakdown, score_percent) in enumerate(batch):
+            i = batch_start + idx
+            try:
+                existing_rec = db.query(JobRecommendation).filter(
+                    JobRecommendation.applicant_id == applicant.id,
+                    JobRecommendation.job_id == job.id
+                ).first()
+
+                explanation = None
+                explanation_source = None
+                employer_reasons = None
+                employer_gaps = None
+
+                # Optimization: check if v2 explanation is already cached in DB
+                if existing_rec and existing_rec.explanation and getattr(existing_rec, "engine_version", "v1") == "v2":
+                    explanation = existing_rec.explanation
+                    if existing_rec.score_breakdown:
+                        explanation_source = existing_rec.score_breakdown.get("explanation_source")
+                    if existing_rec.explain:
+                        employer_reasons = existing_rec.explain.get("employer_reasons")
+                        employer_gaps = existing_rec.explain.get("employer_gaps")
+
+                is_top_rec = i < top_n_limit
+                if is_top_rec:
+                    if not explanation:
+                        explanation, explanation_source = generate_explanation(applicant, job, breakdown)
+
+                    if not employer_reasons or not employer_gaps:
+                        analysis = generate_employer_match_analysis(applicant, job, breakdown)
+                        employer_reasons = analysis.get("reasons")
+                        employer_gaps = analysis.get("gaps")
+
+                breakdown["explanation_source"] = explanation_source
+
+                explain_compat = {
+                    "reasons": [explanation] if explanation else ["Matched based on your profile strength and skill overlap."],
+                    "summary": explanation or "Your profile aligns well with this role.",
+                    "key_strengths": [],
+                    "improvement_areas": [],
+                    "employer_reasons": employer_reasons,
+                    "employer_gaps": employer_gaps
+                }
+
+                if existing_rec:
+                    existing_rec.score = score_percent
+                    existing_rec.score_breakdown = breakdown
+                    existing_rec.explanation = explanation
+                    existing_rec.explain = explain_compat
+                    existing_rec.computed_at = now
+                    existing_rec.engine_version = "v2"
+                else:
+                    new_rec = JobRecommendation(
+                        applicant_id=applicant.id,
+                        job_id=job.id,
+                        score=score_percent,
+                        score_breakdown=breakdown,
+                        explanation=explanation,
+                        explain=explain_compat,
+                        computed_at=now,
+                        engine_version="v2"
+                    )
+                    db.add(new_rec)
+
+            except Exception as e:
+                logger.error(f"Error executing backfill matching for applicant_id={applicant.id}, job_id={job_id}: {e}")
+
+        # Pause between batches
+        if batch_start + batch_size < len(scored_applicants):
+            time.sleep(batch_pause_secs)
 
     try:
         db.commit()
-        logger.info(f"Backfill complete for job_id={job_id} across {len(applicants)} applicants")
+        logger.info(f"Backfill complete for job_id={job_id} across {len(scored_applicants)} applicants")
     except Exception as e:
         logger.error(f"Failed to save backfilled recommendations for job_id={job_id}: {e}")
         db.rollback()
 
 
-def retry_null_explanations(applicant_id: int, db: Session) -> None:
+def retry_null_explanations(applicant_id: int, db: Session, limit: int = 10) -> None:
     """Fetch and retry explanation generation for cached recommendations that failed both LLM backends."""
+    # Only retry for the top-scoring recommendations that are missing explanations
     null_recs = db.query(JobRecommendation).join(Job).filter(
         JobRecommendation.applicant_id == applicant_id,
         JobRecommendation.explanation.is_(None),
         JobRecommendation.engine_version == "v2"
-    ).all()
+    ).order_by(
+        JobRecommendation.score.desc()
+    ).limit(limit).all()
 
     if not null_recs:
         return

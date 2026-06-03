@@ -21,7 +21,7 @@ def queue_jobs(limit: int, offset: int) -> int:
     try:
         jobs = db.query(Job).filter(Job.status == 'approved').order_by(Job.id.asc()).offset(offset).limit(limit).all()
         for job in jobs:
-            generate_job_embedding_task.delay(job.id)
+            generate_job_embedding_task(job.id)
         return len(jobs)
     finally:
         db.close()
@@ -34,14 +34,14 @@ def queue_applicants(limit: int, offset: int) -> int:
             LLMParsedRecord, Applicant.id == LLMParsedRecord.applicant_id
         ).order_by(Applicant.id.asc()).offset(offset).limit(limit).all()
         for applicant in applicants:
-            generate_resume_embedding_task.delay(applicant.id)
+            generate_resume_embedding_task(applicant.id)
         return len(applicants)
     finally:
         db.close()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backfill applicant/job embeddings by queueing Celery tasks")
+    parser = argparse.ArgumentParser(description="Backfill applicant/job embeddings synchronously")
     parser.add_argument("--limit", type=int, default=500)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--mode", choices=["all", "jobs", "applicants"], default="all")

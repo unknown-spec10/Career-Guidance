@@ -2,6 +2,7 @@ import json, time, requests, re
 from typing import Optional, List
 from ..config import settings
 from ..core.interfaces import LLMClient
+from ..core.llm_router import llm_router
 from .. import prompts
 
 class GeminiLLMClient(LLMClient):
@@ -125,76 +126,31 @@ OUTPUT FORMAT - Return ONLY this JSON structure, nothing else:
 
 Generate {mcq_count} unique, challenging MCQ questions about {focus_str}. Return ONLY valid JSON."""
 
-        url = f"{self.base_url}/models/{settings.GEMINI_INTERVIEW_MODEL}:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
-        body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.8,
-                "topK": 40,
-                "topP": 0.95,
-                "maxOutputTokens": 8192,
-                "responseMimeType": "application/json"
-            }
-        }
-        
+        messages = [{"role": "user", "content": prompt}]
         try:
-            print(f"🔄 Calling Gemini API for {mcq_count} MCQ questions...")
-            r = requests.post(url, headers=headers, json=body, timeout=90)
+            print(f"🔄 Calling LLMRouter for {mcq_count} MCQ questions...")
+            res = llm_router.generate_chat_completion(
+                messages=messages,
+                provider="gemini",
+                model_name=settings.GEMINI_INTERVIEW_MODEL,
+                temperature=0.8,
+                max_tokens=8192,
+                response_format={"type": "json_object"},
+                timeout=90
+            )
+            generated_text = res["content"]
+            print(f"✅ LLMRouter response received, parsing JSON...")
+            parsed = json.loads(generated_text)
+            questions = parsed.get('questions', [])
+            print(f"✅ Parsed {len(questions)} questions from LLMRouter")
             
-            if r.status_code != 200:
-                error_text = r.text[:500]
-                error_status = None
-                error_reason = None
-                error_message = None
-                try:
-                    error_payload = r.json()
-                    error_obj = error_payload.get("error", {}) if isinstance(error_payload, dict) else {}
-                    error_status = error_obj.get("status")
-                    error_message = error_obj.get("message")
-                    details = error_obj.get("details")
-                    if isinstance(details, list):
-                        for detail in details:
-                            if isinstance(detail, dict) and detail.get("reason"):
-                                error_reason = detail.get("reason")
-                                break
-                except Exception:
-                    pass
-
-                print(f"❌ Gemini API error: {r.status_code} - {error_text}")
-
-                detail_parts = [f"http={r.status_code}"]
-                if error_status:
-                    detail_parts.append(f"status={error_status}")
-                if error_reason:
-                    detail_parts.append(f"reason={error_reason}")
-                if error_message:
-                    detail_parts.append(f"message={error_message}")
-
-                return {
-                    "error": "Gemini API error: " + " | ".join(detail_parts),
-                    "questions": []
-                }
+            for i, q in enumerate(questions):
+                print(f"  Question {i+1}: type={q.get('question_type')}, has_options={bool(q.get('options'))}, has_correct={bool(q.get('correct_answer'))}")
             
-            result = r.json()
-            if 'candidates' in result and len(result['candidates']) > 0:
-                generated_text = result['candidates'][0]['content']['parts'][0].get('text', '{}')
-                print(f"✅ Gemini response received, parsing JSON...")
-                parsed = json.loads(generated_text)
-                questions = parsed.get('questions', [])
-                print(f"✅ Parsed {len(questions)} questions from Gemini")
-                
-                # Validate each question has required fields
-                for i, q in enumerate(questions):
-                    print(f"  Question {i+1}: type={q.get('question_type')}, has_options={bool(q.get('options'))}, has_correct={bool(q.get('correct_answer'))}")
-                
-                return parsed
-            
-            print("❌ No candidates in Gemini response")
-            return {"error": "No valid response from Gemini", "questions": []}
+            return parsed
         except json.JSONDecodeError as e:
             print(f"❌ JSON parsing error: {e}")
-            return {"error": f"Failed to parse Gemini response: {str(e)}", "questions": []}
+            return {"error": f"Failed to parse LLMRouter response: {str(e)}", "questions": []}
         except Exception as e:
             print(f"❌ Error generating questions: {e}")
             return {"error": str(e), "questions": []}
@@ -261,50 +217,20 @@ Provide evaluation in JSON format:
 
 Be fair but strict. Award partial credit for partially correct answers."""
 
-        url = f"{self.base_url}/models/{settings.GEMINI_INTERVIEW_MODEL}:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
-        body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 1024,
-                "responseMimeType": "application/json"
-            }
-        }
-        
+        messages = [{"role": "user", "content": prompt}]
         try:
-            r = requests.post(url, headers=headers, json=body, timeout=30)
-            if r.status_code != 200:
-                # Fallback scoring
-                return {
-                    "score": max_score * 0.5,
-                    "is_correct": False,
-                    "strengths": ["Answer provided"],
-                    "weaknesses": ["Unable to evaluate automatically"],
-                    "improvement_suggestions": "Please review the expected key points.",
-                    "points_covered": [],
-                    "points_missed": expected_points or []
-                }
-            
-            result = r.json()
-            if 'candidates' in result and len(result['candidates']) > 0:
-                generated_text = result['candidates'][0]['content']['parts'][0].get('text', '{}')
-                evaluation = json.loads(generated_text)
-                
-                # Ensure score is within bounds
-                evaluation['score'] = max(0.0, min(max_score, evaluation.get('score', 0.0)))
-                
-                return evaluation
-            
-            return {
-                "score": max_score * 0.5,
-                "is_correct": False,
-                "strengths": [],
-                "weaknesses": ["Evaluation unavailable"],
-                "improvement_suggestions": None,
-                "points_covered": [],
-                "points_missed": expected_points or []
-            }
+            res = llm_router.generate_chat_completion(
+                messages=messages,
+                provider="gemini",
+                model_name=settings.GEMINI_INTERVIEW_MODEL,
+                temperature=0.2,
+                max_tokens=1024,
+                response_format={"type": "json_object"},
+                timeout=30
+            )
+            evaluation = json.loads(res["content"])
+            evaluation['score'] = max(0.0, min(max_score, evaluation.get('score', 0.0)))
+            return evaluation
         except Exception as e:
             print(f"Error evaluating answer: {e}")
             return {
@@ -361,55 +287,18 @@ Provide analysis in JSON format:
 
 Focus on the 3 weakest skills. Be specific and actionable."""
 
-        url = f"{self.base_url}/models/{settings.GEMINI_INTERVIEW_MODEL}:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
-        body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.3,
-                "maxOutputTokens": 2048,
-                "responseMimeType": "application/json"
-            }
-        }
-        
+        messages = [{"role": "user", "content": prompt}]
         try:
-            r = requests.post(url, headers=headers, json=body, timeout=45)
-            if r.status_code != 200:
-                return {
-                    "skill_gaps": {},
-                    "overall_assessment": "Unable to analyze",
-                    "priority_skills": [],
-                    "recommended_courses": [],
-                    "recommended_projects": [],
-                    "practice_problems": []
-                }
-            
-            result = r.json()
-            if 'candidates' in result and len(result['candidates']) > 0:
-                generated_text = result['candidates'][0]['content']['parts'][0].get('text', '{}')
-                try:
-                    return json.loads(generated_text)
-                except json.JSONDecodeError as json_err:
-                    print(f"JSON decode error in skill gap analysis: {json_err}")
-                    print(f"Problematic JSON: {generated_text[:500]}...")
-                    # Return fallback structure
-                    return {
-                        "skill_gaps": {},
-                        "overall_assessment": "Unable to parse analysis results",
-                        "priority_skills": [],
-                        "recommended_courses": [],
-                        "recommended_projects": [],
-                        "practice_problems": []
-                    }
-            
-            return {
-                "skill_gaps": {},
-                "overall_assessment": "Analysis unavailable",
-                "priority_skills": [],
-                "recommended_courses": [],
-                "recommended_projects": [],
-                "practice_problems": []
-            }
+            res = llm_router.generate_chat_completion(
+                messages=messages,
+                provider="gemini",
+                model_name=settings.GEMINI_INTERVIEW_MODEL,
+                temperature=0.3,
+                max_tokens=2048,
+                response_format={"type": "json_object"},
+                timeout=45
+            )
+            return json.loads(res["content"])
         except Exception as e:
             print(f"Error analyzing skill gaps: {e}")
             return {

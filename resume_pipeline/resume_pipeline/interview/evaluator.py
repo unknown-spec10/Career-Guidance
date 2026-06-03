@@ -8,19 +8,17 @@ import json
 import logging
 from typing import AsyncGenerator, Optional, List
 
-from groq import Groq
-
 from ..config import settings
 from ..db import InterviewAnswer, InterviewQuestion
 from ..constants import INTERVIEW_CONFIG_V2
+from ..core.llm_router import llm_router
 from .prompts import GROQ_MODEL, EVALUATION_PROMPT, HINT_PROMPT, PERSONA_PROMPTS
 from .service import build_conversation_history, get_running_score
 
 logger = logging.getLogger(__name__)
 
 
-def _get_groq_client() -> Groq:
-    return Groq(api_key=settings.GROQ_API_KEY)
+
 
 
 # ---------------------------------------------------------------------------
@@ -115,11 +113,9 @@ def _evaluate_with_groq(
     interviewer_persona: str = "Friendly Senior Engineer",
 ) -> dict:
     """
-    Send question + answer + conversation history to Groq for evaluation.
+    Send question + answer + conversation history to LLMRouter for evaluation.
     Returns a dict: {score, feedback, strength, missing_concepts, hint_for_next}
     """
-    groq_client = _get_groq_client()
-
     persona_info = PERSONA_PROMPTS.get(interviewer_persona, PERSONA_PROMPTS["Friendly Senior Engineer"])
     persona_instruction = persona_info["evaluation_instruction"]
 
@@ -131,28 +127,24 @@ def _evaluate_with_groq(
         persona_instruction=persona_instruction,
     )
 
-    # Include conversation history for context-aware evaluation
     messages = conversation_history + [{"role": "user", "content": eval_prompt}]
 
-    response = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=messages,
-        temperature=0.3,  # Lower temp for more consistent scoring
-        max_tokens=1024,
-    )
-
-    raw = response.choices[0].message.content.strip()
-    # Strip accidental markdown fences
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    result = json.loads(raw)
-    # Ensure score is in [0.0, 1.0]
-    result["score"] = max(0.0, min(1.0, float(result.get("score", 0.0))))
-    return result
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=messages,
+            provider="groq",
+            model_name=GROQ_MODEL,
+            temperature=0.3,
+            max_tokens=1024,
+            response_format={"type": "json_object"}
+        )
+        raw = res["content"].strip()
+        result = json.loads(raw)
+        result["score"] = max(0.0, min(1.0, float(result.get("score", 0.0))))
+        return result
+    except Exception as e:
+        logger.error(f"LLMRouter evaluation failed: {e}")
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +160,6 @@ async def stream_hint(
     Yields Server-Sent Event tokens for a mid-interview nudge.
     Used when the candidate gave a weak answer (score < LOW_THRESHOLD).
     """
-    groq_client = _get_groq_client()
-
     persona_info = PERSONA_PROMPTS.get(interviewer_persona, PERSONA_PROMPTS["Friendly Senior Engineer"])
     persona_instruction = persona_info["hint_instruction"]
 
@@ -179,18 +169,19 @@ async def stream_hint(
         persona_instruction=persona_instruction,
     )
 
-    stream = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.6,
-        max_tokens=150,
-        stream=True,
-    )
-
-    for chunk in stream:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            yield f"data: {json.dumps({'token': delta})}\n\n"
+    messages = [{"role": "user", "content": prompt}]
+    
+    try:
+        for chunk in llm_router.generate_chat_completion_stream(
+            messages=messages,
+            provider="groq",
+            model_name=GROQ_MODEL,
+            temperature=0.6,
+            max_tokens=150
+        ):
+            yield f"data: {json.dumps({'token': chunk})}\n\n"
+    except Exception as e:
+        logger.error(f"stream_hint fallback stream error: {e}")
 
     yield "data: [DONE]\n\n"
 
@@ -209,8 +200,6 @@ async def stream_feedback(
     Yields SSE tokens for per-question feedback on the results page.
     Generates a longer, more narrative feedback than the evaluation JSON.
     """
-    groq_client = _get_groq_client()
-
     prompt = f"""You are giving post-interview feedback to a candidate.
 
 Question asked: {question_text}
@@ -226,18 +215,19 @@ Write detailed, constructive feedback (3-5 sentences) explaining:
 Be encouraging and specific. Address the candidate directly ("Your answer...").
 """
 
-    stream = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.5,
-        max_tokens=400,
-        stream=True,
-    )
-
-    for chunk in stream:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            yield f"data: {json.dumps({'token': delta})}\n\n"
+    messages = [{"role": "user", "content": prompt}]
+    
+    try:
+        for chunk in llm_router.generate_chat_completion_stream(
+            messages=messages,
+            provider="groq",
+            model_name=GROQ_MODEL,
+            temperature=0.5,
+            max_tokens=400
+        ):
+            yield f"data: {json.dumps({'token': chunk})}\n\n"
+    except Exception as e:
+        logger.error(f"stream_feedback stream error: {e}")
 
     yield "data: [DONE]\n\n"
 
@@ -264,8 +254,6 @@ async def stream_study_plan(
         yield "data: [DONE]\n\n"
         return
 
-    groq_client = _get_groq_client()
-
     persona_info = PERSONA_PROMPTS.get(interviewer_persona, PERSONA_PROMPTS["Friendly Senior Engineer"])
     persona_instruction = persona_info["study_plan_instruction"]
 
@@ -283,17 +271,19 @@ async def stream_study_plan(
         history_context=history_desc,
     )
 
-    stream = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
-        max_tokens=2048,
-        stream=True,
-    )
+    messages = [{"role": "user", "content": prompt}]
 
-    for chunk in stream:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            yield f"data: {json.dumps({'token': delta})}\n\n"
+    try:
+        for chunk in llm_router.generate_chat_completion_stream(
+            messages=messages,
+            provider="groq",
+            model_name=GROQ_MODEL,
+            temperature=0.7,
+            max_tokens=2048
+        ):
+            yield f"data: {json.dumps({'token': chunk})}\n\n"
+        
+    except Exception as e:
+        logger.error(f"stream_study_plan stream error: {e}")
 
     yield "data: [DONE]\n\n"

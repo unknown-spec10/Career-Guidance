@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     GROQ_STT_MODEL: str = "whisper-large-v3"
     GROQ_TTS_MODEL: str = "canopylabs/orpheus-v1-english"
     GROQ_TTS_VOICE: str = "troy"
+    NVIDIA_NIM_API_KEY: str = ""
+    NVIDIA_NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    NVIDIA_NIM_DEEPSEEK_MODEL: str = "deepseek-ai/deepseek-v4-flash"
+    NVIDIA_NIM_KIMI_MODEL: str = "moonshotai/kimi-k2.6"
+    
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "openai/gpt-oss-120b:free"
     EMBEDDING_MODEL: str = "gemini-embedding-2-preview"
     MAX_PARSE_TOKENS: int = 12000
     
@@ -162,16 +170,6 @@ class Settings(BaseSettings):
     RAG_ENABLE_FILE_WATCHER: bool = True    # Enable automatic doc reloading when files change
     RAG_FILE_WATCHER_DEBOUNCE: float = 2.0  # Debounce file changes for N seconds
 
-    # Async embedding pipeline (Celery + Redis)
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
-    CELERY_DEFAULT_QUEUE: str = "default"
-    CELERY_EMBEDDINGS_QUEUE: str = "embeddings"
-    CELERY_TASK_ALWAYS_EAGER: bool = False
-    CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: int = 120
-    CELERY_TASK_TIME_LIMIT_SECONDS: int = 180
-    EMBEDDING_TASK_MAX_RETRIES: int = 3
-    EMBEDDING_TASK_RETRY_BACKOFF_SECONDS: int = 10
     USE_VECTOR_RETRIEVAL: bool = True
     VECTOR_RETRIEVAL_TOP_K: int = 200
     VECTOR_RETRIEVAL_MIN_CANDIDATES: int = 20

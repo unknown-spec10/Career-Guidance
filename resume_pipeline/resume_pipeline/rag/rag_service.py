@@ -30,6 +30,7 @@ from .vector_store import VectorStore
 from .query_engine import QueryEngine, QueryResult
 from .file_watcher import FileWatcher, get_file_watcher
 from ..config import settings
+from ..core.llm_router import llm_router
 
 logger = logging.getLogger(__name__)
 
@@ -87,69 +88,30 @@ class GeminiRAGClient:
         temperature: float = 0.3
     ) -> Tuple[Optional[str], Optional[str]]:
         """
-        Generate a response using Gemini API.
+        Generate a response using Gemini API or fallback via LLMRouter.
         Returns (response, error).
         """
-        if not self.api_key:
-            return None, "Gemini API key not configured"
-        
         # Check for mock mode
         if settings.GEMINI_MOCK_MODE:
             return self._mock_response(user_message), None
-        
-        url = f"{self.base_url}/models/{self.MODEL}:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
-        
-        # Combine system prompt and user message
-        full_prompt = f"{system_prompt}\n\n{user_message}"
-        
-        body = {
-            "contents": [{
-                "parts": [{
-                    "text": full_prompt
-                }]
-            }],
-            "generationConfig": {
-                "temperature": temperature,
-                "topK": 40,
-                "topP": 0.95,
-                "maxOutputTokens": max_tokens,
-            },
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-            ]
-        }
-        
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+
         try:
-            start = time.time()
-            response = requests.post(url, headers=headers, json=body, timeout=60)
-            latency = time.time() - start
-            
-            if response.status_code != 200:
-                error_detail = response.text
-                logger.error(f"Gemini API error: {response.status_code} - {error_detail}")
-                return None, f"API error: {response.status_code}"
-            
-            result = response.json()
-            
-            # Extract the generated text from Gemini response
-            if 'candidates' in result and len(result['candidates']) > 0:
-                candidate = result['candidates'][0]
-                if 'content' in candidate and 'parts' in candidate['content']:
-                    generated_text = candidate['content']['parts'][0].get('text', '')
-                    logger.info(f"Gemini RAG response generated in {latency:.2f}s")
-                    return generated_text, None
-            
-            return None, "No response generated"
-            
-        except requests.Timeout:
-            logger.error("Gemini API timeout")
-            return None, "Request timed out. Please try again."
+            res = llm_router.generate_chat_completion(
+                messages=messages,
+                provider="gemini",
+                model_name=self.MODEL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=60
+            )
+            return res["content"], None
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"RAG LLMRouter error: {e}")
             return None, f"An error occurred: {str(e)}"
     
     def _mock_response(self, user_message: str) -> str:

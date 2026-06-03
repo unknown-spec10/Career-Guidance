@@ -7,6 +7,7 @@ if str(p) not in sys.path:
     sys.path.insert(0, str(p))
 
 from resume_pipeline.resume.skill_taxonomy_builder import SkillTaxonomyBuilder
+from resume_pipeline.config import settings
 
 def main():
     """Build skill taxonomy from extracted skills using Google Search."""
@@ -17,12 +18,13 @@ def main():
     test_dir = Path(__file__).parent
     sample_resume = test_dir / "sample_resume_1.txt"
     
+    taxonomy_path = Path(settings.SKILL_TAXONOMY_PATH)
+    
     if sample_resume.exists():
         with open(sample_resume, 'r') as f:
             resume_text = f.read()
         
         print("Building taxonomy from sample resume...")
-        taxonomy_path = test_dir.parent / "skill_taxonomy.json"
         
         taxonomy = builder.update_taxonomy_from_resume(
             resume_text,
@@ -44,8 +46,7 @@ def main():
         print(f"Building taxonomy for {len(skills)} skills...")
         taxonomy = builder.build_taxonomy_for_skills(skills)
         
-        output_path = test_dir.parent / "skill_taxonomy.json"
-        builder.save_taxonomy(taxonomy, str(output_path))
+        builder.save_taxonomy(taxonomy, str(taxonomy_path))
         
         # Print summary
         print("\n=== Taxonomy Summary ===")

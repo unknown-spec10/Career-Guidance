@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from groq import Groq
 
 from ..config import settings
+from ..core.llm_router import llm_router
 
 logger = logging.getLogger(__name__)
 
@@ -37,70 +38,36 @@ def _call_groq_sync(
     temperature: float = 0.05,
 ) -> dict:
     """
-    Single synchronous Groq completions call with automatic retry on transient errors.
-    Enforces valid JSON output via response_format.
+    Synchronous completions call utilizing the centralized LLMRouter with automatic fallback.
     """
-    if not api_key:
-        return {"error": "groq_api_key_not_set"}
-
-    client = Groq(api_key=api_key)
-    max_retries = 5
-    base_delay = 1.0
-    start = time.monotonic()
-
-    for attempt in range(max_retries):
-        try:
-            # Groq chat completion call
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a precise resume parser. You extract information and output strict, valid JSON matching the requested schema."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-            )
-            latency = time.monotonic() - start
-
-            content = resp.choices[0].message.content
-            if not content:
-                return {"error": "empty_groq_response", "_latency": latency}
-
-            parsed = json.loads(content.strip())
-            parsed["_latency"] = latency
-            return parsed
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Groq JSON response on attempt {attempt+1}: {e}")
-            if attempt == max_retries - 1:
-                return {"error": "json_parse_error", "_raw": str(e)[:200], "_latency": time.monotonic() - start}
-            time.sleep(0.5)
-            continue
-
-        except Exception as e:
-            # Check for transient errors or rate limits (HTTP 429 / 5xx)
-            err_str = str(e).lower()
-            is_transient = "429" in err_str or "rate_limit" in err_str or "quota" in err_str or "500" in err_str or "502" in err_str or "503" in err_str or "504" in err_str
-            
-            if not is_transient or attempt == max_retries - 1:
-                logger.error(f"Groq API call failed: {e}")
-                return {"error": str(e)[:200], "_latency": time.monotonic() - start}
-
-            delay = base_delay * (2 ** attempt) + random.uniform(0.1, 0.5)
-            logger.warning(
-                f"Groq API transient error/rate limit on attempt {attempt+1}. "
-                f"Retrying in {delay:.2f} seconds... Error: {e}"
-            )
-            time.sleep(delay)
-
-    return {"error": "max_retries_exceeded", "_latency": time.monotonic() - start}
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a precise resume parser. You extract information and output strict, valid JSON matching the requested schema."
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+    
+    try:
+        res = llm_router.generate_chat_completion(
+            messages=messages,
+            provider="groq",
+            model_name=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"}
+        )
+        content = res["content"]
+        parsed = json.loads(content.strip())
+        parsed["_latency"] = res["_latency"]
+        parsed["_provenance"] = res["_provenance"]
+        return parsed
+    except Exception as e:
+        logger.error(f"LLMRouter call failed in _call_groq_sync: {e}")
+        return {"error": str(e), "_latency": 0.0}
 
 
 # ─────────────────────────────────────────────────────────────

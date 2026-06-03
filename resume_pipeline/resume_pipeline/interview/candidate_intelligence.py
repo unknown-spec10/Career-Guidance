@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from ..config import settings
 from ..db import Applicant, LLMParsedRecord, InterviewSession, InterviewQuestion, InterviewAnswer
+from ..core.llm_router import llm_router
 from .prompts import CANDIDATE_INTELLIGENCE_PROMPT, GROQ_MODEL
 
 logger = logging.getLogger(__name__)
@@ -169,10 +170,7 @@ def _evaluate_with_groq(
     latest_session_data: str,
     past_sessions_summary: str
 ) -> Optional[dict]:
-    """Call Groq to synthesize logs into the cumulative JSON profile."""
-    from groq import Groq
-    groq_client = Groq(api_key=settings.GROQ_API_KEY)
-
+    """Call LLMRouter to synthesize logs into the cumulative JSON profile."""
     prompt = CANDIDATE_INTELLIGENCE_PROMPT.format(
         resume_context=resume_context,
         current_profile_json=current_profile_json,
@@ -180,28 +178,20 @@ def _evaluate_with_groq(
         past_sessions_summary=past_sessions_summary
     )
 
-    response = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=1500,
-        response_format={"type": "json_object"}
-    )
-
-    raw = response.choices[0].message.content.strip()
-    
-    # Strip accidental markdown boxes if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
     try:
+        res = llm_router.generate_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            provider="groq",
+            model_name=GROQ_MODEL,
+            temperature=0.3,
+            max_tokens=1500,
+            response_format={"type": "json_object"}
+        )
+        raw = res["content"].strip()
         profile_json = json.loads(raw)
         return profile_json
     except Exception as err:
-        logger.error("Candidate Intelligence: Failed to parse Groq response JSON: %s (Raw: %s)", err, raw)
+        logger.error("Candidate Intelligence: Failed to generate profile via LLMRouter: %s", err)
         return None
 
 

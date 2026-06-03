@@ -12,12 +12,12 @@ import re
 from typing import List, Dict, Any, Tuple, Optional
 import httpx
 from fastapi import HTTPException
-from groq import Groq
 
 from ..config import settings
 from ..db import Applicant, InterviewSession, InterviewAnswer, InterviewQuestion, LearningPath, SystemConfiguration
 from ..constants import CREDIT_CONFIG
 from ..core.credit_service import CreditService
+from ..core.llm_router import llm_router
 from .service import get_weak_skills, get_missing_concepts_summary
 
 logger = logging.getLogger(__name__)
@@ -36,8 +36,7 @@ class RobustLearningPathResponse(dict):
     def __setattr__(self, name, value):
         self[name] = value
 
-def _get_groq_client() -> Groq:
-    return Groq(api_key=settings.GROQ_API_KEY)
+# Groq client helper removed in favor of llm_router
 
 def get_fallback_leetcode_problems(weak_skills: List[str], experience_level: str) -> List[Dict[str, Any]]:
     """
@@ -204,7 +203,7 @@ def generate_search_queries(
     missing_concepts: str,
     target_role: str,
     experience_level: str,
-    groq_client: Groq
+    groq_client: Any = None
 ) -> List[Dict[str, Any]]:
     """
     One Groq call. Prompt instructs: respond ONLY with a JSON array, no markdown, no preamble.
@@ -219,13 +218,14 @@ def generate_search_queries(
             missing_concepts=missing_concepts
         )
         
-        response = groq_client.chat.completions.create(
-            model=settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile",
+        res = llm_router.generate_chat_completion(
             messages=[{"role": "user", "content": prompt}],
+            provider="groq",
+            model_name=settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile",
             temperature=0.2,
             max_tokens=800
         )
-        raw = response.choices[0].message.content.strip()
+        raw = res["content"].strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -386,7 +386,7 @@ def build_learning_path_json(
     target_role: str,
     experience_level: str,
     missing_concepts: str,
-    groq_client: Groq
+    groq_client: Any = None
 ) -> Dict[str, Any]:
     """
     One Groq call. Structuring complete path JSON with exact key fields.
@@ -427,13 +427,14 @@ Generate a complete learning path JSON with these exact keys:
 
 Respond ONLY with valid JSON. No markdown fences (e.g. no ```json), no explanations.
 """
-        response = groq_client.chat.completions.create(
-            model=settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile",
+        res = llm_router.generate_chat_completion(
             messages=[{"role": "user", "content": prompt}],
+            provider="groq",
+            model_name=settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile",
             temperature=0.3,
             max_tokens=1500
         )
-        raw = response.choices[0].message.content.strip()
+        raw = res["content"].strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -565,8 +566,7 @@ def generate_learning_path(session_id: str, db) -> Dict[str, Any]:
         exp_years = float(normalized.get("total_experience") or normalized.get("work_experience_years") or 0.0)
         experience_level = "junior" if exp_years < 2.0 else "mid-level" if exp_years < 5.0 else "senior"
 
-    # Instantiate Groq & check YouTube Keys
-    groq_client = _get_groq_client()
+    groq_client = None
     youtube_key = settings.YOUTUBE_API_KEY or settings.YOUTUBE_DATA_API_KEY
 
     filtered_videos_by_skill = {}

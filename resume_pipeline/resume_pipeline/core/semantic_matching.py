@@ -79,21 +79,26 @@ class SemanticMatcher:
     def _load_taxonomy(self):
         """Load skill taxonomy from JSON files"""
         try:
-            # Try multiple paths for taxonomy files
-            paths_to_try = [
-                Path("./skill_taxonomy.json"),
-                Path("../skill_taxonomy.json"),
-                Path("../../skill_taxonomy.json"),
-                Path("resume_pipeline/skill_taxonomy.json"),
-            ]
-            
             taxonomy_path = None
-            for path in paths_to_try:
+            if hasattr(settings, 'SKILL_TAXONOMY_PATH') and settings.SKILL_TAXONOMY_PATH:
+                path = Path(settings.SKILL_TAXONOMY_PATH)
                 if path.exists():
                     taxonomy_path = path
-                    break
-            
+
             if not taxonomy_path:
+                # Try multiple fallback paths for taxonomy files
+                paths_to_try = [
+                    Path("./skill_taxonomy.json"),
+                    Path("../skill_taxonomy.json"),
+                    Path("../../skill_taxonomy.json"),
+                    Path("resume_pipeline/skill_taxonomy.json"),
+                ]
+                for path in paths_to_try:
+                    if path.exists():
+                        taxonomy_path = path
+                        break
+            
+            if not taxonomy_path or not taxonomy_path.exists():
                 logger.warning("skill_taxonomy.json not found; canonical mapping will be limited")
                 return
             
@@ -101,7 +106,15 @@ class SemanticMatcher:
                 self.taxonomy = json.load(f)
             
             # Load metadata
-            metadata_path = taxonomy_path.parent / "skill_taxonomy_metadata.json"
+            metadata_path = None
+            if hasattr(settings, 'SKILL_TAXONOMY_METADATA_PATH') and settings.SKILL_TAXONOMY_METADATA_PATH:
+                path = Path(settings.SKILL_TAXONOMY_METADATA_PATH)
+                if path.exists():
+                    metadata_path = path
+            
+            if not metadata_path:
+                metadata_path = taxonomy_path.parent / "skill_taxonomy_metadata.json"
+                
             if metadata_path.exists():
                 with open(metadata_path, 'r') as f:
                     self.metadata = json.load(f)

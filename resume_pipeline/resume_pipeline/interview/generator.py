@@ -7,9 +7,8 @@ import json
 import logging
 from typing import List, Optional
 
-from groq import Groq
-
 from ..config import settings
+from ..core.llm_router import llm_router
 from ..constants import INTERVIEW_CONFIG_V2
 from .prompts import GROQ_MODEL, QUESTION_GENERATION_PROMPT, PERSONA_PROMPTS
 from .fallback_questions import get_fallback_questions
@@ -58,8 +57,6 @@ def generate_questions(
     total_count = num_questions + reserve_count
 
     try:
-        groq_client = Groq(api_key=settings.GROQ_API_KEY)
-
         skills_str = ", ".join(context["skills"][:15]) if context["skills"] else "General programming"
         projects_str = ", ".join(context["projects"]) if context["projects"] else "None listed"
 
@@ -78,7 +75,7 @@ def generate_questions(
             for pq in past_question_texts:
                 past_q_desc += f"- {pq}\n"
         else:
-            past_q_desc = "PREVIOUSLY ASKED QUESTIONS:\nNone (First session)."
+            past_q_desc = "PREVIOUSED ASKED QUESTIONS:\nNone (First session)."
 
         persona_info = PERSONA_PROMPTS.get(interviewer_persona or "Friendly Senior Engineer", PERSONA_PROMPTS["Friendly Senior Engineer"])
         persona_instruction = persona_info["generation_instruction"]
@@ -98,22 +95,15 @@ def generate_questions(
             past_questions=past_q_desc,
         )
 
-        response = groq_client.chat.completions.create(
-            model=GROQ_MODEL,
+        res = llm_router.generate_chat_completion(
             messages=[{"role": "user", "content": prompt}],
+            provider="groq",
+            model_name=GROQ_MODEL,
             temperature=0.7,
-            max_tokens=4096,
+            max_tokens=4096
         )
 
-        raw = response.choices[0].message.content.strip()
-
-        # Strip any accidental markdown fences
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
-
+        raw = res["content"].strip()
         questions = json.loads(raw)
 
         if not isinstance(questions, list) or len(questions) == 0:

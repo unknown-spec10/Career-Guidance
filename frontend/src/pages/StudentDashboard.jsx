@@ -183,7 +183,7 @@ export default function StudentDashboard() {
       let profileId = secureStorage.getItem('db_applicant_id')
 
       try {
-        const profileRes = await api.get('/api/student/applicant')
+        const profileRes = await api.get(`/api/student/applicant?t=${Date.now()}`)
         setApplicantData(profileRes.data) // SAVE DATA for ProfileHealth
         setApplicantId(profileRes.data.id)
         secureStorage.setItem('db_applicant_id', String(profileRes.data.id))
@@ -194,7 +194,7 @@ export default function StudentDashboard() {
       }
 
       try {
-        const studentProfileRes = await api.get('/api/student/profile')
+        const studentProfileRes = await api.get(`/api/student/profile?t=${Date.now()}`)
         setStudentProfile(studentProfileRes.data || null)
       } catch (profileErr) {
         console.error('Failed to load student profile data:', profileErr)
@@ -203,13 +203,13 @@ export default function StudentDashboard() {
 
       // Applications
       const [jobApps] = await Promise.all([
-        api.get('/api/student/applications/jobs').catch(() => ({ data: { applications: [] } }))
+        api.get(`/api/student/applications/jobs?t=${Date.now()}`).catch(() => ({ data: { applications: [] } }))
       ])
       setJobApplications(jobApps.data?.applications || [])
 
       // Recommendations
       if (profileId) {
-        const recRes = await api.get(`/api/recommendations/${profileId}`)
+        const recRes = await api.get(`/api/recommendations/${profileId}?t=${Date.now()}`)
         console.log('📊 Recommendations API response:', recRes.data)
         console.log('📊 Job recommendations count:', recRes.data.job_recommendations?.length || 0)
         setRecommendations(recRes.data.job_recommendations || [])

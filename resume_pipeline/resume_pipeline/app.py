@@ -1,5 +1,5 @@
 # pyright: reportGeneralTypeIssues=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Body, Request, status, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -216,6 +216,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_cache_control_header(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/") or path.startswith("/parse/") or path.startswith("/upload"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 # Register interview system v2 router (/api/interview/*)
 app.include_router(interview_router_v2)
@@ -2018,6 +2028,32 @@ async def get_pending_reviews(
         "pending_jobs": jobs_list,
         "total_pending": len(jobs_list)
     }
+
+
+@app.get("/api/admin/llm-status")
+async def get_llm_router_status(
+    current_user = Depends(require_role("admin"))
+):
+    """
+    Retrieve live LLM routing telemetry:
+    - Per-provider request/success/fallback/error counts and average latencies
+    - Groq rate-limit headers (remaining requests/tokens, reset countdowns)
+    - Gemini & Nvidia NIM cumulative token usage (prompt, completion, total)
+    - Active 429 cooldown remaining seconds for any provider
+    - API key configuration status (is_configured boolean)
+    """
+    from .core.llm_router import llm_router
+    return llm_router.get_stats()
+
+
+@app.post("/api/admin/llm-status/reset")
+async def reset_llm_router_stats(
+    current_user = Depends(require_role("admin"))
+):
+    """Reset all LLM router in-memory telemetry counters to zero."""
+    from .core.llm_router import llm_router
+    llm_router.reset_stats()
+    return {"message": "LLM router telemetry statistics have been reset successfully."}
 
 
 @app.get("/api/admin/jobs")
