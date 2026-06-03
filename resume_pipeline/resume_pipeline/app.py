@@ -2486,7 +2486,11 @@ async def get_job_details(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/recommendations/{applicant_id}")
-async def get_applicant_recommendations(applicant_id: str, db: Session = Depends(get_db)):
+async def get_applicant_recommendations(
+    applicant_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
     """Get job recommendations for an applicant.
 
     Accepts either DB numeric id or external applicant_id string and resolves to DB id.
@@ -2504,6 +2508,15 @@ async def get_applicant_recommendations(applicant_id: str, db: Session = Depends
 
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found")
+
+    # BOLA / IDOR ownership validation:
+    # Students can only view their own recommendations. Admins, employers, and colleges have access.
+    if current_user.role not in ("admin", "employer", "college"):
+        if getattr(applicant, "user_id", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You do not own this profile."
+            )
 
     resolved_id = applicant.id
 
@@ -2763,6 +2776,15 @@ async def generate_recommendations_for_applicant(
     applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
     if not applicant:
         raise HTTPException(status_code=404, detail=API_MESSAGES['APPLICANT_NOT_FOUND'])
+
+    # BOLA / IDOR ownership validation:
+    # Students can only regenerate their own recommendations. Admins, employers, and colleges have access.
+    if current_user.role not in ("admin", "employer", "college"):
+        if getattr(applicant, "user_id", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You do not own this profile."
+            )
 
     llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
     if not llm_record:

@@ -1,7 +1,6 @@
 import subprocess, re
 from pathlib import Path
 from typing import Dict
-import pytesseract
 from pdf2image import convert_from_path
 from pdfminer.high_level import extract_text
 import pdfplumber  # type: ignore
@@ -62,6 +61,7 @@ class PdfTextExtractor(TextExtractor):
 class TesseractOCR(OCRService):
     def ocr_image(self, path: str) -> str:
         try:
+            import pytesseract  # lazy: only needed if tesseract binary is installed
             return pytesseract.image_to_string(path)
         except Exception:
             reader = get_reader()
