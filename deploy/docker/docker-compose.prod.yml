@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # Backend API Service (Pre-built from Docker Hub)
+  backend:
+    image: ${DOCKER_HUB_USERNAME:-yourusername}/career-guidance-backend:latest
+    container_name: career-guidance-backend
+    environment:
+      PORT: 8000
+      PG_HOST: ${PG_HOST}
+      PG_PORT: ${PG_PORT:-5432}
+      PG_USER: ${PG_USER}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PG_DB: ${PG_DB:-postgres}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GOOGLE_SEARCH_API_KEY: ${GOOGLE_SEARCH_API_KEY:-}
+      GOOGLE_CSE_ID: ${GOOGLE_CSE_ID:-}
+      GMAIL_USER: ${GMAIL_USER:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      SECRET_KEY: ${SECRET_KEY}
+      FILE_STORAGE_PATH: /app/data/raw_files
+      GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-false}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      # Performance controls for EC2 instance size
+      ASYNC_PARSE_ENABLED: ${ASYNC_PARSE_ENABLED:-true}
+      USE_VECTOR_RETRIEVAL: ${USE_VECTOR_RETRIEVAL:-true}
+      RAG_PRELOAD_ON_STARTUP: ${RAG_PRELOAD_ON_STARTUP:-false}
+      RAG_ENABLE_FILE_WATCHER: ${RAG_ENABLE_FILE_WATCHER:-false}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/raw_files:/app/data/raw_files
+      - ./resume_pipeline/logs:/app/logs
+    healthcheck:
+      # Using python urllib standard library guarantees compatibility without curl/requests
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped

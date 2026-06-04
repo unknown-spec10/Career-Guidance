@@ -140,7 +140,81 @@ Set this variable in the **Vercel Project Dashboard → Settings → Environment
 
 ---
 
-### 4. GitHub Actions Keep-Alive
+## ☁️ Production EC2 Deployment (Docker Hub & AWS EC2)
+
+For teams utilizing managed services, the platform is structured to run the database on **Supabase**, the React frontend SPA on **Vercel**, and the FastAPI backend API on an **Amazon EC2** instance. 
+
+Using prebuilt Docker images from Docker Hub bypasses the need to build resource-heavy Python images directly on the EC2 instance, making it fully compatible with low-memory `t2.micro` or `t3.micro` instances.
+
+### 1. Build and Push Backend Image to Docker Hub
+
+Since the frontend is built and served statically by Vercel directly from Git, and the database is managed by Supabase, only the backend API needs to be pushed to Docker Hub. Run the helper script from your local development machine:
+
+* **Windows (PowerShell)**:
+  ```powershell
+  .\deploy\docker\build-and-push.ps1 -DockerUsername "yourusername"
+  ```
+* **Linux/macOS (Bash)**:
+  ```bash
+  chmod +x ./deploy/docker/build-and-push.sh
+  ./deploy/docker/build-and-push.sh "yourusername"
+  ```
+
+This tags the backend image with `:latest` and a unique `:yyyyMMdd-HHmmss` timestamp, then pushes it to:
+- `yourusername/career-guidance-backend`
+
+### 2. Launch EC2 Instance
+
+1. Create a `t2.micro` or `t3.micro` instance running **Ubuntu Server 24.04 LTS / 22.04 LTS**.
+2. Configure **Security Groups** to allow:
+   - Port `22` (SSH) for administrative access.
+   - Port `8000` (HTTP) for frontend UI API requests to the backend.
+3. In **Advanced Details**, paste the contents of [ec2-user-data.sh](file:///d:/Career%20Guidence/deploy/aws/ec2-user-data.sh) into the **User data** field. This automatically installs Docker, Docker Compose, clones the codebase, and prepares the workspace at `/opt/career-guidance`.
+
+### 3. Setup Environment Variables on EC2
+
+1. Copy [deploy/aws/.env.aws.example](file:///d:/Career%20Guidence/deploy/aws/.env.aws.example) to `.env.aws` on the host machine.
+2. Edit the `.env.aws` file to supply the actual production environment values:
+   - Set `DOCKER_HUB_USERNAME` to your Docker Hub username.
+   - Set `PG_HOST` to your Supabase pooler host (e.g. `aws-1-ap-south-1.pooler.supabase.com`).
+   - Fill in your sensitive keys: `SECRET_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, and `GMAIL_APP_PASSWORD`.
+   - Update `FRONTEND_URL` and `CORS_ORIGINS` to point to the Vercel site (e.g. `https://your-site.vercel.app`).
+
+### 4. Deploy and Manage Backend Service
+
+From `/opt/career-guidance` on the EC2 instance, use the following commands:
+
+* **Start backend service**:
+  ```bash
+  docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
+  docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d
+  ```
+* **Verify running containers**:
+  ```bash
+  docker compose -f deploy/docker/docker-compose.prod.yml ps
+  ```
+* **View backend logs**:
+  ```bash
+  docker compose -f deploy/docker/docker-compose.prod.yml logs -f backend
+  ```
+* **Database Seeding**:
+  ```bash
+  docker compose -f deploy/docker/docker-compose.prod.yml exec backend python scripts/seed_database.py
+  ```
+
+### 5. Automated Updates from Dev Machine
+
+You can apply environment variable changes or force-recreate the remote backend container directly from your development machine using the provided PowerShell deploy script:
+
+```powershell
+.\deploy\aws\apply-ec2-env.ps1 -InstanceIp "your-ec2-public-ip" -PemPath "path-to-your-ssh-key.pem" -SourceEnvPath "path-to-local-env"
+```
+
+This will automatically securely upload your new configurations, pull the updated Docker Hub image, and restart the backend service cleanly.
+
+---
+
+### 6. GitHub Actions Keep-Alive
 To prevent Supabase's free tier database from sleeping and organization projects from getting suspended due to inactivity, a workflow cron job is configured at `.github/workflows/keep-supabase-alive.yml`.
 
 Ensure the curl command inside is set to ping your Render backend:

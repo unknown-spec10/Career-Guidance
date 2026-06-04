@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements (path relative to repo root)
 COPY resume_pipeline/requirements.txt .
 
+# Install CPU-only PyTorch first to prevent CUDA library bloat
+RUN pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
+
 # Install Python dependencies into user dir for clean copy
 RUN pip install --no-cache-dir --user -r requirements.txt
 

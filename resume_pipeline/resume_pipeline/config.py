@@ -32,8 +32,6 @@ class Settings(BaseSettings):
     GEMINI_SMALL_MODEL: str = "gemini-3-flash-preview"
     GEMINI_LARGE_MODEL: str = "gemini-3-pro-preview"
     GEMINI_INTERVIEW_MODEL: str = "gemini-2.5-flash"
-    GEMINI_LIVE_MODEL: str = "gemini-3.1-flash-live-preview"
-    GEMINI_LIVE_WS_ENDPOINT: str = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
     GEMINI_MOCK_MODE: bool = False
     GROQ_API_BASE_URL: str = "https://api.groq.com/openai/v1"
     GROQ_CHAT_MODEL: str = "llama-3.3-70b-versatile"

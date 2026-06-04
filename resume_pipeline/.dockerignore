@@ -32,3 +32,8 @@ npm-debug.log
 tests/
 .pytest_cache
 __pycache__
+.agents/
+.rag_cache/
+logs/
+Data/
+raw_files/

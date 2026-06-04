@@ -110,8 +110,9 @@ $remoteCmdLines = @(
     "cd $RemoteAppDir",
     "mv $remoteEnvTmp $remoteEnvFinal",
     "chmod 600 $remoteEnvFinal",
-    "docker compose --env-file .env.aws -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.aws-dev.yml up -d --force-recreate",
-    "docker compose --env-file .env.aws -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.aws-dev.yml ps",
+    "docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull",
+    "docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d --force-recreate",
+    "docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml ps",
     "curl -sS http://localhost:8000/api/stats | head -c 300"
 )
 $remoteCmd = ($remoteCmdLines -join "`n") -replace "`r", ""

@@ -21,10 +21,12 @@ git checkout main
 git pull --ff-only
 
 # Environment file is expected to be created manually as /opt/career-guidance/.env.aws
-# Start in low-cost demo mode
 if [ -f .env.aws ]; then
-  docker compose --env-file .env.aws -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.aws-dev.yml up -d --build
+  # Pull latest images from Docker Hub, then recreate containers
+  docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
+  docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d --force-recreate
 else
   echo ".env.aws missing. Create it from deploy/aws/.env.aws.example, then run:"
-  echo "docker compose --env-file .env.aws -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.aws-dev.yml up -d --build"
+  echo "docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull"
+  echo "docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d"
 fi
