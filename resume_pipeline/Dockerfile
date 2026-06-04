@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # ─── Stage 2: Runtime ─────────────────────────────────────────
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /app/resume_pipeline
 
 # Install all runtime system dependencies:
 #   poppler-utils  — pdf2image needs pdftoppm (PDF→image for Vision parsing)
@@ -46,7 +46,7 @@ ENV PATH=/root/.local/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1
 
 # Copy application code (all paths relative to repo root build context)
-COPY resume_pipeline/ ./resume_pipeline/
+COPY resume_pipeline/ .
 
 # Create data directory for uploaded files
 RUN mkdir -p /app/data/raw_files

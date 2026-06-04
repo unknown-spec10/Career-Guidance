@@ -195,6 +195,16 @@ AI_INPUT_CONFIG = {
 
 settings = Settings()
 
+# Naming fallbacks for backward compatibility with older/alternative env names
+if not settings.GOOGLE_API_KEY and os.environ.get("GOOGLE_SEARCH_API_KEY"):
+    settings.GOOGLE_API_KEY = os.environ.get("GOOGLE_SEARCH_API_KEY")
+
+if not settings.GOOGLE_SEARCH_ENGINE_ID and os.environ.get("GOOGLE_CSE_ID"):
+    settings.GOOGLE_SEARCH_ENGINE_ID = os.environ.get("GOOGLE_CSE_ID")
+
+if os.environ.get("GROQ_MODEL"):
+    settings.GROQ_CHAT_MODEL = os.environ.get("GROQ_MODEL")
+
 # If DATABASE_URL is set, prioritize it to populate PG_DSN
 if settings.DATABASE_URL:
     settings.PG_DSN = settings.DATABASE_URL
