@@ -16,13 +16,16 @@ def optimize_job_description(prompt_text: str, title: str = None) -> dict:
         "optional_skills": [{"name": "string", "level": "basic|intermediate|advanced"}]
     }
     """
+    from ..utils import truncate_for_llm
+    safe_prompt_text = truncate_for_llm(prompt_text or "", "recommendation_max_chars")
+
     prompt = f"""You are an expert recruiter and technical writer. 
 Your task is to take a simple, brief job description draft and expand it into a highly structured, professional, and SEO-friendly job description. 
 In addition, you must analyze the requirements and extract the ideal technical stack, classifying them into Required Skills and Optional (nice-to-have) Skills.
 
 Job context:
 - Title: {title or 'Software Engineer'}
-- Input Draft: {prompt_text}
+- Input Draft: {safe_prompt_text}
 
 Generate a JSON object containing exactly three fields:
 1. "optimized_description": A beautifully formatted markdown description including sections for "Role Overview", "Key Responsibilities", and "Ideal Candidate Profile". Keep it engaging and professional to attract top-tier talent.

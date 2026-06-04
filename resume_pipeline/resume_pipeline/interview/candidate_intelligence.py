@@ -82,7 +82,8 @@ def generate_longitudinal_profile(applicant_id: int, db: DBSession) -> Optional[
 
         for ans in latest_answers:
             q_text = ans.question.question_text
-            a_text = ans.answer_text or "(No response)"
+            from ..utils import truncate_for_llm
+            a_text = truncate_for_llm(ans.answer_text or "", "interview_answer_max_chars") or "(No response)"
             score = ans.score or 0.0
             latest_qas.append({
                 "question": q_text,

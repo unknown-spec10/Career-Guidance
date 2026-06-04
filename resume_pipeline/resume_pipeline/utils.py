@@ -2,8 +2,13 @@ import hashlib
 import os
 import re
 import html
+import logging
 from pathlib import Path
 from typing import Tuple, Any, Dict, List
+
+from .config import AI_INPUT_CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_dir(path: str):
@@ -112,3 +117,43 @@ def save_upload(file_obj, dest_dir: str, filename: str = None) -> Tuple[str, int
         out.write(content)
     size = os.path.getsize(destination)
     return destination, size
+
+
+def truncate_for_llm(text: str, limit_key: str) -> str:
+    """
+    Trim text before sending to any LLM.
+    Logs a warning if truncation actually happened.
+    """
+    if not isinstance(text, str):
+        return ""
+
+    max_chars = AI_INPUT_CONFIG.get(limit_key)
+    if max_chars is None:
+        logger.warning(f"Limit key '{limit_key}' not found in AI_INPUT_CONFIG. Returning raw text.")
+        return text
+
+    if len(text) <= max_chars:
+        return text  # no truncation needed
+
+    strategy = "top_only"
+    if limit_key == "resume_max_chars":
+        strategy = AI_INPUT_CONFIG.get("resume_truncation_strategy", "top_only")
+
+    if strategy == "top_and_tail":
+        # Take first 70% and last 30% of the limit
+        # Captures: name/contact/education at top + skills at bottom
+        top = int(max_chars * 0.7)
+        tail = max_chars - top
+        truncated = text[:top] + "\n...\n" + text[-tail:]
+    else:
+        truncated = text[:max_chars]
+
+    original_tokens_approx  = len(text) // 4
+    truncated_tokens_approx = len(truncated) // 4
+
+    logger.warning(
+        f"Text truncated for limit key '{limit_key}': {len(text)} → {len(truncated)} chars "
+        f"(~{original_tokens_approx} → ~{truncated_tokens_approx} tokens)"
+    )
+
+    return truncated

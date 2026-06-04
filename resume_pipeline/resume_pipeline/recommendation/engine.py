@@ -82,7 +82,7 @@ def run_pipeline_for_applicant_job(
     embedding_fallback_reason = None
 
     try:
-        semantic_skill_score = semantic_scorer.score(user_skills, job)
+        semantic_skill_score = semantic_scorer.score(user_skills, job, applicant=applicant)
         doc_similarity = document_scorer.score(applicant, job)
     except GeminiEmbeddingUnavailable as e:
         logger.warning(f"Gemini Embeddings unavailable (using TF-IDF fallback) for applicant_id={applicant.id}, job_id={job.id}: {e}")
@@ -206,16 +206,26 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
 
             # Only call LLM explanations if it's in the top N scoring list
             is_top_rec = i < top_n_limit
+            is_fallback = False
+            fallback_sources = []
             if is_top_rec:
                 if not explanation:
                     # Generate new natural language explanation
-                    explanation, explanation_source = generate_explanation(applicant, job, breakdown)
+                    explanation, explanation_source = generate_explanation(applicant, job, breakdown, db=db)
 
-                if not employer_reasons or not employer_gaps:
-                    analysis = generate_employer_match_analysis(applicant, job, breakdown)
-                    employer_reasons = analysis.get("reasons")
-                    employer_gaps = analysis.get("gaps")
+                analysis = generate_employer_match_analysis(applicant, job, breakdown, db=db)
+                employer_reasons = analysis.get("reasons")
+                employer_gaps = analysis.get("gaps")
+                analysis_source = analysis.get("source", "offline_fallback")
+                
+                if explanation_source == "offline_fallback" or analysis_source == "offline_fallback":
+                    is_fallback = True
+                    if explanation_source == "offline_fallback":
+                        fallback_sources.append("explainer")
+                    if analysis_source == "offline_fallback":
+                        fallback_sources.append("employer_analysis")
 
+            fallback_source_str = ", ".join(fallback_sources) if fallback_sources else None
             breakdown["explanation_source"] = explanation_source
 
             # Backward-compatible explain dict for existing frontend logic
@@ -236,6 +246,8 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
                 existing_rec.explain = explain_compat
                 existing_rec.computed_at = now
                 existing_rec.engine_version = "v2"
+                existing_rec.is_fallback = is_fallback
+                existing_rec.fallback_source = fallback_source_str
             else:
                 new_rec = JobRecommendation(
                     applicant_id=applicant_id,
@@ -245,7 +257,9 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
                     explanation=explanation,
                     explain=explain_compat,
                     computed_at=now,
-                    engine_version="v2"
+                    engine_version="v2",
+                    is_fallback=is_fallback,
+                    fallback_source=fallback_source_str
                 )
                 db.add(new_rec)
 
@@ -354,15 +368,25 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
                         employer_gaps = existing_rec.explain.get("employer_gaps")
 
                 is_top_rec = i < top_n_limit
+                is_fallback = False
+                fallback_sources = []
                 if is_top_rec:
                     if not explanation:
-                        explanation, explanation_source = generate_explanation(applicant, job, breakdown)
+                        explanation, explanation_source = generate_explanation(applicant, job, breakdown, db=db)
 
-                    if not employer_reasons or not employer_gaps:
-                        analysis = generate_employer_match_analysis(applicant, job, breakdown)
-                        employer_reasons = analysis.get("reasons")
-                        employer_gaps = analysis.get("gaps")
+                    analysis = generate_employer_match_analysis(applicant, job, breakdown, db=db)
+                    employer_reasons = analysis.get("reasons")
+                    employer_gaps = analysis.get("gaps")
+                    analysis_source = analysis.get("source", "offline_fallback")
+                    
+                    if explanation_source == "offline_fallback" or analysis_source == "offline_fallback":
+                        is_fallback = True
+                        if explanation_source == "offline_fallback":
+                            fallback_sources.append("explainer")
+                        if analysis_source == "offline_fallback":
+                            fallback_sources.append("employer_analysis")
 
+                fallback_source_str = ", ".join(fallback_sources) if fallback_sources else None
                 breakdown["explanation_source"] = explanation_source
 
                 explain_compat = {
@@ -381,6 +405,8 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
                     existing_rec.explain = explain_compat
                     existing_rec.computed_at = now
                     existing_rec.engine_version = "v2"
+                    existing_rec.is_fallback = is_fallback
+                    existing_rec.fallback_source = fallback_source_str
                 else:
                     new_rec = JobRecommendation(
                         applicant_id=applicant.id,
@@ -390,7 +416,9 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
                         explanation=explanation,
                         explain=explain_compat,
                         computed_at=now,
-                        engine_version="v2"
+                        engine_version="v2",
+                        is_fallback=is_fallback,
+                        fallback_source=fallback_source_str
                     )
                     db.add(new_rec)
 
@@ -431,17 +459,22 @@ def retry_null_explanations(applicant_id: int, db: Session, limit: int = 10) -> 
     now = datetime.datetime.utcnow()
     for rec in null_recs:
         try:
-            explanation, explanation_source = generate_explanation(applicant, rec.job, rec.score_breakdown or {})
+            explanation, explanation_source = generate_explanation(applicant, rec.job, rec.score_breakdown or {}, db=db)
             if explanation:
                 rec.explanation = explanation
                 rec.computed_at = now
                 if rec.score_breakdown:
                     rec.score_breakdown["explanation_source"] = explanation_source
+                is_fallback = (explanation_source == "offline_fallback")
+                rec.is_fallback = is_fallback
+                rec.fallback_source = "explainer" if is_fallback else None
                 rec.explain = {
                     "reasons": [explanation],
                     "summary": explanation,
                     "key_strengths": [],
-                    "improvement_areas": []
+                    "improvement_areas": [],
+                    "employer_reasons": rec.explain.get("employer_reasons") if rec.explain else None,
+                    "employer_gaps": rec.explain.get("employer_gaps") if rec.explain else None
                 }
         except Exception as e:
             logger.error(f"Failed to compute retry explanation for job_id={rec.job_id}: {e}")
@@ -509,14 +542,23 @@ def ensure_applicant_job_recommendation(applicant_id: int, job_id: int, db: Sess
             document_scorer=document_scorer
         )
 
-        explanation, explanation_source = generate_explanation(applicant, job, breakdown)
+        explanation, explanation_source = generate_explanation(applicant, job, breakdown, db=db)
         breakdown["explanation_source"] = explanation_source
         score_percent = breakdown["final_score"] * 100
 
         # Generate employer analysis
-        analysis = generate_employer_match_analysis(applicant, job, breakdown)
+        analysis = generate_employer_match_analysis(applicant, job, breakdown, db=db)
         employer_reasons = analysis.get("reasons")
         employer_gaps = analysis.get("gaps")
+        analysis_source = analysis.get("source", "offline_fallback")
+
+        is_fallback = (explanation_source == "offline_fallback" or analysis_source == "offline_fallback")
+        fallback_sources = []
+        if explanation_source == "offline_fallback":
+            fallback_sources.append("explainer")
+        if analysis_source == "offline_fallback":
+            fallback_sources.append("employer_analysis")
+        fallback_source_str = ", ".join(fallback_sources) if fallback_sources else None
 
         explain_compat = {
             "reasons": [explanation] if explanation else ["Matched based on your profile strength and skill overlap."],
@@ -534,6 +576,8 @@ def ensure_applicant_job_recommendation(applicant_id: int, job_id: int, db: Sess
             rec.explain = explain_compat
             rec.computed_at = now
             rec.engine_version = "v2"
+            rec.is_fallback = is_fallback
+            rec.fallback_source = fallback_source_str
         else:
             rec = JobRecommendation(
                 applicant_id=applicant_id,
@@ -543,7 +587,9 @@ def ensure_applicant_job_recommendation(applicant_id: int, job_id: int, db: Sess
                 explanation=explanation,
                 explain=explain_compat,
                 computed_at=now,
-                engine_version="v2"
+                engine_version="v2",
+                is_fallback=is_fallback,
+                fallback_source=fallback_source_str
             )
             db.add(rec)
 

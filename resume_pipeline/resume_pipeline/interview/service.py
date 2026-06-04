@@ -204,6 +204,7 @@ def build_conversation_history(session_id: str, db: DBSession) -> List[dict]:
     Reconstruct full conversation history for passing to Groq.
     Returns list of {role, content} dicts.
     """
+    from ..utils import truncate_for_llm
     questions = (
         db.query(InterviewQuestion)
         .filter_by(session_id=session_id)
@@ -218,7 +219,8 @@ def build_conversation_history(session_id: str, db: DBSession) -> List[dict]:
         messages.append({"role": "assistant", "content": q.question_text})
         answer = answer_map.get(q.id)
         if answer and answer.answer_text:
-            messages.append({"role": "user", "content": answer.answer_text})
+            safe_ans = truncate_for_llm(answer.answer_text, "interview_answer_max_chars")
+            messages.append({"role": "user", "content": safe_ans})
 
     return messages
 

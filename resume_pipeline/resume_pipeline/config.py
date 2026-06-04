@@ -144,10 +144,10 @@ class Settings(BaseSettings):
     # JOB RECOMMENDATION WEIGHTS (Skills & Experience-focused)
     # Sum should equal 1.0 for normalized scoring
     # ============================================================================
-    JOB_REC_SKILLS_WEIGHT: float = 0.35             # 35% - Technical skills match
+    JOB_REC_SKILLS_WEIGHT: float = 0.40             # 40% - Technical skills match
     JOB_REC_EXPERIENCE_WEIGHT: float = 0.20         # 20% - Work experience
     JOB_REC_CERTIFICATIONS_WEIGHT: float = 0.10     # 10% - Industry certifications
-    JOB_REC_LOCATION_WEIGHT: float = 0.10           # 10% - Location preference
+    JOB_REC_LOCATION_WEIGHT: float = 0.05          # 5% - Location preference
     JOB_REC_INTERVIEW_WEIGHT: float = 0.08          # 8% - Interview performance
     JOB_REC_PROJECTS_WEIGHT: float = 0.05           # 5% - Project experience
     JOB_REC_WORK_TYPE_WEIGHT: float = 0.05          # 5% - Work type preference
@@ -176,6 +176,24 @@ class Settings(BaseSettings):
 
     # Async parsing pipeline
     ASYNC_PARSE_ENABLED: bool = True
+
+# ── AI Input Limits ───────────────────────────────────────────────
+AI_INPUT_CONFIG = {
+    # Max characters sent to any LLM for resume structuring
+    # ~3000 chars ≈ 750 tokens ≈ roughly 1.5 pages — enough for all key info
+    "resume_max_chars": 3000,
+
+    # Max characters for job matching / recommendation prompts
+    # Job descriptions are shorter, 1500 chars is plenty
+    "recommendation_max_chars": 1500,
+
+    # Max characters for interview evaluation
+    "interview_answer_max_chars": 1000,
+
+    # If resume exceeds limit, take first N chars (top of resume)
+    # and last N chars (summary/skills usually at bottom too)
+    "resume_truncation_strategy": "top_and_tail",  # or "top_only"
+}
 
 settings = Settings()
 

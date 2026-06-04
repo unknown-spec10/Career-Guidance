@@ -6,7 +6,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 import requests
-from groq import Groq, RateLimitError as GroqRateLimitError
+from groq import Groq, RateLimitError as GroqRateLimitError, BadRequestError, AuthenticationError, PermissionDeniedError
 
 from ..config import settings
 from .rate_limiter import gemini_limiter, groq_limiter
@@ -271,8 +271,32 @@ class LLMRouter:
         """
         provider = provider.lower()
         if provider == "gemini" and not settings.GEMINI_MOCK_MODE:
+            if not gemini_limiter.allow_call():
+                logger.warning("LLMRouter: Gemini circuit breaker is OPEN. Bypassing Gemini to OpenRouter.")
+                self._increment_fallback("gemini")
+                return self._call_openrouter_fallback(
+                    messages=messages,
+                    model_override=settings.OPENROUTER_MODEL,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                    timeout=timeout,
+                    fallback_source="gemini",
+                )
             gemini_limiter.acquire_sync()
         elif provider == "groq":
+            if not groq_limiter.allow_call():
+                logger.warning("LLMRouter: Groq circuit breaker is OPEN. Bypassing Groq to OpenRouter.")
+                self._increment_fallback("groq")
+                return self._call_openrouter_fallback(
+                    messages=messages,
+                    model_override=settings.OPENROUTER_MODEL,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                    timeout=timeout,
+                    fallback_source="groq",
+                )
             groq_limiter.acquire_sync()
 
         self._increment_request(provider)
@@ -359,6 +383,7 @@ class LLMRouter:
                 )
 
             self._increment_success("groq", latency)
+            groq_limiter.report_success()
 
             return {
                 "content": content,
@@ -383,6 +408,24 @@ class LLMRouter:
                 retry_after = 60.0
             self._set_cooldown("groq", retry_after)
             self._increment_fallback("groq")
+            groq_limiter.report_failure()
+
+            return self._call_openrouter_fallback(
+                messages=messages,
+                model_override=settings.OPENROUTER_MODEL,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format,
+                timeout=timeout,
+                fallback_source="groq",
+            )
+
+        except (BadRequestError, AuthenticationError, PermissionDeniedError) as e:
+            # Client errors - do NOT trip the breaker
+            logger.warning(
+                f"LLMRouter: Groq client error: {e}. Falling back to OpenRouter without tripping circuit."
+            )
+            self._increment_fallback("groq")
 
             return self._call_openrouter_fallback(
                 messages=messages,
@@ -399,6 +442,7 @@ class LLMRouter:
                 f"LLMRouter: Primary Groq API call failed: {e}. Falling back to OpenRouter."
             )
             self._increment_fallback("groq")
+            groq_limiter.report_failure()
 
             return self._call_openrouter_fallback(
                 messages=messages,
@@ -509,6 +553,7 @@ class LLMRouter:
                 if parts:
                     generated_text = parts[0].get("text", "")
                     self._increment_success("gemini", latency)
+                    gemini_limiter.report_success()
                     return {
                         "content": generated_text,
                         "model": actual_model,
@@ -524,6 +569,14 @@ class LLMRouter:
             raise RuntimeError("Empty response candidates returned from Gemini.")
 
         except Exception as e:
+            # Check if this exception was caused by a client-side 400/401/403 status code
+            is_client_error = False
+            if isinstance(e, RuntimeError) and any(f"API status {code}" in str(e) for code in (400, 401, 403)):
+                is_client_error = True
+
+            if not is_client_error:
+                gemini_limiter.report_failure()
+
             logger.warning(
                 f"LLMRouter: Primary Gemini API call failed: {e}. Falling back to OpenRouter."
             )

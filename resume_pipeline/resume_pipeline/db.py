@@ -26,8 +26,11 @@ except ImportError:
         stacklevel=1,
     )
 
-# Helper: use Vector(768) if available, else fall back to JSON
-def _vector_column(dim: int = 768) -> Column:
+# Gemini text-embedding-004 outputs 3072-dimensional vectors.
+# Helper: use Vector(3072) if pgvector is available, else fall back to JSON.
+GEMINI_EMBEDDING_DIM = 3072
+
+def _vector_column(dim: int = GEMINI_EMBEDDING_DIM) -> Column:
     if _PGVECTOR_AVAILABLE and _PGVector is not None:
         return Column(_PGVector(dim), nullable=True)
     return Column(JSON, nullable=True)  # fallback — no ANN index support
@@ -152,8 +155,8 @@ class ApplicantEmbedding(Base):
     __tablename__ = 'applicant_embeddings'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
-    embedding_vector = Column(JSON, nullable=False)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    embedding_vector = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(3072) via pgvector
     embedding_provider = Column(String(32), nullable=True)
     embedding_model = Column(String(128), nullable=True)
     source_hash = Column(String(64), nullable=True, index=True)
@@ -162,6 +165,10 @@ class ApplicantEmbedding(Base):
 
     applicant = relationship('Applicant')
 
+    __table_args__ = (
+        UniqueConstraint('applicant_id', 'embedding_model', name='uq_applicant_embeddings_applicant_model'),
+    )
+
 
 class JobEmbedding(Base):
     """Persisted job embedding generated asynchronously by worker."""
@@ -169,7 +176,7 @@ class JobEmbedding(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(Integer, ForeignKey('jobs.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
-    embedding_vector = Column(JSON, nullable=False)
+    embedding_vector = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(3072) via pgvector
     embedding_provider = Column(String(32), nullable=True)
     embedding_model = Column(String(128), nullable=True)
     source_hash = Column(String(64), nullable=True, index=True)
@@ -184,7 +191,7 @@ class JobEmbeddingsCache(Base):
     __tablename__ = 'job_embeddings_cache'
 
     job_id = Column(Integer, ForeignKey('jobs.id', ondelete='CASCADE'), primary_key=True)
-    embedding = Column(JSON, nullable=False)  # JSON list of floats
+    embedding = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(3072) via pgvector
     computed_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     job = relationship('Job')
@@ -278,6 +285,8 @@ class JobRecommendation(Base):
     computed_at = Column(DateTime, default=datetime.datetime.utcnow)
     engine_version = Column(String(10), default='v2')
     is_saved = Column(Boolean, default=False)
+    is_fallback = Column(Boolean, default=False, nullable=False)
+    fallback_source = Column(String(100), nullable=True)
     
     # Relationships
     applicant = relationship('Applicant', back_populates='job_recommendations')

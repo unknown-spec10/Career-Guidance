@@ -294,16 +294,77 @@ async def startup_event():
             init_db()
             logger.info("✓ PostgreSQL tables initialized (PG_DSN mode)")
         
-        # Self-healing alteration to inject new enum value for recommendation_refresh
+        # Self-healing alteration to inject new enum value for recommendation_refresh and fallback columns
         try:
             from sqlalchemy import text
             from .db import SessionLocal
             with SessionLocal() as db_session:
-                db_session.execute(text("ALTER TYPE activity_type ADD VALUE 'recommendation_refresh'"))
-                db_session.commit()
-                logger.info("✓ Added 'recommendation_refresh' to activity_type PostgreSQL enum")
+                try:
+                    db_session.execute(text("ALTER TYPE activity_type ADD VALUE 'recommendation_refresh'"))
+                    db_session.commit()
+                    logger.info("✓ Added 'recommendation_refresh' to activity_type PostgreSQL enum")
+                except Exception:
+                    db_session.rollback()
+
+                # Add fallback columns if missing
+                try:
+                    db_session.execute(text("ALTER TABLE job_recommendations ADD COLUMN is_fallback BOOLEAN DEFAULT FALSE"))
+                    db_session.commit()
+                    logger.info("✓ Added 'is_fallback' column to job_recommendations")
+                except Exception:
+                    db_session.rollback()
+
+                try:
+                    db_session.execute(text("ALTER TABLE job_recommendations ADD COLUMN fallback_source VARCHAR(100)"))
+                    db_session.commit()
+                    logger.info("✓ Added 'fallback_source' column to job_recommendations")
+                except Exception:
+                    db_session.rollback()
+
+                # Clean up unique index on applicant_id in applicant_embeddings if it is unique
+                try:
+                    res = db_session.execute(text(
+                        "SELECT indisunique FROM pg_index i "
+                        "JOIN pg_class c ON c.oid = i.indexrelid "
+                        "WHERE c.relname = 'ix_applicant_embeddings_applicant_id'"
+                    )).fetchone()
+                    if res and res[0]:
+                        db_session.execute(text("DROP INDEX IF EXISTS ix_applicant_embeddings_applicant_id"))
+                        db_session.commit()
+                        db_session.execute(text(
+                            "CREATE INDEX ix_applicant_embeddings_applicant_id ON applicant_embeddings (applicant_id)"
+                        ))
+                        db_session.commit()
+                        logger.info("✓ Replaced unique index on applicant_embeddings.applicant_id with non-unique index")
+                except Exception as e:
+                    db_session.rollback()
+                    logger.warning(f"Failed to migrate unique index on applicant_embeddings: {e}")
+
+                # Create composite unique index on (applicant_id, embedding_model)
+                try:
+                    db_session.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_applicant_embeddings_applicant_model "
+                        "ON applicant_embeddings (applicant_id, embedding_model)"
+                    ))
+                    db_session.commit()
+                    logger.info("✓ Verified composite unique index uq_applicant_embeddings_applicant_model")
+                except Exception as e:
+                    db_session.rollback()
+                    logger.warning(f"Failed to create composite unique index: {e}")
+
+                # Create ivfflat index on job_embeddings_cache
+                try:
+                    db_session.execute(text(
+                        "CREATE INDEX IF NOT EXISTS idx_job_emb_cache_ivfflat "
+                        "ON job_embeddings_cache USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10)"
+                    ))
+                    db_session.commit()
+                    logger.info("✓ Verified ivfflat index idx_job_emb_cache_ivfflat")
+                except Exception as e:
+                    db_session.rollback()
+                    logger.warning(f"Failed to create ivfflat index on job_embeddings_cache: {e}")
         except Exception as e:
-            # Under SQLite or if the enum value already exists, this will throw an error, which we safely ignore
+            # Under SQLite or if already altered, we safely ignore
             pass
         
         # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible)
@@ -2571,7 +2632,10 @@ async def get_applicant_recommendations(
                     "location_state": job.location_state,
                     "work_type": job.work_type,
                     "required_skills": job.required_skills,
-                    "min_experience_years": job.min_experience_years
+                    "min_experience_years": job.min_experience_years,
+                    "min_cgpa": job.min_cgpa if hasattr(job, 'min_cgpa') else None,
+                    "min_salary": job.min_salary if hasattr(job, 'min_salary') else None,
+                    "max_salary": job.max_salary if hasattr(job, 'max_salary') else None,
                 },
                 "match_score": float(rec.score) if rec.score else 0,
                 "score": float(rec.score) if rec.score else 0,
@@ -2580,7 +2644,9 @@ async def get_applicant_recommendations(
                 "explain": rec.explain,
                 "status": rec.status,
                 "is_saved": rec.is_saved if rec.is_saved is not None else False,
-                "application_status": app_status_map.get(job.id)
+                "application_status": app_status_map.get(job.id),
+                "is_fallback": rec.is_fallback if rec.is_fallback is not None else False,
+                "fallback_source": rec.fallback_source,
             } for rec, job, employer in job_recs
         ],
         "last_computed_at": last_computed.isoformat() if last_computed else None,

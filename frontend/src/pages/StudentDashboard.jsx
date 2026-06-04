@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
+
 import {
   Briefcase, Building2, TrendingUp, Clock,
-  CheckCircle, XCircle, AlertTriangle, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2, RefreshCcw, X, Coins, Bookmark, Award, Check
+  CheckCircle, XCircle, AlertTriangle, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, Loader2, RefreshCcw, X, Coins, Bookmark, Award, Check, Sparkles
 } from 'lucide-react'
+
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
@@ -21,6 +24,55 @@ const normalizeMatchScore = (rawScore) => {
   if (numericScore > 100) return numericScore / 100
   return numericScore
 }
+
+const checkSkillMatch = (candidateSkills, requiredSkillName) => {
+  if (!candidateSkills || !requiredSkillName) return false
+  const reqName = requiredSkillName.toLowerCase().trim()
+  return candidateSkills.some(cand => {
+    const candName = String(cand).toLowerCase().trim()
+    if (candName === reqName) return true
+    if (reqName.length >= 3 || candName.length >= 3) {
+      try {
+        const escapedReq = reqName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        const regexReq = new RegExp(`\\b${escapedReq}\\b`, 'i')
+        return regexReq.test(candName)
+      } catch (e) {
+        return candName.includes(reqName) || reqName.includes(candName)
+      }
+    }
+    return false
+  })
+}
+
+
+const jobMarkdownComponents = {
+  h1: ({ children }) => <h1 className="text-sm font-bold text-slate-900 mb-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-sm font-bold text-slate-900 mb-2">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-800 mb-1.5">{children}</h3>,
+  p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-inherit">{children}</p>,
+  ul: ({ children }) => <ul className="mb-2 ml-4 space-y-1 list-disc text-inherit">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 ml-4 space-y-1 list-decimal text-inherit">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed pl-1">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+  code: ({ inline, children }) => {
+    if (inline) {
+      return <code className="bg-white text-primary-700 px-1.5 py-0.5 rounded border border-slate-200 font-mono text-[10px]">{children}</code>
+    }
+
+    return (
+      <pre className="bg-slate-950 text-slate-100 p-3 rounded-xl overflow-x-auto text-[10px] leading-relaxed border border-slate-800 mb-2">
+        <code>{children}</code>
+      </pre>
+    )
+  },
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:text-primary-700 underline font-semibold">
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-200 pl-3 italic text-slate-600 mb-2">{children}</blockquote>,
+}
+
 
 const formatMatchLabel = (percentage) => {
   if (percentage >= 85) return 'Good'
@@ -610,21 +662,116 @@ export default function StudentDashboard() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg text-slate-600 flex items-center gap-1.5 font-medium">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                    {rec.job?.location_city || 'Remote'}
-                  </span>
-                  <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg text-slate-600 capitalize font-medium">
-                    {rec.job?.work_type || 'Full-time'}
-                  </span>
-                  {(rec.status === 'applied' || rec.application_status === 'applied') && (
-                    <span className="text-xs bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg text-emerald-700 font-bold flex items-center gap-1">
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                      Applied
-                    </span>
-                  )}
-                </div>
+                {(() => {
+                  const candidateSkills = (studentProfile?.skills || []).map(s => {
+                    if (typeof s === 'object' && s !== null) {
+                      return (s.name || s.canonical_name || '').toLowerCase().trim()
+                    }
+                    return String(s).toLowerCase().trim()
+                  })
+
+                  const userCity = (
+                    applicantData?.location_city ||
+                    (studentProfile?.personal_info?.location ? studentProfile.personal_info.location.split(',')[0] : '') ||
+                    ''
+                  ).toLowerCase().trim();
+                  const jobCity = (rec.job?.location_city || '').toLowerCase().trim();
+                  const isCityMatched = userCity && jobCity && (userCity.includes(jobCity) || jobCity.includes(userCity));
+                  
+                  // Location city chip is green ONLY if the physical city matches.
+                  const showLocGreen = isCityMatched || (!rec.job?.location_city && rec.job?.work_type === 'remote');
+                  
+                  // Work type chip is green ONLY if it is remote or hybrid
+                  const showWorkTypeGreen = rec.job?.work_type === 'remote' || rec.job?.work_type === 'hybrid';
+
+                  const isExpMatched = (rec.scoring_breakdown?.experience_fit ?? 0) >= 0.5;
+                  const isCgpaMatched = (rec.scoring_breakdown?.academic_score ?? 0) >= 0.5;
+
+                  return (
+                    <>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <span className={`text-xs px-2.5 py-1 rounded-lg font-medium border flex items-center gap-1.5 transition-all ${
+                          showLocGreen 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                            : 'bg-slate-50 border-slate-100 text-slate-600'
+                        }`}>
+                          <MapPin className={`w-3.5 h-3.5 ${showLocGreen ? 'text-emerald-500' : 'text-slate-400'}`} />
+                          {rec.job?.location_city || 'Remote'}
+                        </span>
+                        <span className={`text-xs px-2.5 py-1 rounded-lg font-medium border capitalize flex items-center gap-1.5 transition-all ${
+                          showWorkTypeGreen 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                            : 'bg-slate-50 border-slate-100 text-slate-600'
+                        }`}>
+                          <Clock className={`w-3.5 h-3.5 ${showWorkTypeGreen ? 'text-emerald-500' : 'text-slate-400'}`} />
+                          {rec.job?.work_type || 'Full-time'}
+                        </span>
+                        {rec.job?.min_experience_years !== null && rec.job?.min_experience_years !== undefined && (
+                          <span className={`text-xs px-2.5 py-1 rounded-lg font-medium border flex items-center gap-1.5 transition-all ${
+                            isExpMatched 
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                              : 'bg-slate-50 border-slate-100 text-slate-600'
+                          }`}>
+                            <Sparkles className={`w-3.5 h-3.5 ${isExpMatched ? 'text-emerald-500' : 'text-slate-400'}`} />
+                            {rec.job.min_experience_years}+ yrs
+                          </span>
+                        )}
+                        {rec.job?.min_cgpa && (
+                          <span className={`text-xs px-2.5 py-1 rounded-lg font-medium border flex items-center gap-1.5 transition-all ${
+                            isCgpaMatched 
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                              : 'bg-slate-50 border-slate-100 text-slate-600'
+                          }`}>
+                            <Award className={`w-3.5 h-3.5 ${isCgpaMatched ? 'text-emerald-500' : 'text-slate-400'}`} />
+                            CGPA {rec.job.min_cgpa}+
+                          </span>
+                        )}
+                        {(rec.status === 'applied' || rec.application_status === 'applied') && (
+                          <span className="text-xs bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg text-emerald-700 font-bold flex items-center gap-1">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            Applied
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Job Skills Section directly inside the card */}
+                      {(() => {
+                        const explicit = Array.isArray(rec.job?.required_skills) && rec.job.required_skills.length > 0;
+                        const matched = rec.scoring_breakdown?.skills_breakdown?.matched_skills || [];
+                        const partial = rec.scoring_breakdown?.skills_breakdown?.partial_matches || [];
+                        const fallbackSkills = [...new Set([...matched, ...partial])];
+                        const skillsToRender = explicit ? rec.job.required_skills.slice(0, 3) : fallbackSkills.slice(0, 3);
+                        
+                        if (!skillsToRender || skillsToRender.length === 0) return null;
+                        
+                        return (
+                          <div className="flex flex-wrap gap-1.5 mb-4">
+                            {skillsToRender.map((skill, idx) => {
+                              const skillName = typeof skill === 'string' ? skill : skill?.name || skill?.skill || `Skill ${idx + 1}`;
+                              const reqName = skillName.toLowerCase().trim();
+                              const isMatched = checkSkillMatch(candidateSkills, reqName) ||
+                                                matched.some(m => checkSkillMatch([m], reqName)) ||
+                                                partial.some(p => checkSkillMatch([p], reqName));
+                              return (
+                                <span
+                                  key={`${skillName}-${idx}`}
+                                  className={`text-[10px] px-2 py-0.5 rounded-md font-semibold border transition-all inline-flex items-center ${
+                                    isMatched 
+                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                                      : 'bg-slate-50 border-slate-100 text-slate-500'
+                                  }`}
+                                >
+                                  {isMatched && <Check className="w-2.5 h-2.5 mr-0.5 text-emerald-600 flex-shrink-0" />}
+                                  {skillName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </>
+                  );
+                })()}
 
                 {(rec.job?.min_salary || rec.job?.max_salary) && (
                   <div className="mb-4 text-xs font-semibold text-slate-500 flex items-center gap-1">
@@ -694,8 +841,19 @@ export default function StudentDashboard() {
                   );
                 })()}
 
+                {rec.is_fallback && (
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
+                      <AlertTriangle className="w-2.5 h-2.5 text-amber-500" />
+                      Rule-based match · AI unavailable
+                    </span>
+                  </div>
+                )}
+
                 <div className="text-xs text-slate-500 leading-relaxed mb-6 bg-slate-50/50 rounded-xl p-3 border border-slate-100">
-                  {rec.explanation || rec.explain?.reasons?.[0] || 'Matched based on your profile strength and skill overlap.'}
+                  <ReactMarkdown components={jobMarkdownComponents}>
+                    {rec.explanation || rec.explain?.reasons?.[0] || 'Matched based on your profile strength and skill overlap.'}
+                  </ReactMarkdown>
                 </div>
 
                 <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
@@ -1045,9 +1203,23 @@ export default function StudentDashboard() {
               </div>
               <div className="space-y-6">
                 {(detailsRec.explanation || detailsRec.explain?.summary) && (
-                  <div className="rounded-2xl border border-primary-100 bg-gradient-to-r from-primary-50/60 to-indigo-50/60 p-4 shadow-sm">
-                    <p className="text-xs font-bold uppercase tracking-wider text-primary-700 mb-2">AI Matching Insights</p>
-                    <p className="text-sm text-slate-700 leading-relaxed">{detailsRec.explanation || detailsRec.explain.summary}</p>
+                  <div className={`rounded-2xl border p-4 shadow-sm ${detailsRec.is_fallback ? 'border-amber-100 bg-gradient-to-r from-amber-50/60 to-orange-50/60' : 'border-primary-100 bg-gradient-to-r from-primary-50/60 to-indigo-50/60'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className={`text-xs font-bold uppercase tracking-wider ${detailsRec.is_fallback ? 'text-amber-700' : 'text-primary-700'}`}>
+                        {detailsRec.is_fallback ? 'Rule-based Match' : 'AI Matching Insights'}
+                      </p>
+                      {detailsRec.is_fallback && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-amber-700">
+                          <AlertTriangle className="w-2.5 h-2.5" />
+                          AI unavailable
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-slate-700 leading-relaxed">
+                      <ReactMarkdown components={jobMarkdownComponents}>
+                        {detailsRec.explanation || detailsRec.explain.summary}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 )}
  
@@ -1091,14 +1263,33 @@ export default function StudentDashboard() {
                       )
                     }
  
+                     const candidateSkills = (studentProfile?.skills || []).map(s => {
+                      if (typeof s === 'object' && s !== null) {
+                        return (s.name || s.canonical_name || '').toLowerCase().trim()
+                      }
+                      return String(s).toLowerCase().trim()
+                    })
+
                     return (
                       <div>
                         <h4 className="font-bold text-slate-800 text-sm mb-2">Key Skills in this Role</h4>
                         <div className="flex flex-wrap gap-2">
                           {skillsToRender.map((skill, idx) => {
                             const skillName = typeof skill === 'string' ? skill : skill?.name || skill?.skill || `Skill ${idx + 1}`
+                            const reqName = skillName.toLowerCase().trim()
+                            const isMatched = checkSkillMatch(candidateSkills, reqName) ||
+                                              matched.some(m => checkSkillMatch([m], reqName)) ||
+                                              partial.some(p => checkSkillMatch([p], reqName))
                             return (
-                              <span key={`${skillName}-${idx}`} className="px-3 py-1.5 rounded-xl bg-primary-50 border border-primary-100 text-primary-700 text-xs font-bold shadow-sm">
+                              <span
+                                key={`${skillName}-${idx}`}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm border transition-all inline-flex items-center ${
+                                  isMatched
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm'
+                                    : 'bg-primary-50 border-primary-100 text-primary-700'
+                                }`}
+                              >
+                                {isMatched && <Check className="w-3 h-3 mr-1 text-emerald-600 flex-shrink-0" />}
                                 {skillName}
                               </span>
                             )
@@ -1111,30 +1302,13 @@ export default function StudentDashboard() {
  
                 <div>
                   <h4 className="font-bold text-slate-800 text-sm mb-2">About the Role</h4>
-                  <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">{detailsRec.job?.description || 'No description available.'}</p>
+                  <div className="text-slate-600 text-sm leading-relaxed whitespace-normal bg-slate-50/50 rounded-2xl p-4 border border-slate-100/80">
+                    <ReactMarkdown components={jobMarkdownComponents}>
+                      {detailsRec.job?.description || 'No description available.'}
+                    </ReactMarkdown>
+                  </div>
                 </div>
- 
-                <div>
-                  <h4 className="font-bold text-slate-800 text-sm mb-2">Why Recommended</h4>
-                  {detailsRec.explanation ? (
-                    <p className="text-sm text-slate-600 leading-relaxed">
-                      {detailsRec.explanation}
-                    </p>
-                  ) : Array.isArray(detailsRec.explain?.reasons) && detailsRec.explain.reasons.length > 0 ? (
-                    <ul className="space-y-2">
-                      {detailsRec.explain.reasons.slice(0, 5).map((r, i) => (
-                        <li key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
-                          <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
-                          <span>{r}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-slate-600">
-                      This role is aligned with your profile, preferred location, and available skill overlap.
-                    </p>
-                  )}
-                </div>
+
  
                 <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5">
                   <h4 className="font-bold text-indigo-900 text-sm mb-1.5">Useful next steps</h4>

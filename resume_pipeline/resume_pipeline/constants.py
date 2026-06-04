@@ -68,27 +68,27 @@ SEMANTIC_MATCHING_CONFIG = {
 # Industry Standard: Skills-first matching with experience as key differentiator
 # ============================================================================
 JOB_RECOMMENDATION_WEIGHTS = {
-    # Skills & Technical Factors (Total: 45%)
-    'SKILLS_WEIGHT': 0.35,            # Primary: Technical skill match
+    # Skills & Technical Factors (Total: 50%)
+    'SKILLS_WEIGHT': 0.40,            # Primary: Technical skill match
     'CERTIFICATIONS_WEIGHT': 0.10,    # Industry certifications
-    
+
     # Experience Factors (Total: 25%)
     'EXPERIENCE_WEIGHT': 0.20,        # Years & relevance of experience
     'PROJECTS_WEIGHT': 0.05,          # Practical project experience
-    
-    # Fit Factors (Total: 20%)
-    'LOCATION_WEIGHT': 0.10,          # Location/remote preference match
+
+    # Fit Factors (Total: 15%)
+    'LOCATION_WEIGHT': 0.05,          # Location/remote preference match
     'SALARY_EXPECTATION_WEIGHT': 0.05,  # Salary range alignment
     'WORK_TYPE_WEIGHT': 0.05,         # Full-time/Part-time/Contract match
-    
+
     # Performance Factors (Total: 10%)
     'INTERVIEW_WEIGHT': 0.08,         # Mock interview performance
     'EDUCATION_WEIGHT': 0.02,         # Basic education requirements
-    
+
     # Thresholds
     'MIN_MATCH_SCORE': 0.30,          # Minimum 30% match to recommend
     'HIGH_MATCH_THRESHOLD': 0.75,     # 75%+ considered excellent match
-    
+
     # Experience Scoring
     'EXPERIENCE_SCORING': {
         'exact_match': 1.0,           # Meets required experience exactly
@@ -98,7 +98,7 @@ JOB_RECOMMENDATION_WEIGHTS = {
         'fresher_allowed': 1.0,       # Fresher role with no experience
         'fresher_not_allowed': 0.2,   # Entry role but experience required
     },
-    
+
     # Skill Match Scoring
     'SKILL_MATCH_SCORING': {
         'exact_match': 1.0,           # Has exact required skill

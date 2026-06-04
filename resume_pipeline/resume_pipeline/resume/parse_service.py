@@ -31,6 +31,7 @@ from ..constants import (
     SECTION_RETRY_THRESHOLD,
 )
 from ..core.interfaces import ParserService
+from ..utils import truncate_for_llm
 from .confidence_scorer import ConfidenceScorer
 from .file_type_router import FileTypeRouter, ResumeType
 from .llm_gemini import GeminiLLMClient
@@ -170,52 +171,93 @@ class ResumeParserService(ParserService):
             result["parse_status"] = PARSE_STATUS_FAILED
             return result
 
+        raw_text = truncate_for_llm(raw_text, "resume_max_chars")
+
         word_count = _count_words(raw_text)
         model = settings.GROQ_CHAT_MODEL
         api_key = settings.GROQ_API_KEY
         base_url = settings.GROQ_API_BASE_URL
 
         # ── Step 3: Layer 2 — Six concurrent section prompts ─────────────
-        contact, education, experience, skills, projects, extras = \
-            await self._extract_all_sections(raw_text, model, api_key, base_url)
+        try:
+            contact, education, experience, skills, projects, extras = \
+                await self._extract_all_sections(raw_text, model, api_key, base_url)
 
-        # ── Step 4: Per-section confidence + retry ────────────────────────
-        contact, education, experience, skills, projects, extras, retry_used = \
-            await self._retry_low_confidence_sections(
-                raw_text, word_count, model, api_key, base_url,
-                contact, education, experience, skills, projects, extras
+            # Check if critical sections failed with errors from LLMRouter
+            if any(isinstance(sec, dict) and "error" in sec for sec in (contact, education, experience, skills, projects, extras)):
+                # At least one section extraction failed completely due to LLM errors
+                raise RuntimeError("One or more resume sections failed LLM extraction")
+
+            # ── Step 4: Per-section confidence + retry ────────────────────────
+            contact, education, experience, skills, projects, extras, retry_used = \
+                await self._retry_low_confidence_sections(
+                    raw_text, word_count, model, api_key, base_url,
+                    contact, education, experience, skills, projects, extras
+                )
+            result["retry_used"] = retry_used
+
+            # ── Step 5: Compute confidence scores ────────────────────────────
+            scores = self.scorer.score_all(
+                contact, education, experience, skills, projects, extras,
+                resume_text=raw_text,
+                resume_word_count=word_count,
             )
-        result["retry_used"] = retry_used
+            result["per_section_confidence"] = scores
+            result["overall_confidence"] = scores["overall"]
 
-        # ── Step 5: Compute confidence scores ────────────────────────────
-        scores = self.scorer.score_all(
-            contact, education, experience, skills, projects, extras,
-            resume_text=raw_text,
-            resume_word_count=word_count,
-        )
-        result["per_section_confidence"] = scores
-        result["overall_confidence"] = scores["overall"]
+            # ── Step 6: Layer 3 — Skill normalization ─────────────────────────
+            raw_skills = _safe_get(skills, "skills", []) or []
+            if not isinstance(raw_skills, list):
+                raw_skills = []
 
-        # ── Step 6: Layer 3 — Skill normalization ─────────────────────────
-        raw_skills = _safe_get(skills, "skills", []) or []
-        if not isinstance(raw_skills, list):
-            raw_skills = []
+            normalized_skills, unrecognized = self._normalize_skills(raw_skills, db_session)
+            result["unrecognized_skills"] = unrecognized
 
-        normalized_skills, unrecognized = self._normalize_skills(raw_skills, db_session)
-        result["unrecognized_skills"] = unrecognized
+            # ── Step 7: Merge sections ────────────────────────────────────────
+            normalized = _merge_sections(contact, education, experience, skills, projects, extras)
+            normalized["skills"] = normalized_skills
+            result["normalized"] = normalized
 
-        # ── Step 7: Merge sections ────────────────────────────────────────
-        normalized = _merge_sections(contact, education, experience, skills, projects, extras)
-        normalized["skills"] = normalized_skills
-        result["normalized"] = normalized
+            # ── Step 8: Layer 4 — State machine ──────────────────────────────
+            parse_status, needs_review = self._state_machine(
+                scores["overall"],
+                result,
+            )
+            result["parse_status"] = parse_status
+            result["needs_review"] = needs_review
 
-        # ── Step 8: Layer 4 — State machine ──────────────────────────────
-        parse_status, needs_review = self._state_machine(
-            scores["overall"],
-            result,
-        )
-        result["parse_status"] = parse_status
-        result["needs_review"] = needs_review
+        except Exception as e:
+            logger.warning(
+                f"LLM parsing failed or rate-limited: {e}. "
+                "Falling back to offline spaCy+Regex parser."
+            )
+            # Trigger offline fallback
+            fallback_normalized = self._run_offline_fallback(raw_text, db_session)
+
+            parse_status = "pending_review"
+            needs_review = True
+            result["normalized"] = fallback_normalized
+            result["flags"].append("offline_fallback_active")
+            result["parse_status"] = parse_status
+            result["needs_review"] = needs_review
+            result["overall_confidence"] = 0.59
+            result["per_section_confidence"] = {
+                "contact": 0.7,
+                "education": 0.0,
+                "experience": 0.0,
+                "skills": 0.5,
+                "projects": 0.0,
+                "extras": 0.0,
+                "overall": 0.59
+            }
+            result["unrecognized_skills"] = []
+            result["llm_provenance"] = {
+                "model": "offline_fallback_spacy_regex",
+                "resume_type": result.get("resume_type", "unknown"),
+                "word_count": word_count,
+                "sections_extracted": 2,
+                "retry_used": False
+            }
 
         # ── Step 9: RE_PARSE escalation — Vision fallback ─────────────────
         if parse_status == PARSE_STATUS_FAILED and resume_type == ResumeType.TEXT:
@@ -500,6 +542,9 @@ class ResumeParserService(ParserService):
             result["flags"].append("vision_reparse_empty_text")
             return result
 
+        from ..utils import truncate_for_llm
+        raw_text = truncate_for_llm(raw_text, "resume_max_chars")
+
         model = settings.GROQ_CHAT_MODEL
         api_key = settings.GROQ_API_KEY
         base_url = settings.GROQ_API_BASE_URL
@@ -578,3 +623,135 @@ class ResumeParserService(ParserService):
                 "llm_provenance": {},
                 "retry_used": False,
             }
+
+    def _get_spacy_nlp(self):
+        """Lazy load and download the spaCy model en_core_web_sm if not available."""
+        try:
+            import spacy
+            try:
+                return spacy.load("en_core_web_sm")
+            except OSError:
+                logger.info("spaCy model 'en_core_web_sm' not found. Downloading...")
+                from spacy.cli import download
+                download("en_core_web_sm")
+                return spacy.load("en_core_web_sm")
+        except Exception as e:
+            logger.error(f"Failed to load/download spaCy: {e}")
+            return None
+
+    def _run_offline_fallback(self, raw_text: str, db_session) -> dict:
+        """
+        Rule-based parsing fallback using regex and spaCy NER when LLMs fail.
+        Extracts personal info and skills locally, and leaves other sections empty.
+        Flags the record for human review.
+        """
+        logger.info("Executing offline fallback parser (spaCy + Regex)...")
+        import re
+
+        # Initialize result shape conforming to schema
+        result = {
+            "personal": {
+                "name": None,
+                "email": None,
+                "phone": None,
+                "location": None,
+                "linkedin_url": None,
+                "github_url": None,
+                "portfolio_url": None
+            },
+            "education": [],
+            "experience": [],
+            "skills": [],
+            "projects": [],
+            "certifications": [],
+            "awards": [],
+            "languages_spoken": [],
+            "publications": [],
+            "volunteer": [],
+            "jee_rank": None
+        }
+
+        # 1. Extract Email
+        email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+        emails = re.findall(email_pattern, raw_text)
+        if emails:
+            result["personal"]["email"] = emails[0].strip()
+
+        # 2. Extract Phone
+        # Standard US/International formats (e.g. +91 6289622872, (123) 456-7890, 123-456-7890)
+        phone_pattern = r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,12}'
+        phones = re.findall(phone_pattern, raw_text)
+        if phones:
+            result["personal"]["phone"] = phones[0].strip()
+
+        # 3. Extract Links
+        linkedin_pattern = r'https?://(?:www\.)?linkedin\.com/in/[a-zA-Z0-9_-]+'
+        linkedins = re.findall(linkedin_pattern, raw_text)
+        if linkedins:
+            result["personal"]["linkedin_url"] = linkedins[0].strip()
+
+        github_pattern = r'https?://(?:www\.)?github\.com/[a-zA-Z0-9_-]+'
+        githubs = re.findall(github_pattern, raw_text)
+        if githubs:
+            result["personal"]["github_url"] = githubs[0].strip()
+
+        portfolio_pattern = r'https?://(?:www\.)?(?!linkedin|github)[a-zA-Z0-9_-]+\.[a-zA-Z0-9./_-]+'
+        portfolios = re.findall(portfolio_pattern, raw_text)
+        if portfolios:
+            result["personal"]["portfolio_url"] = portfolios[0].strip()
+
+        # 4. Extract Name via spaCy PERSON NER
+        nlp = self._get_spacy_nlp()
+        if nlp:
+            try:
+                # Standard NER on the first 1000 characters (where names usually appear)
+                doc = nlp(raw_text[:1000])
+                for ent in doc.ents:
+                    if ent.label_ == "PERSON":
+                        # Validate the extracted name is reasonable
+                        cleaned_name = ent.text.strip().replace("\n", " ")
+                        cleaned_name = re.sub(r'\s+', ' ', cleaned_name)
+                        if len(cleaned_name.split()) >= 2 and len(cleaned_name) < 50:
+                            result["personal"]["name"] = cleaned_name
+                            break
+            except Exception as e:
+                logger.error(f"Error running spaCy NER for name extraction: {e}")
+
+        # Fallback name heuristic: first line if spaCy fails
+        if not result["personal"]["name"]:
+            lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+            if lines:
+                first_line = lines[0]
+                if len(first_line) < 50 and len(first_line.split()) >= 2:
+                    result["personal"]["name"] = first_line
+
+        # 5. Location heuristic
+        location_pattern = r'(?:[a-zA-Z \'-]+,\s*[a-zA-Z \'-]+)'
+        matches = re.findall(location_pattern, raw_text)
+        for m in matches:
+            if "linkedin" not in m.lower() and "github" not in m.lower() and "@" not in m:
+                result["personal"]["location"] = m.strip()
+                break
+
+        # 6. Extract Skills via matching against skill_taxonomy.json
+        if db_session:
+            try:
+                from ..db import CanonicalSkill
+                canonical_skills = db_session.query(CanonicalSkill.name, CanonicalSkill.id, CanonicalSkill.category).all()
+                found_skills = []
+                for name, skill_id, category in canonical_skills:
+                    escaped_name = re.escape(name)
+                    # Check for exact word boundaries
+                    if re.search(r'\b' + escaped_name + r'\b', raw_text, re.IGNORECASE):
+                        found_skills.append({
+                            "name": name,
+                            "canonical_id": skill_id,
+                            "match_confidence": 1.0,
+                            "match_type": "exact",
+                            "category": category
+                        })
+                result["skills"] = found_skills
+            except Exception as e:
+                logger.error(f"Offline fallback skill loading failed: {e}")
+
+        return result

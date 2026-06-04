@@ -116,6 +116,9 @@ def _evaluate_with_groq(
     Send question + answer + conversation history to LLMRouter for evaluation.
     Returns a dict: {score, feedback, strength, missing_concepts, hint_for_next}
     """
+    from ..utils import truncate_for_llm
+    safe_answer = truncate_for_llm(answer_text or "", "interview_answer_max_chars")
+
     persona_info = PERSONA_PROMPTS.get(interviewer_persona, PERSONA_PROMPTS["Friendly Senior Engineer"])
     persona_instruction = persona_info["evaluation_instruction"]
 
@@ -123,7 +126,7 @@ def _evaluate_with_groq(
         question_text=question_text,
         skill_tag=skill_tag,
         expected_keywords=", ".join(expected_keywords) if expected_keywords else "Not specified",
-        answer_text=answer_text,
+        answer_text=safe_answer,
         persona_instruction=persona_instruction,
     )
 
@@ -200,12 +203,15 @@ async def stream_feedback(
     Yields SSE tokens for per-question feedback on the results page.
     Generates a longer, more narrative feedback than the evaluation JSON.
     """
+    from ..utils import truncate_for_llm
+    safe_answer = truncate_for_llm(answer_text or "", "interview_answer_max_chars")
+
     prompt = f"""You are giving post-interview feedback to a candidate.
 
 Question asked: {question_text}
 Skill tested: {skill_tag}
 Key concepts expected: {', '.join(expected_keywords) if expected_keywords else 'See question context'}
-Candidate's answer: {answer_text}
+Candidate's answer: {safe_answer}
 
 Write detailed, constructive feedback (3-5 sentences) explaining:
 1. What they got right

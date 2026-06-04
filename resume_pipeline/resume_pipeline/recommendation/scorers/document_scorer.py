@@ -80,17 +80,27 @@ class DocumentScorer:
         return " ".join(summary_parts)
 
     def score(self, applicant, job) -> float | None:
-        """Score document-level similarity between applicant summary and full job posting."""
+        """Score document-level similarity between applicant summary and full job posting.
+
+        The applicant's resume-summary vector is persisted to applicant_embeddings (suffix='')
+        so repeated runs reuse the cached vector — zero Gemini API calls after first run.
+        """
         resume_text = self.build_resume_text(applicant)
         if not resume_text:
             return 0.0
 
-        # Embed candidate profile using asymmetric retrieval candidate instruction prefix
+        # Embed candidate profile — uses DB cache (suffix='document' → '' default)
         instruction_candidate = "Represent this candidate profile for job matching:"
-        user_vector = self.embedder.embed(resume_text, instruction=instruction_candidate)
+        user_vector = self.embedder.get_applicant_embedding(
+            applicant=applicant,
+            text=resume_text,
+            suffix="",  # document-level embedding
+            instruction=instruction_candidate,
+        )
 
         # Helper payload builder for caching job document text
         def _build_job_doc_payload(j) -> str:
+            from ...utils import truncate_for_llm
             req_skills = []
             for s in j.required_skills or []:
                 name = s.get("name", "") if isinstance(s, dict) else str(s)
@@ -98,7 +108,8 @@ class DocumentScorer:
                     req_skills.append(name)
             skills_str = ", ".join(req_skills)
 
-            payload = f"Title: {j.title or ''}. Description: {j.description or ''}."
+            desc_safe = truncate_for_llm(j.description or "", "recommendation_max_chars")
+            payload = f"Title: {j.title or ''}. Description: {desc_safe}."
             if skills_str:
                 payload += f" Required Skills: {skills_str}."
             return payload

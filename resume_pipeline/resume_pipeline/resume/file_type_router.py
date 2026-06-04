@@ -245,9 +245,18 @@ class FileTypeRouter:
 
         if resume_type == ResumeType.TEXT:
             text = _extract_text_pdfplumber(file_path)
-            return _clean(text), resume_type
+            cleaned_text = _clean(text)
+            if len(cleaned_text.strip()) >= 100:
+                return cleaned_text, resume_type
+            
+            logger.warning(
+                f"FileTypeRouter: local text extraction for {path.name} yielded thin text "
+                f"({len(cleaned_text)} chars). Re-routing to Gemini Vision."
+            )
+            # Reclassify as visual for the vision extraction flow
+            resume_type = ResumeType.VISUAL
 
-        # Type B or C → Gemini Vision
+        # Type B or C (or re-routed Type A) → Gemini Vision
         text = self._vision_from_pdf(file_path, resume_type)
         return _clean(text), resume_type
 
@@ -282,9 +291,24 @@ class FileTypeRouter:
         try:
             with open(image_path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("utf-8")
-            return self._call_gemini_vision([b64])
+            text = self._call_gemini_vision([b64])
+            if text and len(text.strip()) > 50:
+                return text
+            logger.warning(
+                f"FileTypeRouter: Gemini Vision returned thin output for image {image_path}. "
+                "Attempting Tesseract OCR fallback."
+            )
         except Exception as e:
             logger.error(f"FileTypeRouter: image Vision error for {image_path}: {e}")
+
+        # Local Tesseract fallback for single image
+        try:
+            import pytesseract
+            from PIL import Image
+            img = Image.open(image_path)
+            return pytesseract.image_to_string(img)
+        except Exception as e:
+            logger.error(f"FileTypeRouter: Tesseract image fallback failed for {image_path}: {e}")
             return ""
 
     def _call_gemini_vision(self, pages_b64: list) -> str:

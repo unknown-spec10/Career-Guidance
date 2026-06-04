@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useParams, useNavigate } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
 import { 
   ArrowLeft, Briefcase, MapPin, Clock, TrendingUp, Award, Building2, ExternalLink,
   Check, AlertCircle, Loader2, CheckCircle
@@ -29,6 +30,34 @@ const checkSkillMatch = (candidateSkills, requiredSkillName) => {
     }
     return false
   })
+}
+
+const jobMarkdownComponents = {
+  h1: ({ children }) => <h1 className="text-sm font-bold text-slate-900 mb-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-sm font-bold text-slate-900 mb-2">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-800 mb-1.5">{children}</h3>,
+  p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-inherit">{children}</p>,
+  ul: ({ children }) => <ul className="mb-2 ml-4 space-y-1 list-disc text-inherit">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 ml-4 space-y-1 list-decimal text-inherit">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed pl-1">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+  code: ({ inline, children }) => {
+    if (inline) {
+      return <code className="bg-white text-primary-700 px-1.5 py-0.5 rounded border border-slate-200 font-mono text-[10px]">{children}</code>
+    }
+
+    return (
+      <pre className="bg-slate-950 text-slate-100 p-3 rounded-xl overflow-x-auto text-[10px] leading-relaxed border border-slate-800 mb-2">
+        <code>{children}</code>
+      </pre>
+    )
+  },
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:text-primary-700 underline font-semibold">
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-200 pl-3 italic text-slate-600 mb-2">{children}</blockquote>,
 }
 
 export default function JobDetailsPage() {
@@ -255,8 +284,12 @@ export default function JobDetailsPage() {
               transition={{ delay: 0.3 }}
               className="card"
             >
-              <h2 className="text-2xl font-semibold mb-4">Job Description</h2>
-              <p className="text-gray-400 whitespace-pre-line">{job?.description}</p>
+              <h2 className="text-2xl font-bold mb-4 text-slate-900">Job Description</h2>
+              <div className="text-slate-650 text-sm leading-relaxed bg-slate-50/50 rounded-2xl p-5 border border-slate-100/80">
+                <ReactMarkdown components={jobMarkdownComponents}>
+                  {job?.description || 'No description available.'}
+                </ReactMarkdown>
+              </div>
             </motion.div>
 
             {/* Required Skills */}
