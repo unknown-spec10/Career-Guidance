@@ -58,15 +58,18 @@ jobs:
 
       - name: Install Python Dependencies
         working-directory: resume_pipeline
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
 
       - name: Run Pytest Test Suite
         working-directory: resume_pipeline
         env:
+          PYTHONPATH: .
           GEMINI_MOCK_MODE: "true"
           PG_DSN: "sqlite:///:memory:"
           SECRET_KEY: "test_secret_key_at_least_32_characters_long_for_signing_jwt"
-        run: pytest tests/ -v
+        run: python -m pytest tests/ -v
 
   docker-build-push:
     name: Docker Build & Push to Docker Hub
