@@ -3,10 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-check_*.py
-test_*.py
-resume_pipeline/check_*.py
-resume_pipeline/test_*.py
+/check_*.py
+/test_*.py
 .Python
 build/
 develop-eggs/
