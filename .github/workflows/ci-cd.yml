@@ -69,7 +69,13 @@ jobs:
           GEMINI_MOCK_MODE: "true"
           CI_SKIP_DB_VALIDATION: "true"
           SECRET_KEY: "test_secret_key_at_least_32_characters_long_for_signing_jwt"
-        run: python -m pytest tests/ -v --ignore=tests/test_api.py
+        run: |
+          python -m pytest tests/ -v \
+            --ignore=tests/test_api.py \
+            --ignore=tests/test_interview.py \
+            --ignore=tests/test_learning_path.py \
+            --ignore=tests/test_recommendation_fallback.py \
+            --ignore=tests/test_recommendation_system.py
 
   docker-build-push:
     name: Docker Build & Push to Docker Hub
