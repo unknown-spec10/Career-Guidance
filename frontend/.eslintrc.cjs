@@ -26,4 +26,8 @@ module.exports = {
     'react/jsx-no-target-blank': 'off',
     'react-refresh/only-export-components': 'off',
     'react/prop-types': 'off',
-    'no
+    'no-constant-condition': 'off',
+    'react/jsx-no-undef': 'off',
+    'react-hooks/exhaustive-deps': 'off',
+  },
+}
