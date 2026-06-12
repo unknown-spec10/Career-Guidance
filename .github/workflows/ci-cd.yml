@@ -54,7 +54,7 @@ jobs:
           sudo apt-get install -y poppler-utils tesseract-ocr libmagic1
 
       - name: Install PyTorch (CPU-only optimization)
-        run: pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install Python Dependencies
         working-directory: resume_pipeline
@@ -119,11 +119,17 @@ jobs:
             git checkout main
             git pull --ff-only
             
+            echo "Cleaning up dangling and unused containers/networks/images before deployment..."
+            docker system prune -f
+            
             echo "Pulling latest Docker image from Docker Hub..."
             docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
             
             echo "Recreating and restarting backend containers..."
             docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d --force-recreate
+            
+            echo "Cleaning up old/unused images after deployment..."
+            docker image prune -af
             
             echo "Waiting for services to spin up (15 seconds)..."
             sleep 15
