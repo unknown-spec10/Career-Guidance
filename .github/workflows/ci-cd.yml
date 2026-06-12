@@ -131,8 +131,12 @@ jobs:
             git checkout main
             git pull --ff-only
             
-            echo "Cleaning up dangling and unused containers/networks/images before deployment..."
-            sudo docker system prune -f
+            echo "Stopping existing backend containers..."
+            sudo docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml down || true
+            
+            echo "Cleaning up all unused containers, networks, images, and build cache..."
+            sudo docker system prune -a -f
+            sudo docker builder prune -a -f || true
             
             echo "Pulling latest Docker image from Docker Hub..."
             sudo docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
