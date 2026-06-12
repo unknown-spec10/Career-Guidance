@@ -123,6 +123,8 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.EC2_DEPLOY_DIR }}
+            echo "Reclaiming ownership of the deployment directory..."
+            sudo chown -R $(whoami):$(whoami) . || true
             git config --global --add safe.directory '*' || true
             echo "Pulling latest changes from Git repository..."
             git fetch --all
