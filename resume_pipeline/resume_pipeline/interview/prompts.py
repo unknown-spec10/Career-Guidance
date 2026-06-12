@@ -64,55 +64,58 @@ in the candidate's resume. Make the interview feel personalized.
 """
 
 # ---------------------------------------------------------------------------
-QUESTION_GENERATION_PROMPT = """Generate exactly {total_count} interview questions for this candidate.
-The first {num_questions} are the main interview questions.
-The remaining {reserve_count} are RESERVE questions used for adaptive difficulty (harder variants).
+QUESTION_GENERATION_PROMPT = """You are generating a structured interview question set.
+Follow these rules with ZERO deviation.
 
-Candidate skills: {skills}
-Target role: {target_role}
-Experience level: {experience_years} years
-Interview type: {interview_type}
-Difficulty: {difficulty}
-Topic focus (if any): {topic_focus}
+## STRICT OUTPUT CONTRACT
 
-Interviewer Persona Instructions (You MUST generate questions adhering strictly to this persona):
-{persona_instruction}
+You must generate exactly {total_count} questions.
+The first {num_questions} questions are the main interview questions.
+The remaining {reserve_count} questions are reserve pool questions.
 
-{growth_context}
+Each question MUST correspond to one of the approved target coordinates specified below. You must use the exact:
+  - skill_tag
+  - sub_topic
+  - depth_level
+  - context_type
 
-{past_questions}
+## APPROVED QUESTION TARGET COORDINATES
+{coordinate_targets}
 
-STRICT diversity rules:
-1. Deduplication: You MUST NOT generate any questions that are identical or highly similar to the list of previously asked questions provided above.
-2. No repeating concepts: No two questions may test the same specific topic or concept.
-3. Granular skill tags: Make the "skill_tag" highly granular using the format "Base Skill — Subtopic" (e.g. "React — performance optimization", "React — state management", "Python — decorators", "SQL — indexing"). Never return bare/generic skills like "React" or "Python".
-4. Vary question types: Integrate a rich, even distribution of:
-   - Conceptual (explain how X works)
-   - Scenario-based (you're building X, how would you...)
-   - Debugging (what's wrong with this code...)
-   - Trade-off (when would you choose X over Y...)
-   - System design (design a system that...)
-5. Distribute across skills: Max 2 questions per base skill.
+## DIFFICULTY LEVEL GUIDE FOR GENERATING QUESTIONS
+- surface: foundational understanding, definitions, basic usage
+- applied: using the concept to solve a real problem
+- system: how this concept behaves at scale or in complex systems
+- edge_case: unusual scenarios, failure modes, subtle bugs
 
-Main questions: match the specified difficulty.
-Reserve questions: one difficulty level HARDER than specified (for adaptive difficulty).
-If topic_focus is provided, emphasize that topic for at least 40% of the questions.
+## CONTEXT TYPE GUIDE FOR GENERATING QUESTIONS
+- conceptual: explain how/why something works
+- scenario: "you are building X..." practical situation
+- debug: find what is wrong with an approach or code
+- tradeoff: compare approaches, when to use what
+- code_review: critique or improve a given implementation
+- incident: something broke in production, diagnose it
 
-Respond ONLY with a valid JSON array. No preamble, no markdown, no explanation.
-Format:
+## REQUIRED OUTPUT FORMAT
+Return ONLY a valid JSON array. No preamble, no markdown (do NOT wrap in ```json ... ```), no explanations.
 [
   {{
     "question_text": "...",
-    "skill_tag": "React — state management",
-    "difficulty": "medium",
-    "expected_keywords": ["useState", "reducer", "context", "re-render"],
-    "question_type": "conceptual",
-    "is_reserve": false
+    "skill_tag": "React",
+    "sub_topic": "React - concurrent rendering",
+    "depth_level": "applied",
+    "context_type": "scenario",
+    "expected_keywords": ["Suspense", "transitions", "useTransition"]
   }},
   ...
 ]
 
-For reserve questions, set "is_reserve": true and increase difficulty by one level.
+## SELF-CHECK BEFORE RESPONDING
+Before returning your answer, verify:
+1. No question text resembles anything listed in the banned/past questions for its target coordinate.
+2. Every question strictly adheres to the requested depth_level and context_type for its coordinate.
+3. The count matches total_count exactly.
+If any check fails, regenerate that question before responding.
 """
 
 # ---------------------------------------------------------------------------

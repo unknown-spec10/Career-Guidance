@@ -217,11 +217,30 @@ This will automatically securely upload your new configurations, pull the update
 ### 6. GitHub Actions Keep-Alive
 To prevent Supabase's free tier database from sleeping and organization projects from getting suspended due to inactivity, a workflow cron job is configured at `.github/workflows/keep-supabase-alive.yml`.
 
-Ensure the curl command inside is set to ping your Render backend:
+Ensure the curl command inside is set to ping your EC2 backend health check:
 ```yaml
       - name: Ping backend health check
-        run: curl -f https://your-backend-api-name.onrender.com/health || echo "Render woken up"
+        run: curl -f http://${{ secrets.EC2_HOST }}:8000/health || echo "EC2 backend pinged"
 ```
+
+---
+
+### 7. GitHub Actions CI/CD Pipeline Automation
+We have established a fully automated CI/CD pipeline at `.github/workflows/ci-cd.yml` that handles testing, building, and automated deployments.
+
+#### Pipeline Flow:
+1. **Frontend CI (Lint & Build Check)**: Verifies frontend changes on all Pull Requests and Pushes targeting `main` by installing dependencies, checking for code quality (`eslint`), and verifying compilation (`vite build`).
+2. **Backend CI (Unit Tests)**: Sets up Python 3.11, caches packages, downloads CPU-optimized PyTorch, and runs the entire `pytest` unit test suite under mock LLM conditions (`GEMINI_MOCK_MODE=true`).
+3. **Docker Build & Push**: On merging/pushing to the `main` branch, it builds the backend Docker image and pushes it to Docker Hub under two tags: `:latest` and a unique commit SHA tag `:${{ github.sha }}`.
+4. **AWS EC2 SSH Deploy**: Connects securely to the EC2 instance, checks out the latest code to pull Docker Compose config changes, triggers a remote `docker compose pull`, and restarts the containers using the environment variables inside `.env.aws`. Finally, it executes `verify_data.py` on the active container to confirm database connectivity.
+
+#### Required GitHub Secrets:
+To activate this pipeline, navigate to your GitHub Repository -> **Settings -> Secrets and variables -> Actions** and create the following **Repository Secrets**:
+* `DOCKER_HUB_USERNAME`: Your Docker Hub username.
+* `DOCKER_HUB_TOKEN`: A Personal Access Token (PAT) generated in Docker Hub settings.
+* `EC2_HOST`: The public IP or domain of your EC2 instance (e.g. `13.235.51.86`).
+* `EC2_USERNAME`: The SSH login username (e.g. `ubuntu`).
+* `EC2_SSH_KEY`: The complete private key PEM file content (starting with `-----BEGIN OPENSSH PRIVATE KEY-----` or `-----BEGIN RSA PRIVATE KEY-----`).
 
 ---
 
@@ -241,17 +260,17 @@ Before promoting any build to production, ensure:
 After deployment, hit the following endpoints to verify system integrity:
 
 1. **API Welcome Status**:
-   - Query: `GET https://your-backend-url.onrender.com/`
+   - Query: `GET http://<your-ec2-public-ip>:8000/`
    - Expected: HTTP `200` returning `{"status": "online", "message": "Welcome to the Career Guidance AI API"}`.
 2. **API Docs Check**:
-   - Query: `GET https://your-backend-url.onrender.com/docs`
+   - Query: `GET http://<your-ec2-public-ip>:8000/docs`
    - Expected: Swagger UI loads successfully.
 3. **Health Check Endpoint**:
-   - Query: `GET https://your-backend-url.onrender.com/health`
+   - Query: `GET http://<your-ec2-public-ip>:8000/health`
    - Expected: HTTP `200` returning `{"status": "ok"}`.
 4. **Stats Overview**:
-   - Query: `GET https://your-backend-url.onrender.com/api/stats`
+   - Query: `GET http://<your-ec2-public-ip>:8000/api/stats`
    - Expected: HTTP `200` with parsed record metrics.
 5. **Approved Jobs Retrieval**:
-   - Query: `GET https://your-backend-url.onrender.com/api/jobs`
+   - Query: `GET http://<your-ec2-public-ip>:8000/api/jobs`
    - Expected: A list of active, non-expired recruiting jobs.

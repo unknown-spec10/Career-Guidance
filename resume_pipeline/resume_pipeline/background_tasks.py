@@ -202,8 +202,6 @@ def _sync_new_skills_to_db(added: Dict[str, Dict]) -> int:
 
 def expand_unrecognized_skills(unrecognized: List[str]) -> None:
     """
-    THE MISSING PIPELINE BRIDGE.
-
     For skills that failed both fuzzy (Pass 1) and semantic (Pass 2) normalization,
     this function:
       1. Calls SkillTaxonomyBuilder.append_new_skills() to search Google for market

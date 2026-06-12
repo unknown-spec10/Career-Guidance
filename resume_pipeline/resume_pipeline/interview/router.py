@@ -209,6 +209,8 @@ def start_interview(
         past_missing_concepts=past_missing_concepts,
         past_question_texts=past_question_texts,
         interviewer_persona=data.interviewer_persona,
+        db=db,
+        applicant_id=applicant_id,
     )
 
     # --- Persist session ---

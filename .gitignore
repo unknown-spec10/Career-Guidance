@@ -63,3 +63,6 @@ htmlcov/
 .pytest_cache/
 
 .agents/
+
+# Interview Sub-Topic Taxonomy (Private)
+resume_pipeline/resume_pipeline/interview/subtopic_taxonomy.json

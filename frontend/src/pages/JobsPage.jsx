@@ -16,6 +16,10 @@ import {
   FilterX,
   ArrowRight,
   Check,
+  Zap,
+  RefreshCcw,
+  X,
+  Coins
 } from 'lucide-react'
 import { useDebounce } from '../hooks/useDebounce'
 import api from '../config/api'
@@ -30,13 +34,6 @@ const normalizeMatchScore = (rawScore) => {
   if (numericScore <= 1) return numericScore * 100
   if (numericScore > 100) return numericScore / 100
   return numericScore
-}
-
-const formatMatchLabel = (percentage) => {
-  if (percentage >= 85) return 'Good'
-  if (percentage >= 70) return 'Good'
-  if (percentage >= 55) return 'Avg'
-  return 'Weak'
 }
 
 const formatBreakdownLabel = (key) =>
@@ -98,6 +95,8 @@ export default function JobsPage() {
   const toast = useToast()
   const currentUser = secureStorage.getItem('user')
   const showApplicantFeatures = currentUser?.role === 'student'
+  
+  // Shared job states
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
@@ -105,12 +104,27 @@ export default function JobsPage() {
   const [total, setTotal] = useState(0)
   const [selectedJob, setSelectedJob] = useState(null)
   const [fetchError, setFetchError] = useState(null)
+  
+  // Recommendations specific states
+  const [rawRecommendations, setRawRecommendations] = useState([])
   const [recommendationMatches, setRecommendationMatches] = useState({})
   const [recommendationDetailsByJobId, setRecommendationDetailsByJobId] = useState({})
+  
+  // Student attributes
   const [appliedJobIds, setAppliedJobIds] = useState(new Set())
   const [applyingId, setApplyingId] = useState(null)
   const [candidateSkills, setCandidateSkills] = useState([])
   const [candidateCity, setCandidateCity] = useState('')
+  const [applicantId, setApplicantId] = useState(null)
+
+  // Cooldown & Bypass State
+  const [cooldownActive, setCooldownActive] = useState(false)
+  const [cooldownExpiresAt, setCooldownExpiresAt] = useState(null)
+  const [cooldownTimeLeft, setCooldownTimeLeft] = useState('')
+  const [bypassCost, setBypassCost] = useState(5)
+  const [showBypassModal, setShowBypassModal] = useState(false)
+  const [creditsBalance, setCreditsBalance] = useState(null)
+  const [recalcLoading, setRecalcLoading] = useState(false)
 
   const pageSize = 9
   const observerTarget = useRef(null)
@@ -130,7 +144,7 @@ export default function JobsPage() {
     location: '',
     work_type: '',
     skills: '',
-    sort: 'popular',
+    sort: showApplicantFeatures ? 'relevance' : 'popular',
   })
   const debouncedFilters = useDebounce(filters, DEBOUNCE_DELAYS.FILTER)
 
@@ -139,97 +153,30 @@ export default function JobsPage() {
     loadingRef.current = loading
   }, [hasMore, loading])
 
+  // Pagination resetting for non-student users
   useEffect(() => {
-    setPage(1)
-    setJobs([])
-    setHasMore(true)
-  }, [debouncedFilters])
-
-  useEffect(() => {
-    fetchJobs()
-  }, [page, debouncedFilters])
-
-  useEffect(() => {
-    const fetchRecommendationMatches = async () => {
-      if (!showApplicantFeatures) {
-        setRecommendationMatches({})
-        return
-      }
-
-      try {
-        let applicantId = secureStorage.getItem('db_applicant_id')
-        if (!applicantId) {
-          const applicantRes = await api.get('/api/student/applicant')
-          applicantId = applicantRes.data?.id
-          if (applicantId) {
-            secureStorage.setItem('db_applicant_id', String(applicantId))
-          }
-        }
-
-        if (!applicantId) {
-          setRecommendationMatches({})
-          return
-        }
-
-        const recRes = await api.get(`/api/recommendations/${applicantId}`)
-        const recs = Array.isArray(recRes.data?.job_recommendations) ? recRes.data.job_recommendations : []
-
-        const nextMatches = {}
-        const nextDetails = {}
-        recs.forEach((rec) => {
-          const jobId = rec?.job?.id
-          const score = normalizeMatchScore(rec?.match_score ?? rec?.score ?? null)
-          if (Number.isFinite(jobId) && score !== null) {
-            nextMatches[jobId] = score
-            nextDetails[jobId] = {
-              ...rec,
-              normalizedScore: score,
-            }
-          }
-        })
-
-        setRecommendationMatches(nextMatches)
-        setRecommendationDetailsByJobId(nextDetails)
-
-        // Fetch candidate skills and location
-        try {
-          const profileResponse = await api.get('/api/student/profile')
-          const skillsData = profileResponse.data?.skills || []
-          const skillNames = skillsData.map(s => {
-            if (typeof s === 'object' && s !== null) {
-              return (s.name || s.canonical_name || '').toLowerCase().trim()
-            }
-            return String(s).toLowerCase().trim()
-          })
-          setCandidateSkills(skillNames)
-
-          const loc = profileResponse.data?.personal_info?.location || ''
-          if (loc) {
-            setCandidateCity(loc.split(',')[0].trim().toLowerCase())
-          }
-
-          // Double check with applicant details to be robust
-          try {
-            const applicantRes = await api.get('/api/student/applicant')
-            if (applicantRes.data?.location_city) {
-              setCandidateCity(applicantRes.data.location_city.trim().toLowerCase())
-            }
-          } catch (appErr) {
-            console.error('Error fetching applicant location city in JobsPage:', appErr)
-          }
-        } catch (profileErr) {
-          console.error('Error fetching student profile details in JobsPage:', profileErr)
-        }
-      } catch (error) {
-        console.error('Error fetching recommendation matches:', error)
-        setRecommendationMatches({})
-        setRecommendationDetailsByJobId({})
-      }
+    if (!showApplicantFeatures) {
+      setPage(1)
+      setJobs([])
+      setHasMore(true)
     }
+  }, [debouncedFilters, showApplicantFeatures])
 
-    fetchRecommendationMatches()
+  // General Fetching Logic
+  useEffect(() => {
+    if (!showApplicantFeatures) {
+      fetchJobs()
+    }
+  }, [page, debouncedFilters, showApplicantFeatures])
+
+  // Recommendation Fetching
+  useEffect(() => {
+    if (showApplicantFeatures) {
+      fetchRecommendations()
+    }
   }, [showApplicantFeatures])
 
+  // Fetch student application tracking list
   useEffect(() => {
     const fetchAppliedJobs = async () => {
       if (currentUser?.role === 'student') {
@@ -245,47 +192,188 @@ export default function JobsPage() {
     fetchAppliedJobs()
   }, [currentUser?.email])
 
-  const handleApply = async (jobId) => {
-    if (!currentUser) {
-      navigate('/login')
-      return
-    }
-    if (currentUser.role !== 'student') {
-      toast.error('Only students can apply to jobs.')
-      return
+  // Cooldown Countdown Timer
+  useEffect(() => {
+    if (!cooldownActive || !cooldownExpiresAt) {
+      setCooldownTimeLeft('')
+      return undefined
     }
 
-    setApplyingId(jobId)
+    const calculateTimeLeft = () => {
+      const difference = +new Date(cooldownExpiresAt) - +new Date()
+      if (difference <= 0) {
+        setCooldownActive(false)
+        setCooldownExpiresAt(null)
+        setCooldownTimeLeft('')
+        return
+      }
+
+      const hours = Math.floor(difference / (1000 * 60 * 60))
+      const minutes = Math.floor((difference / 1000 / 60) % 60)
+      const seconds = Math.floor((difference / 1000) % 60)
+
+      setCooldownTimeLeft(
+        `${hours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`
+      )
+    }
+
+    calculateTimeLeft()
+    const interval = setInterval(calculateTimeLeft, 1000)
+    return () => clearInterval(interval)
+  }, [cooldownActive, cooldownExpiresAt])
+
+  const fetchRecommendations = async () => {
     try {
-      await api.post(`/api/jobs/${jobId}/apply`, { job_id: jobId })
-      toast.success('Successfully applied! Your profile has been shared with the recruiter and a confirmation email has been sent.')
-      setAppliedJobIds(prev => new Set([...prev, jobId]))
+      setLoading(true)
+      setFetchError(null)
+      let appDbId = applicantId || secureStorage.getItem('db_applicant_id')
+      if (!appDbId) {
+        try {
+          const applicantRes = await api.get('/api/student/applicant')
+          appDbId = applicantRes.data?.id
+          if (appDbId) {
+            secureStorage.setItem('db_applicant_id', String(appDbId))
+            setApplicantId(appDbId)
+          }
+        } catch (err) {
+          console.error('Error fetching applicant details:', err)
+        }
+      }
+
+      if (!appDbId) {
+        setRawRecommendations([])
+        setTotal(0)
+        setHasMore(false)
+        return
+      }
+
+      const recRes = await api.get(`/api/recommendations/${appDbId}?t=${Date.now()}`)
+      const recs = Array.isArray(recRes.data?.job_recommendations) ? recRes.data.job_recommendations : []
+      setRawRecommendations(recs)
+      setTotal(recs.length)
+      setHasMore(false)
+
+      const nextMatches = {}
+      const nextDetails = {}
+      recs.forEach((rec) => {
+        const jobId = rec?.job?.id
+        const score = normalizeMatchScore(rec?.match_score ?? rec?.score ?? null)
+        if (Number.isFinite(jobId)) {
+          nextMatches[jobId] = score
+          nextDetails[jobId] = {
+            ...rec,
+            normalizedScore: score,
+          }
+        }
+      })
+      setRecommendationMatches(nextMatches)
+      setRecommendationDetailsByJobId(nextDetails)
+
+      if (recRes.data.cooldown_active) {
+        setCooldownActive(true)
+        setCooldownExpiresAt(recRes.data.cooldown_expires_at)
+        setBypassCost(recRes.data.bypass_cost || 5)
+      } else {
+        setCooldownActive(false)
+        setCooldownExpiresAt(null)
+      }
+
+      // Fetch candidate skills and location
+      try {
+        const profileResponse = await api.get('/api/student/profile')
+        const skillsData = profileResponse.data?.skills || []
+        const skillNames = skillsData.map(s => {
+          if (typeof s === 'object' && s !== null) {
+            return (s.name || s.canonical_name || '').toLowerCase().trim()
+          }
+          return String(s).toLowerCase().trim()
+        })
+        setCandidateSkills(skillNames)
+
+        const loc = profileResponse.data?.personal_info?.location || ''
+        if (loc) {
+          setCandidateCity(loc.split(',')[0].trim().toLowerCase())
+        }
+
+        const applicantRes = await api.get('/api/student/applicant')
+        if (applicantRes.data?.location_city) {
+          setCandidateCity(applicantRes.data.location_city.trim().toLowerCase())
+        }
+      } catch (profileErr) {
+        console.error('Error fetching student profile details:', profileErr)
+      }
+
+      // Fetch Credit Balance
+      try {
+        const balanceRes = await api.get('/api/credits/balance')
+        setCreditsBalance(balanceRes.data?.current_credits ?? 0)
+      } catch (creditsErr) {
+        console.error('Failed to load credit balance:', creditsErr)
+      }
+
     } catch (error) {
-      const errorMsg = error.response?.data?.detail || 'Failed to apply'
-      toast.error(errorMsg)
+      console.error('Error fetching recommendations:', error)
+      setFetchError(error?.response?.data?.detail || 'Unable to fetch recommendations right now.')
+      setRawRecommendations([])
     } finally {
-      setApplyingId(null)
+      setLoading(false)
     }
   }
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
-          setPage((p) => p + 1)
-        }
-      },
-      { threshold: 0.01, rootMargin: '200px' }
-    )
+  const handleRecomputeRecommendations = async (bypass = false) => {
+    const appDbId = applicantId || secureStorage.getItem('db_applicant_id')
+    if (!appDbId) return
 
-    if (observerTarget.current) {
-      observer.observe(observerTarget.current)
+    if (cooldownActive && !bypass) {
+      try {
+        const balanceRes = await api.get('/api/credits/balance')
+        setCreditsBalance(balanceRes.data?.current_credits ?? 0)
+      } catch (e) {}
+      setShowBypassModal(true)
+      return
     }
 
-    return () => {
-      observer.disconnect()
+    try {
+      setRecalcLoading(true)
+      const url = `/api/applicant/${appDbId}/generate-recommendations${bypass ? '?bypass_cooldown=true' : ''}`
+      const response = await api.post(url)
+      
+      toast.success('Recommendations updated')
+      
+      if (response.data?.cooldown_active) {
+        setCooldownActive(true)
+        setCooldownExpiresAt(response.data.cooldown_expires_at)
+      } else {
+        setCooldownActive(false)
+        setCooldownExpiresAt(null)
+      }
+      
+      if (response.data?.credits_left !== undefined) {
+        setCreditsBalance(response.data.credits_left)
+      }
+      
+      setShowBypassModal(false)
+      await fetchRecommendations()
+    } catch (err) {
+      const status = err.response?.status
+      const data = err.response?.data
+      
+      if (status === 400 && data?.status === 'cooldown') {
+        setCooldownActive(true)
+        setCooldownExpiresAt(data.cooldown_expires_at)
+        setBypassCost(data.bypass_cost || 5)
+        setShowBypassModal(true)
+        toast.info('Recommendations are in cooldown. Spend credits to refresh now!')
+      } else if (status === 402) {
+        toast.error(`Insufficient credits: ${data?.detail || 'Upgrade or wait for refill.'}`)
+      } else {
+        const detail = data?.detail || err.message || 'Failed to regenerate recommendations'
+        toast.error(detail)
+      }
+    } finally {
+      setRecalcLoading(false)
     }
-  }, [])
+  }
 
   const fetchJobs = async () => {
     try {
@@ -320,6 +408,29 @@ export default function JobsPage() {
       setFetchError(error?.response?.data?.detail || 'Unable to fetch jobs right now. Please retry.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleApply = async (jobId) => {
+    if (!currentUser) {
+      navigate('/login')
+      return
+    }
+    if (currentUser.role !== 'student') {
+      toast.error('Only students can apply to jobs.')
+      return
+    }
+
+    setApplyingId(jobId)
+    try {
+      await api.post(`/api/jobs/${jobId}/apply`, { job_id: jobId })
+      toast.success('Successfully applied! Your profile has been shared with the recruiter.')
+      setAppliedJobIds(prev => new Set([...prev, jobId]))
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || 'Failed to apply'
+      toast.error(errorMsg)
+    } finally {
+      setApplyingId(null)
     }
   }
 
@@ -362,7 +473,7 @@ export default function JobsPage() {
       location: '',
       work_type: '',
       skills: '',
-      sort: 'popular',
+      sort: showApplicantFeatures ? 'relevance' : 'popular',
     })
   }
 
@@ -379,7 +490,7 @@ export default function JobsPage() {
       location: '',
       work_type: '',
       skills: '',
-      sort: 'popular',
+      sort: showApplicantFeatures ? 'relevance' : 'popular',
     }
     setFilters((prev) => ({
       ...prev,
@@ -389,19 +500,107 @@ export default function JobsPage() {
 
   const activeFilterCount = [filters.q, filters.location, filters.work_type, filters.skills].filter(Boolean).length
 
-  const JobCard = ({ job }) => {
-    const matchPercentage = showApplicantFeatures
-      ? recommendationMatches[job.id]
-      : null
+  // Filter recommendations locally
+  const filteredRecommendations = rawRecommendations.filter((rec) => {
+    const job = rec.job || rec
+    if (!job) return false
 
-    const hasMatchData = Number.isFinite(matchPercentage)
-
-    const getMatchColor = (percentage) => {
-      if (percentage >= 85) return 'bg-green-600'
-      if (percentage >= 70) return 'bg-primary-600'
-      if (percentage >= 55) return 'bg-yellow-600'
-      return 'bg-gray-500'
+    // Title / Company / Description filter
+    if (filters.q) {
+      const q = filters.q.toLowerCase()
+      const title = (job.title || '').toLowerCase()
+      const company = (job.company || '').toLowerCase()
+      const desc = (job.description || '').toLowerCase()
+      if (!title.includes(q) && !company.includes(q) && !desc.includes(q)) {
+        return false
+      }
     }
+
+    // Location filter
+    if (filters.location) {
+      const locFilter = filters.location.toLowerCase()
+      const city = (job.location_city || '').toLowerCase()
+      const state = (job.location_state || '').toLowerCase()
+      if (!city.includes(locFilter) && !state.includes(locFilter)) {
+        return false
+      }
+    }
+
+    // Work type filter
+    if (filters.work_type) {
+      if (job.work_type !== filters.work_type) {
+        return false
+      }
+    }
+
+    // Skills filter
+    if (filters.skills) {
+      const skillsFilter = filters.skills.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+      if (skillsFilter.length > 0) {
+        const requiredSkills = Array.isArray(job.required_skills)
+          ? job.required_skills.map(s => String(s).toLowerCase().trim())
+          : []
+        const matchedSkills = rec.scoring_breakdown?.skills_breakdown?.matched_skills || []
+        const partialSkills = rec.scoring_breakdown?.skills_breakdown?.partial_matches || []
+        const recSkills = [...new Set([...matchedSkills, ...partialSkills])].map(s => String(s).toLowerCase().trim())
+        
+        const allJobSkills = [...new Set([...requiredSkills, ...recSkills])]
+        
+        const hasAllSkills = skillsFilter.every(sf => 
+          allJobSkills.some(js => js.includes(sf) || sf.includes(js))
+        )
+        if (!hasAllSkills) return false
+      }
+    }
+
+    return true
+  })
+
+  // Sort recommendations locally
+  const sortedRecommendations = [...filteredRecommendations].sort((a, b) => {
+    const jobA = a.job || a
+    const jobB = b.job || b
+
+    if (filters.sort === 'recent') {
+      const dateA = new Date(jobA.created_at || 0)
+      const dateB = new Date(jobB.created_at || 0)
+      return dateB - dateA
+    } else if (filters.sort === 'title') {
+      return (jobA.title || '').localeCompare(jobB.title || '')
+    } else {
+      // Relevance (score desc)
+      const scoreA = a.match_score ?? a.score ?? 0
+      const scoreB = b.match_score ?? b.score ?? 0
+      return scoreB - scoreA
+    }
+  })
+
+  const displayJobs = showApplicantFeatures
+    ? sortedRecommendations.map(rec => rec.job).filter(Boolean)
+    : jobs
+
+  // Infinite Scroll Hook
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
+          setPage((p) => p + 1)
+        }
+      },
+      { threshold: 0.01, rootMargin: '200px' }
+    )
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current)
+    }
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
+
+  const JobCard = ({ job }) => {
+    const rec = recommendationDetailsByJobId[job.id] || null
 
     const handleOpenDetails = async () => {
       try {
@@ -435,16 +634,9 @@ export default function JobsPage() {
               </div>
             </div>
           </div>
-
-          {showApplicantFeatures && hasMatchData && (
-            <div className={`${getMatchColor(matchPercentage)} text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase shadow-sm flex-shrink-0`}>
-              {formatMatchLabel(matchPercentage)}
-            </div>
-          )}
         </div>
 
         {(() => {
-          const rec = recommendationDetailsByJobId[job.id] || null
           const userCity = candidateCity || ''
           const jobCity = (job.location_city || '').toLowerCase().trim()
           const isCityMatched = userCity && jobCity && (userCity.includes(jobCity) || jobCity.includes(userCity))
@@ -534,15 +726,6 @@ export default function JobsPage() {
           )
         })()}
 
-        {rec?.is_fallback && (
-          <div className="flex items-center gap-1.5 mb-2">
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
-              <AlertTriangle className="w-2.5 h-2.5 text-amber-500" />
-              Rule-based match · AI unavailable
-            </span>
-          </div>
-        )}
-
         {job.description && (
           <div className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 bg-slate-50/50 rounded-xl p-3 border border-slate-100 line-clamp-4 overflow-hidden">
             <ReactMarkdown components={jobMarkdownComponents}>
@@ -612,114 +795,184 @@ export default function JobsPage() {
   return (
     <div className="min-h-screen bg-slate-50 pt-24 pb-12">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-6"
-        >
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Browse Jobs</h1>
-          <p className="text-gray-600">Discover opportunities that match your skills and goals.</p>
-        </motion.div>
+        
+        {/* Header Row */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
+              {showApplicantFeatures ? 'AI Recommended Jobs' : 'Browse Jobs'}
+            </h1>
+            <p className="text-gray-600">
+              {showApplicantFeatures 
+                ? 'Personalized career recommendations sorted by AI matching relevance.' 
+                : 'Discover opportunities that match your skills and goals.'}
+            </p>
+          </motion.div>
+          
+          {showApplicantFeatures && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex items-center gap-2 flex-shrink-0"
+            >
+              {cooldownActive ? (
+                <button
+                  onClick={() => handleRecomputeRecommendations(false)}
+                  disabled={recalcLoading}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all text-sm shadow-md border duration-200 active:scale-95 ${
+                    recalcLoading
+                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600 border-amber-400 text-white shadow-amber-500/20 hover:shadow-amber-500/30'
+                  }`}
+                >
+                  <Zap className={`w-4 h-4 text-white ${recalcLoading ? '' : 'animate-bounce'}`} />
+                  <span>{recalcLoading ? 'Updating...' : `Refresh Now (${bypassCost}c)`}</span>
+                  {cooldownTimeLeft && (
+                    <span className="ml-1 text-[10px] font-medium bg-black/25 px-2 py-0.5 rounded-full font-mono text-amber-100">
+                      {cooldownTimeLeft}
+                    </span>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleRecomputeRecommendations(false)}
+                  disabled={recalcLoading}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border font-semibold transition-all text-sm shadow-sm ${
+                    recalcLoading
+                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  <RefreshCcw className={`w-4 h-4 ${recalcLoading ? 'animate-spin' : ''}`} />
+                  <span>{recalcLoading ? 'Updating...' : 'Re-run AI'}</span>
+                </button>
+              )}
+            </motion.div>
+          )}
+        </div>
 
+        {/* Search and Filters */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-4 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm"
+          className="mb-6 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm"
         >
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">Search and filter</p>
-              <p className="text-xs text-gray-500">Refine the job list with keyword, location, type, skill, and sort controls.</p>
-              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="mb-4">
+            <h3 className="text-base font-bold text-slate-900">Search & Filter</h3>
+            <p className="text-xs text-slate-500">Refine the job list using keyword, location, type, skill, and sort criteria.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* Keyword Search */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Keyword, title, or company"
+                placeholder="Keyword or title"
                 value={filters.q}
                 onChange={(e) => updateFilter('q', e.target.value)}
-                className="w-full bg-white border border-gray-300 rounded-lg px-10 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
+                className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
               />
             </div>
 
+            {/* Location Search */}
             <div className="relative">
-              <MapPin className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Location"
                 value={filters.location}
                 onChange={(e) => updateFilter('location', e.target.value)}
-                className="w-full bg-white border border-gray-300 rounded-lg pl-10 pr-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
+                className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
               />
             </div>
 
-            <select
-              value={filters.work_type}
-              onChange={(e) => updateFilter('work_type', e.target.value)}
-              className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
-            >
-              <option value="">All Work Types</option>
-              <option value="remote">Remote</option>
-              <option value="on-site">On-site</option>
-              <option value="hybrid">Hybrid</option>
-            </select>
+            {/* Work Type Selection */}
+            <div className="relative">
+              <select
+                value={filters.work_type}
+                onChange={(e) => updateFilter('work_type', e.target.value)}
+                className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+              >
+                <option value="">All Work Types</option>
+                <option value="remote">Remote</option>
+                <option value="on-site">On-site</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </div>
 
-            <input
-              type="text"
-              placeholder="Skills (React, Python)"
-              value={filters.skills}
-              onChange={(e) => updateFilter('skills', e.target.value)}
-              className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
-            />
+            {/* Skills Filter */}
+            <div className="relative">
+              <Sparkles className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Skills (React, Python)"
+                value={filters.skills}
+                onChange={(e) => updateFilter('skills', e.target.value)}
+                className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+              />
+            </div>
 
-            <select
-              value={filters.sort}
-              onChange={(e) => updateFilter('sort', e.target.value)}
-              className="bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
-            >
-              <option value="popular">Sort: Popular</option>
-              <option value="recent">Sort: Recent</option>
-              <option value="title">Sort: A-Z</option>
-            </select>
+            {/* Sorting */}
+            <div className="relative">
+              <select
+                value={filters.sort}
+                onChange={(e) => updateFilter('sort', e.target.value)}
+                className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+              >
+                {showApplicantFeatures ? (
+                  <option value="relevance">Sort: Relevance</option>
+                ) : (
+                  <option value="popular">Sort: Popular</option>
+                )}
+                <option value="recent">Sort: Recent</option>
+                <option value="title">Sort: A-Z</option>
+              </select>
+            </div>
           </div>
 
           {activeFilterCount > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               {filters.q && (
                 <button onClick={() => removeFilter('q')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
                   Keyword: {filters.q}
-                  <span aria-hidden="true">×</span>
+                  <span>×</span>
                 </button>
               )}
               {filters.location && (
                 <button onClick={() => removeFilter('location')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
                   Location: {filters.location}
-                  <span aria-hidden="true">×</span>
+                  <span>×</span>
                 </button>
               )}
               {filters.work_type && (
                 <button onClick={() => removeFilter('work_type')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
                   Type: {filters.work_type}
-                  <span aria-hidden="true">×</span>
+                  <span>×</span>
                 </button>
               )}
               {filters.skills && (
                 <button onClick={() => removeFilter('skills')} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 border border-primary-200 text-primary-700 text-xs font-medium hover:bg-primary-100">
                   Skills: {filters.skills}
-                  <span aria-hidden="true">×</span>
+                  <span>×</span>
                 </button>
               )}
             </div>
           )}
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
             <div className="text-xs text-gray-500">
-              Filters update automatically as you type.
+              Filters update automatically.
             </div>
 
             <div className="flex items-center gap-2">
               {showApplicantFeatures && (
                 <Link
                   to="/dashboard/learning-paths"
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:border-primary-400 hover:text-primary-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-300 text-gray-700 text-sm hover:border-primary-400 hover:text-primary-700 transition-colors font-semibold"
                 >
                   Learning Paths
                   <ArrowRight className="w-4 h-4" />
@@ -728,7 +981,7 @@ export default function JobsPage() {
               <button
                 onClick={resetFilters}
                 disabled={activeFilterCount === 0}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-300 text-gray-700 text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
               >
                 <FilterX className="w-4 h-4" />
                 Reset Filters
@@ -746,7 +999,7 @@ export default function JobsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <AnimatePresence>
-            {jobs.map((job) => (
+            {displayJobs.map((job) => (
               <JobCard key={job.id} job={job} />
             ))}
           </AnimatePresence>
@@ -755,21 +1008,21 @@ export default function JobsPage() {
         {loading && (
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {Array(3).fill(0).map((_, i) => (
-              <div key={i} className="h-72 bg-gray-100 border border-gray-200 rounded-2xl animate-pulse" />
+              <div key={i} className="h-72 bg-gray-100 border border-gray-200 rounded-3xl animate-pulse" />
             ))}
           </div>
         )}
 
         <div ref={observerTarget} className="mt-12 text-center">
-          {!hasMore && jobs.length > 0 && (
+          {!hasMore && displayJobs.length > 0 && (
             <p className="text-gray-600">No more jobs to load</p>
           )}
         </div>
 
-        {!loading && jobs.length === 0 && !fetchError && (
+        {!loading && displayJobs.length === 0 && !fetchError && (
           <div className="mt-10 rounded-2xl border border-gray-200 bg-white p-10 text-center">
             <Briefcase className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-gray-900">No Results Found</h3>
+            <h3 className="text-lg font-semibold text-gray-900">No Recommendations / Jobs Found</h3>
             <p className="text-gray-600 mt-2">Try adjusting your filters or clearing them to broaden results.</p>
             <button
               onClick={resetFilters}
@@ -797,24 +1050,8 @@ export default function JobsPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', damping: 25, stiffness: 400 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white/95 backdrop-blur-md rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-[0_30px_80px_rgba(15,23,42,0.22)] border border-slate-100"
+              className="bg-white/95 backdrop-blur-md rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-[0_30px_80px_rgba(15,23,42,0.22)] border border-slate-100 text-left"
             >
-              {(() => {
-                const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
-                const normalizedScore = recommendation?.normalizedScore ?? null
-                const explanationText = recommendation?.explain
-                const breakdownEntries = recommendation?.scoring_breakdown && typeof recommendation.scoring_breakdown === 'object'
-                  ? Object.entries(recommendation.scoring_breakdown).filter(([, value]) => value !== null && value !== undefined)
-                  : []
-
-                const explanationLines = Array.isArray(explanationText)
-                  ? explanationText.filter(Boolean)
-                  : typeof explanationText === 'string'
-                    ? explanationText.split(/\n+/).map((line) => line.trim()).filter(Boolean)
-                    : []
-
-                return null
-              })()}
               <div className="sticky top-0 z-10 relative overflow-hidden border-b border-slate-100 bg-white/90 p-6 flex items-start justify-between gap-4">
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/70 via-white/90 to-sky-50/70" />
                 <div className="relative flex-1">
@@ -832,16 +1069,13 @@ export default function JobsPage() {
                   onClick={() => setSelectedJob(null)}
                   className="relative text-slate-500 hover:text-slate-900 hover:bg-white/80 border border-slate-200 bg-white/60 p-2.5 rounded-xl transition-all flex-shrink-0 shadow-sm"
                 >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <X className="w-6 h-6" />
                 </button>
               </div>
 
               <div className="p-6 space-y-6 bg-slate-50/30">
                 {(() => {
                   const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
-                  const normalizedScore = recommendation?.normalizedScore ?? null
                   const explanationText = recommendation?.explanation || recommendation?.explain
                   const breakdownEntries = recommendation?.scoring_breakdown && typeof recommendation.scoring_breakdown === 'object'
                     ? Object.entries(recommendation.scoring_breakdown).filter(([, value]) => value !== null && value !== undefined)
@@ -857,28 +1091,19 @@ export default function JobsPage() {
                           ? (explanationText.reasons || [explanationText.summary || '']).filter(Boolean)
                           : []
 
+                  if (!recommendation) return null
+
                   return (
                     <div className={`border rounded-2xl p-5 space-y-4 ${recommendation?.is_fallback ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <p className={`text-xs font-semibold uppercase tracking-wide ${recommendation?.is_fallback ? 'text-amber-600' : 'text-slate-500'}`}>
-                              {recommendation?.is_fallback ? 'Rule-based Match' : 'Recommendation'}
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Recommendation Insights
                             </p>
-                            {recommendation?.is_fallback && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-amber-700">
-                                <AlertTriangle className="w-2.5 h-2.5" />
-                                AI unavailable
-                              </span>
-                            )}
                           </div>
                           <h3 className="text-lg font-bold text-gray-900">Why this job is recommended</h3>
                         </div>
-                        {normalizedScore !== null && (
-                          <div className={`px-3 py-1 rounded-full text-xs font-bold text-white ${normalizedScore >= 85 ? 'bg-green-600' : normalizedScore >= 70 ? 'bg-primary-600' : normalizedScore >= 55 ? 'bg-yellow-600' : 'bg-gray-500'}`}>
-                            {formatMatchLabel(normalizedScore)} Match
-                          </div>
-                        )}
                       </div>
 
                       {explanationLines.length > 0 ? (
@@ -909,7 +1134,6 @@ export default function JobsPage() {
                       {
                         // Render key skills: prefer explicit job.required_skills, fallback to recommendation matched/partial skills
                         (() => {
-                          const recommendation = recommendationDetailsByJobId[selectedJob.id] || null
                           const explicit = Array.isArray(selectedJob.required_skills) && selectedJob.required_skills.length > 0
                           const matched = recommendation?.scoring_breakdown?.skills_breakdown?.matched_skills || []
                           const partial = recommendation?.scoring_breakdown?.skills_breakdown?.partial_matches || []
@@ -924,11 +1148,13 @@ export default function JobsPage() {
                                     <div className="font-medium">No role-specific skills available</div>
                                     <div className="text-xs text-yellow-800/90 mt-1">We couldn't find explicit skills for this job. You can re-run recommendations or update your profile to surface skill matches.</div>
                                     <div className="mt-3 flex gap-2">
-                                      <button onClick={async () => {
-                                        const applicantId = secureStorage.getItem('db_applicant_id')
-                                        if (applicantId) await api.post(`/api/applicant/${applicantId}/generate-recommendations`)
-                                      }} className="px-3 py-1 bg-yellow-100 border border-yellow-200 rounded text-yellow-800 text-xs">Re-run Recommendations</button>
-                                      <Link to="/student/profile" className="px-3 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700">Update Profile</Link>
+                                      <button 
+                                        onClick={() => handleRecomputeRecommendations(false)} 
+                                        className="px-3 py-1 bg-yellow-100 border border-yellow-200 rounded text-yellow-800 text-xs font-bold"
+                                      >
+                                        Re-run Recommendations
+                                      </button>
+                                      <Link to="/student/profile" className="px-3 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 font-bold">Update Profile</Link>
                                     </div>
                                   </div>
                                 </div>
@@ -1107,6 +1333,120 @@ export default function JobsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Cooldown Bypass Confirmation Modal */}
+      <AnimatePresence>
+        {showBypassModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 text-left">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-3xl border border-slate-100 bg-white/95 backdrop-blur shadow-2xl p-6 relative overflow-hidden"
+            >
+              {/* Gold gradient top glow */}
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500" />
+              
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl p-2.5 bg-amber-50 text-amber-600 border border-amber-100 shadow-sm">
+                    <Zap className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-xl text-slate-900">Instant AI Refresh</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Bypass active recommendation cooldown</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowBypassModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 my-4">
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    AI recommendations utilize complex multi-tiered matching pipelines. Refreshes are <strong className="text-slate-900 font-bold">free once every 24 hours</strong>.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex flex-col justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cooldown Left</span>
+                    <span className="text-base font-extrabold text-amber-600 mt-1 font-mono">
+                      {cooldownTimeLeft || "calculating..."}
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex flex-col justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Balance</span>
+                    <span className="text-base font-extrabold text-slate-800 mt-1">
+                      {creditsBalance !== null ? `${creditsBalance} Credits` : "Loading..."}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl flex items-center justify-between shadow-sm">
+                  <div className="flex items-center space-x-2">
+                    <Coins className="w-5 h-5 text-amber-500" />
+                    <div>
+                      <div className="text-xs font-bold text-amber-900">Bypass Refresh Cost</div>
+                      <div className="text-[10px] text-slate-400 font-semibold">Instant recomputation</div>
+                    </div>
+                  </div>
+                  <div className="text-lg font-black text-amber-600">
+                    -{bypassCost} Credits
+                  </div>
+                </div>
+
+                {creditsBalance !== null && creditsBalance < bypassCost && (
+                  <div className="p-3 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-rose-500 mt-0.5 flex-shrink-0 animate-bounce" />
+                    <div>
+                      <h4 className="text-xs font-bold text-rose-800">Insufficient Credits</h4>
+                      <p className="text-[10px] text-rose-700 mt-0.5 leading-normal">
+                        You need at least {bypassCost} credits to bypass this cooldown. Please wait for the cooldown or weekly refill to refresh.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={() => setShowBypassModal(false)}
+                  className="flex-1 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-bold text-slate-700 text-sm active:scale-95 duration-200"
+                >
+                  Wait for Cooldown
+                </button>
+                <button
+                  disabled={recalcLoading || (creditsBalance !== null && creditsBalance < bypassCost)}
+                  onClick={() => handleRecomputeRecommendations(true)}
+                  className={`flex-1 py-3 text-sm font-bold text-white rounded-xl shadow-md border duration-200 active:scale-95 flex items-center justify-center gap-1.5 ${
+                    recalcLoading || (creditsBalance !== null && creditsBalance < bypassCost)
+                      ? 'bg-slate-200 border-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                      : 'bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600 border-amber-400 shadow-amber-500/10'
+                  }`}
+                >
+                  {recalcLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Coins className="w-4 h-4 text-white" />
+                      <span>Spend {bypassCost} Credits</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )

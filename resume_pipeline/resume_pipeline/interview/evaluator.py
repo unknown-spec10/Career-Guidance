@@ -83,15 +83,25 @@ def run_evaluation(
             .count()
         )
         if pending_count == 0:
-            logger.info("All answers evaluated for session %s. Triggering Longitudinal Candidate Intelligence update...", session_id)
+            logger.info("All answers evaluated for session %s. Completing session and triggering Longitudinal Candidate Intelligence update...", session_id)
             try:
                 from ..db import InterviewSession
                 session_obj = db.query(InterviewSession).filter_by(id=session_id).first()
                 if session_obj:
+                    # Calculate overall score across all answers of this session
+                    answers = db.query(InterviewAnswer).filter_by(session_id=session_id).all()
+                    evaluated = [a for a in answers if a.status == "evaluated" and a.score is not None]
+                    overall = sum(a.score for a in evaluated) / len(evaluated) if evaluated else 0.0
+                    
+                    session_obj.overall_score = overall
+                    session_obj.status = "completed"
+                    session_obj.completed_at = datetime.datetime.utcnow()
+                    db.commit()
+                    
                     from .candidate_intelligence import generate_longitudinal_profile
                     generate_longitudinal_profile(session_obj.applicant_id, db)
             except Exception as e:
-                logger.error("Failed to generate Longitudinal Candidate Intelligence: %s", e)
+                logger.error("Failed to finalize session and generate Longitudinal Candidate Intelligence: %s", e)
 
     except Exception as e:
         logger.error("Evaluation failed for answer %s: %s", answer_id, e)
