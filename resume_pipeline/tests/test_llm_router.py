@@ -126,6 +126,8 @@ def test_groq_completion_fallback_to_openrouter(mock_post, mock_groq):
 
 @patch("resume_pipeline.core.llm_router.requests.post")
 def test_gemini_completion_success(mock_post):
+    # Disable mock mode so requests.post is actually called (not bypassed by GEMINI_MOCK_MODE)
+    settings.GEMINI_MOCK_MODE = False
     # Mock Gemini generateContent API response
     mock_post.return_value = MockResponse(
         status_code=200,
@@ -157,9 +159,14 @@ def test_gemini_completion_success(mock_post):
     assert stats["provider_stats"]["gemini"]["requests"] == 1
     assert stats["provider_stats"]["gemini"]["successes"] == 1
 
+    # Restore mock mode
+    settings.GEMINI_MOCK_MODE = True
+
 
 @patch("resume_pipeline.core.llm_router.requests.post")
 def test_gemini_completion_fallback_to_openrouter(mock_post):
+    # Disable mock mode so requests.post is actually called (not bypassed by GEMINI_MOCK_MODE)
+    settings.GEMINI_MOCK_MODE = False
     # Mock Gemini post to fail (e.g. 429 rate limit) then mock OpenRouter success
     # Side effect returns first failure then success for OpenRouter
     mock_post.side_effect = [
@@ -195,3 +202,6 @@ def test_gemini_completion_fallback_to_openrouter(mock_post):
     assert stats["provider_stats"]["gemini"]["successes"] == 0
     assert stats["provider_stats"]["openrouter"]["requests"] == 1
     assert stats["provider_stats"]["openrouter"]["successes"] == 1
+
+    # Restore mock mode
+    settings.GEMINI_MOCK_MODE = True
