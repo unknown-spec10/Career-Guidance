@@ -232,12 +232,20 @@ IS_SUPABASE: bool = (
     "supabase.com" in _pg_dsn
 )
 
+# ============================================================================
+# CI_SKIP_DB_VALIDATION: when set to 'true', skip all DB connection checks.
+# This allows unit tests to import the package without a live PostgreSQL instance.
+# NEVER set this in production — the app will fail to start with no DB.
+# ============================================================================
+_skip_db_validation: bool = os.environ.get("CI_SKIP_DB_VALIDATION", "").lower() in ("1", "true", "yes")
+
 # SQLite is intentionally unsupported for this deployment profile.
-if settings.PG_DSN and settings.PG_DSN.startswith("sqlite"):
-    raise RuntimeError("SQLite DSN is not supported. Configure PostgreSQL via PG_DSN or PG_* variables.")
+if not _skip_db_validation:
+    if settings.PG_DSN and settings.PG_DSN.startswith("sqlite"):
+        raise RuntimeError("SQLite DSN is not supported. Configure PostgreSQL via PG_DSN or PG_* variables.")
 
 # Build DSN from parts if PG_DSN not explicitly set
-if not settings.PG_DSN:
+if not _skip_db_validation and not settings.PG_DSN:
     missing_fields = []
     if not settings.PG_HOST:
         missing_fields.append("PG_HOST")
@@ -271,7 +279,7 @@ if not settings.PG_DSN:
         settings.PG_DSN = (
             f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{dbname}"
         )
-else:
+elif not _skip_db_validation and settings.PG_DSN:
     # If an explicit PG_DSN was provided, still detect Supabase from it
     IS_SUPABASE = "supabase.co" in settings.PG_DSN or "supabase.com" in settings.PG_DSN
 
