@@ -132,28 +132,28 @@ jobs:
             git pull --ff-only
             
             echo "Cleaning up dangling and unused containers/networks/images before deployment..."
-            docker system prune -f
+            sudo docker system prune -f
             
             echo "Pulling latest Docker image from Docker Hub..."
-            docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
+            sudo docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
             
             echo "Recreating and restarting backend containers..."
-            docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d --force-recreate
+            sudo docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d --force-recreate
             
             echo "Cleaning up old/unused images after deployment..."
-            docker image prune -af
+            sudo docker image prune -af
             
             echo "Waiting for services to spin up (15 seconds)..."
             sleep 15
             
             echo "Verifying running Docker containers:"
-            docker compose -f deploy/docker/docker-compose.prod.yml ps
+            sudo docker compose -f deploy/docker/docker-compose.prod.yml ps
             
             echo "Checking container health status:"
-            docker inspect --format='{{json .State.Health.Status}}' career-guidance-backend
+            sudo docker inspect --format='{{json .State.Health.Status}}' career-guidance-backend
             
             echo "Displaying backend logs tail:"
-            docker compose -f deploy/docker/docker-compose.prod.yml logs --tail 20 backend
+            sudo docker compose -f deploy/docker/docker-compose.prod.yml logs --tail 20 backend
             
             echo "Verifying database connection and data status:"
-            docker compose -f deploy/docker/docker-compose.prod.yml exec -T backend python scripts/verify_data.py
+            sudo docker compose -f deploy/docker/docker-compose.prod.yml exec -T backend python scripts/verify_data.py
