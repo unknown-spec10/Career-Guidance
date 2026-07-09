@@ -1,6 +1,5 @@
 #!/bin/bash
 set -euxo pipefail
-
 # Allocate swap space to prevent OOM errors on low-memory instances
 if ! swapon --show | grep -q '/swapfile'; then
   if [ ! -f /swapfile ]; then
