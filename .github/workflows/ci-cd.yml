@@ -122,19 +122,6 @@ jobs:
           port: 22
           script: |
             set -e
-            echo "Configuring swap space to prevent OOM errors on EC2..."
-            if ! sudo swapon --show | grep -q '/swapfile'; then
-              if [ ! -f /swapfile ]; then
-                sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
-                sudo chmod 600 /swapfile
-                sudo mkswap /swapfile
-              fi
-              sudo swapon /swapfile
-              if ! grep -q '/swapfile' /etc/fstab; then
-                echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-              fi
-            fi
-            
             cd ${{ secrets.EC2_DEPLOY_DIR }}
             echo "Reclaiming ownership of the deployment directory..."
             sudo chown -R $(whoami):$(whoami) . || true

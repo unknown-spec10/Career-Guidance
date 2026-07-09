@@ -1,18 +1,5 @@
 #!/bin/bash
 set -euxo pipefail
-# Allocate swap space to prevent OOM errors on low-memory instances
-if ! swapon --show | grep -q '/swapfile'; then
-  if [ ! -f /swapfile ]; then
-    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
-    chmod 600 /swapfile
-    mkswap /swapfile
-  fi
-  swapon /swapfile
-  if ! grep -q '/swapfile' /etc/fstab; then
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
-  fi
-fi
-
 # Basic bootstrap for Ubuntu 24.04/22.04
 apt-get update
 apt-get install -y ca-certificates curl git docker.io docker-compose-plugin
