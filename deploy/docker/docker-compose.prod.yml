@@ -46,6 +46,6 @@ services:
       options:
         awslogs-group: ${AWS_LOGS_GROUP:-career-guidance-backend}
         awslogs-region: ${AWS_REGION:-ap-south-1}
-        awslogs-stream-prefix: ${AWS_LOGS_STREAM_PREFIX:-backend}
+        tag: "backend"
         awslogs-create-group: "true"
 
