@@ -369,14 +369,25 @@ export default function JobDetailsPage() {
               >
                 <h2 className="text-xl font-semibold mb-4">Nice to Have</h2>
                 <div className="flex flex-wrap gap-2">
-                  {job.optional_skills.map((skill, idx) => (
-                    <span
-                      key={idx}
-                      className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700"
-                    >
-                      {skill}
-                    </span>
-                  ))}
+                  {job.optional_skills.map((skill, idx) => {
+                    const skillName = (typeof skill === 'object' && skill !== null)
+                      ? (skill.name || '')
+                      : String(skill)
+                    const skillLevel = (typeof skill === 'object' && skill !== null)
+                      ? skill.level
+                      : null
+                    return (
+                      <span
+                        key={idx}
+                        className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700 inline-flex items-center"
+                      >
+                        <span>{skillName}</span>
+                        {skillLevel && (
+                          <span className="ml-1.5 text-xs opacity-80 font-normal">({skillLevel})</span>
+                        )}
+                      </span>
+                    )
+                  })}
                 </div>
               </motion.div>
             )}

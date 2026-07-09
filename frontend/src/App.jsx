@@ -23,6 +23,7 @@ import InterviewResultsPage from './pages/InterviewResultsPage'
 import LearningPathPage from './pages/LearningPathPage'
 import MyLearningPathsPage from './pages/MyLearningPathsPage'
 import TransactionHistoryPage from './pages/TransactionHistoryPage'
+import UpgradePage from './pages/UpgradePage'
 import EmployerDashboard from './pages/EmployerDashboard'
 import EmployerProfile from './pages/EmployerProfile'
 import EmployerPostJob from './pages/EmployerPostJob'
@@ -30,12 +31,23 @@ import EmployerJobDetails from './pages/EmployerJobDetails'
 import JobApplicantsPage from './pages/JobApplicantsPage'
 import AdminReviewsPage from './pages/AdminDashboard'
 import AskPage from './pages/AskPage'
+// New pages from mock designs
+import JobModerationPage from './pages/JobModerationPage'
+import UserManagementPage from './pages/UserManagementPage'
+import MyApplicationsPage from './pages/MyApplicationsPage'
+import NetworkHubPage from './pages/NetworkHubPage'
+import TalentPoolPage from './pages/TalentPoolPage'
+import TalentMatchDetailsPage from './pages/TalentMatchDetailsPage'
+import RecruitmentAnalyticsPage from './pages/RecruitmentAnalyticsPage'
+import InterviewSchedulerPage from './pages/InterviewSchedulerPage'
+import InterviewFeedbackPage from './pages/InterviewFeedbackPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import Footer from './components/Footer'
 import ErrorBoundary from './components/ErrorBoundary'
 import api from './config/api'
 import secureStorage from './utils/secureStorage'
 import { Sparkles } from 'lucide-react'
+import DashboardLayout from './components/DashboardLayout'
 
 function HomePage() {
   return (
@@ -47,15 +59,22 @@ function HomePage() {
 
 function AppContent() {
   const location = useLocation()
+  const user = secureStorage.getItem('user')
+  const isDashboardPath = location.pathname.startsWith('/student') || 
+                          location.pathname.startsWith('/employer') || 
+                          location.pathname.startsWith('/admin') || 
+                          location.pathname.startsWith('/dashboard') || 
+                          location.pathname.startsWith('/results') || 
+                          location.pathname.startsWith('/applicant') ||
+                          location.pathname === '/applicants' ||
+                          (user && (location.pathname === '/jobs' || location.pathname.startsWith('/job/')))
+  
   const hideNavbarPaths = ['/login', '/register', '/verify-email', '/verify-code', '/resend-verification', '/forgot-password', '/reset-password']
-  const showNavbar = !hideNavbarPaths.includes(location.pathname)
-  const showAssistantLauncher = location.pathname !== '/ask'
+  const showNavbar = !hideNavbarPaths.includes(location.pathname) && !isDashboardPath
+  const showAssistantLauncher = location.pathname === '/'
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      {showNavbar && <Navbar />}
-      <main className="flex-grow">
-        <Routes>
+  const mainRoutes = (
+    <Routes>
           {/* Public Routes */}
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -91,6 +110,22 @@ function AppContent() {
             element={
               <ProtectedRoute allowedRoles={['student']}>
                 <StudentProfile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/applications"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <MyApplicationsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/network"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <NetworkHubPage />
               </ProtectedRoute>
             }
           />
@@ -150,6 +185,14 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/dashboard/upgrade"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <UpgradePage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Employer Routes */}
           <Route
@@ -192,6 +235,46 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/employer/talent-pool"
+            element={
+              <ProtectedRoute allowedRoles={['employer']}>
+                <TalentPoolPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employer/talent/:id"
+            element={
+              <ProtectedRoute allowedRoles={['employer']}>
+                <TalentMatchDetailsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employer/analytics"
+            element={
+              <ProtectedRoute allowedRoles={['employer']}>
+                <RecruitmentAnalyticsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employer/applicants/:id/schedule-interview"
+            element={
+              <ProtectedRoute allowedRoles={['employer']}>
+                <InterviewSchedulerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employer/applicants/:id/interview-feedback"
+            element={
+              <ProtectedRoute allowedRoles={['employer']}>
+                <InterviewFeedbackPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Admin Routes */}
           <Route
@@ -207,6 +290,22 @@ function AppContent() {
             element={<Navigate to="/admin/dashboard?tab=resume-reviews" replace />}
           />
           <Route
+            path="/admin/moderation"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <JobModerationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <UserManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/applicants"
             element={<Navigate to="/admin/dashboard?tab=applicants" replace />}
           />
@@ -218,6 +317,19 @@ function AppContent() {
           {/* Smart Dashboard Router - redirects to role-specific dashboard */}
           <Route path="/dashboard" element={<DashboardRouter />} />
         </Routes>
+  )
+
+  return (
+    <div className="min-h-screen flex flex-col bg-surface-muted dark:bg-inverse-surface">
+      {showNavbar && <Navbar />}
+      <main className="flex-grow">
+        {isDashboardPath ? (
+          <DashboardLayout>
+            {mainRoutes}
+          </DashboardLayout>
+        ) : (
+          mainRoutes
+        )}
       </main>
       {showAssistantLauncher && (
         <Link
@@ -228,7 +340,7 @@ function AppContent() {
           <Sparkles className="h-6 w-6" />
         </Link>
       )}
-      <Footer />
+      {!isDashboardPath && <Footer />}
     </div>
   )
 }

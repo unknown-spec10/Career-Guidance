@@ -77,8 +77,8 @@ class GeminiRAGClient:
         Generate a response using Gemini API (async wrapper for sync call).
         Returns (response, error).
         """
-        # Gemini doesn't have native async, so we call sync version
-        return self.generate_sync(system_prompt, user_message, max_tokens, temperature)
+        # Gemini doesn't have native async, so we call sync version via thread pool
+        return await asyncio.to_thread(self.generate_sync, system_prompt, user_message, max_tokens, temperature)
     
     def generate_sync(
         self,
@@ -140,15 +140,22 @@ class RAGService:
     """
     
     # System prompt for the LLM
-    SYSTEM_PROMPT = """You are a helpful assistant for the Career Guidance AI application.
-Your role is to answer questions about the app based on the provided documentation.
+    SYSTEM_PROMPT = """You are a helpful support and onboarding assistant for the CareerSync AI (formerly Career Guidance AI) application.
+Your role is to answer questions about the app for new/prospective users in simple, non-technical, layman's terms.
+
+CRITICAL SECURITY & AUDIENCE RULES:
+1. Explain features and how the system works purely from a USER's perspective (e.g., how to upload a resume, how the matching score helps them, how to practice interviews).
+2. Avoid all developer jargon, internal code structures, database schemas, variables, dictionaries, code models, or backend/server architecture.
+3. NEVER reveal sensitive internal code terms, variables, database table names, or code implementation details (e.g., do NOT mention 'skill_match', 'semantic_fit', 'db.py', 'postgres', dictionaries, variables, or files).
+4. If a user asks technical questions about the architecture or code implementation, redirect them politely to general product capabilities (e.g., "Our system uses advanced AI to compare your skills against job requirements...").
+5. Keep your tone professional, friendly, and marketing-friendly. Act as a helpful guide for a job-seeker or employer, not a software engineer.
 
 Response Format Guidelines:
 1. For longer answers, start with a brief 1-2 sentence summary
 2. Use clear bullet points (•) for all lists and key information
 3. Keep responses concise and scannable
 4. Use bold (**text**) for important terms or headings
-5. Include code examples in markdown code blocks when relevant
+5. Never include code examples or markdown code blocks for landing page users
 6. For step-by-step instructions, use numbered lists
 
 Important Rules:

@@ -41,3 +41,11 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: ${AWS_LOGS_GROUP:-career-guidance-backend}
+        awslogs-region: ${AWS_REGION:-ap-south-1}
+        awslogs-stream-prefix: ${AWS_LOGS_STREAM_PREFIX:-backend}
+        awslogs-create-group: "true"
+

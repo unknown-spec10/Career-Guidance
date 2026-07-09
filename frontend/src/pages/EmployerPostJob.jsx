@@ -341,7 +341,7 @@ export default function EmployerPostJob() {
             {requiredSkills.length > 0 && (
               <div className="flex flex-wrap gap-2 pt-1">
                 {requiredSkills.map((sk, idx) => (
-                  <span key={idx} className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary-50 border border-primary-100 text-primary-750 text-xs font-bold shadow-sm">
+                  <span key={idx} className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary-50 border border-primary-100 text-primary-700 dark:text-primary-600 text-xs font-bold shadow-sm">
                     <span>{sk.name}</span>
                     <span className="text-[10px] text-primary-500 font-medium">({sk.level})</span>
                     <button type="button" onClick={() => removeRequiredSkill(idx)} className="text-slate-400 hover:text-red-500 transition-colors">
@@ -379,9 +379,9 @@ export default function EmployerPostJob() {
               <button
                 type="button"
                 onClick={addOptionalSkill}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:bg-slate-50 text-slate-700 transition-all active:scale-95 duration-200 text-xs font-bold"
+                className="btn-secondary-sm inline-flex items-center gap-1.5 !px-4 !py-2 !rounded-xl text-xs font-bold"
               >
-                <PlusCircle className="w-4 h-4 text-slate-450" />
+                <PlusCircle className="w-4 h-4 text-slate-400" />
                 <span>Add</span>
               </button>
             </div>
@@ -404,7 +404,7 @@ export default function EmployerPostJob() {
             <button
               type="button"
               onClick={() => navigate('/employer/dashboard')}
-              className="flex-1 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-bold text-slate-750 active:scale-95 duration-200 text-sm"
+              className="btn-secondary flex-1 !py-3 !rounded-xl !text-sm"
             >
               Cancel
             </button>

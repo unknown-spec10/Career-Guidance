@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     # Google Search API for skill taxonomy builder
     GOOGLE_API_KEY: str | None = None
     GOOGLE_SEARCH_ENGINE_ID: str | None = None
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    BACKEND_URL: str = "http://localhost:8000"
     
     # Gmail SMTP for email verification
     GMAIL_USER: str | None = None

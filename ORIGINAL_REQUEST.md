@@ -34,3 +34,40 @@ Integrity mode: development
 
 ### Verification Output
 - [ ] The "Tool Scan Logs" section contains raw output or verified logs from executing at least one automated tool (e.g., Bandit or npm audit).
+
+## Follow-up — 2026-06-23T16:54:06Z
+
+The project goal is to perform a deep-dive performance audit, identify bottlenecks, and implement clean code optimizations across the backend (FastAPI) and frontend (React/Vite) codebases of the Career Guidance system.
+
+Working directory: d:/Career Guidence
+Integrity mode: development
+
+## Requirements
+
+### R1. Performance Audit & Optimization Discovery
+Audit both frontend and backend codebases for additional CPU, memory, and database bottlenecks (e.g. N+1 queries, synchronous blocking calls in async routes, redundant computations, nested loops, inefficient array conversions).
+
+### R2. Codebase Fix Implementation
+Refactor the identified performance issues and bug patterns without breaking core functionality. This includes:
+- Resolving the `StudentProfile.jsx` `showToast` runtime crash.
+- Resolving nested component declarations in `JobsPage.jsx` to prevent DOM layout thrashing.
+- Optimizing backend N+1 loops in `/api/applicants` and recommendation engine components.
+- Mitigating blocking I/O and synchronous `requests` calls in async routers.
+
+### R3. Test Suite Compatibility
+Ensure all code changes compile cleanly, pass linting checks, and maintain compatibility with existing tests.
+
+## Acceptance Criteria
+
+### Technical Cleanliness
+- [ ] No nested component definitions inside other React component bodies (specifically `JobCard`).
+- [ ] No undefined function calls in toast notification bindings on the profile page.
+- [ ] Backend database sessions and connections are properly pooled and closed.
+
+### Performance & Concurrency
+- [ ] Loop queries (N+1 queries) in active route handlers and recommendation engines are replaced with eager loading (`joinedload`) or batch lookups.
+- [ ] SSE streams and background tasks do not block the main FastAPI event loop thread.
+
+### Verification
+- [ ] `pytest tests/` runs and passes successfully for all unit tests.
+- [ ] `npm run lint` and `npm run build` in the `frontend` folder exit with code 0 (no compile or eslint errors).

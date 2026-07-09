@@ -150,12 +150,18 @@ class CreditService:
         # Determine cost and limits
         if activity_type == 'full_interview':
             cost = custom_cost if custom_cost is not None else CREDIT_CONFIG['FULL_MOCK_INTERVIEW_COST']
-            weekly_limit = CREDIT_CONFIG['MAX_FULL_INTERVIEWS_PER_WEEK']
+            weekly_limit = 20 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_FULL_INTERVIEWS_PER_WEEK']
             current_count = stats.full_interviews_this_week
             limit_name = "full interviews this week"
+            
+            if current_count >= weekly_limit:
+                return False, f"Weekly limit reached ({weekly_limit} {limit_name})", {
+                    'credits': getattr(account, 'current_credits', 0),
+                    'limit_reached': True
+                }
         elif activity_type == 'micro_session':
             cost = CREDIT_CONFIG['MICRO_SESSION_COST']
-            daily_limit = CREDIT_CONFIG['MAX_MICRO_SESSIONS_PER_DAY']
+            daily_limit = 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_MICRO_SESSIONS_PER_DAY']
             current_count = getattr(stats, 'micro_sessions_today', 0)
             limit_name = "micro-sessions today"
             
@@ -166,7 +172,7 @@ class CreditService:
                 }
         elif activity_type == 'coding_question':
             cost = CREDIT_CONFIG['CODING_QUESTION_COST']
-            daily_limit = CREDIT_CONFIG['MAX_CODING_QUESTIONS_PER_DAY']
+            daily_limit = 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_CODING_QUESTIONS_PER_DAY']
             current_count = getattr(stats, 'coding_questions_today', 0)
             limit_name = "coding questions today"
             
@@ -177,7 +183,7 @@ class CreditService:
                 }
         elif activity_type == 'project_idea':
             cost = CREDIT_CONFIG['PROJECT_IDEA_COST']
-            weekly_limit = CREDIT_CONFIG['MAX_PROJECT_IDEAS_PER_WEEK']
+            weekly_limit = 30 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_PROJECT_IDEAS_PER_WEEK']
             current_count = getattr(stats, 'project_ideas_this_week', 0)
             limit_name = "project ideas this week"
             
@@ -362,10 +368,10 @@ class CreditService:
             },
             'limits': {
                 'max_daily_credits': CREDIT_CONFIG['MAX_DAILY_CREDITS_USAGE'],
-                'max_full_interviews_weekly': CREDIT_CONFIG['MAX_FULL_INTERVIEWS_PER_WEEK'],
-                'max_micro_sessions_daily': CREDIT_CONFIG['MAX_MICRO_SESSIONS_PER_DAY'],
-                'max_coding_questions_daily': CREDIT_CONFIG['MAX_CODING_QUESTIONS_PER_DAY'],
-                'max_project_ideas_weekly': CREDIT_CONFIG['MAX_PROJECT_IDEAS_PER_WEEK'],
+                'max_full_interviews_weekly': 20 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_FULL_INTERVIEWS_PER_WEEK'],
+                'max_micro_sessions_daily': 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_MICRO_SESSIONS_PER_DAY'],
+                'max_coding_questions_daily': 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_CODING_QUESTIONS_PER_DAY'],
+                'max_project_ideas_weekly': 30 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_PROJECT_IDEAS_PER_WEEK'],
             },
             'costs': {
                 'full_interview': CREDIT_CONFIG['FULL_MOCK_INTERVIEW_COST'],

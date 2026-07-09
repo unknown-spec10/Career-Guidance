@@ -456,7 +456,7 @@ export default function InterviewSessionPage() {
                 className={`w-full py-3.5 px-6 rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 shadow-sm transition-all active:scale-[0.99] ${
                   micStatus === 'recording'
                     ? 'bg-red-600 hover:bg-red-700 text-white shadow'
-                    : 'bg-primary-50 border border-primary-200 hover:bg-primary-100 text-primary-750'
+                    : 'bg-primary-50 border border-primary-200 hover:bg-primary-100 text-primary-700 dark:text-primary-600'
                 }`}
               >
                 {micStatus === 'recording' ? (

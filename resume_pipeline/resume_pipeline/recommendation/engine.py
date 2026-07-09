@@ -1,6 +1,7 @@
 import logging
 import datetime
 import time
+from typing import Optional
 from sqlalchemy.orm import Session, joinedload
 from ..db import Applicant, Job, JobRecommendation, LLMParsedRecord
 from .embedder import Embedder, GeminiEmbeddingUnavailable
@@ -50,7 +51,8 @@ def run_pipeline_for_applicant_job(
     semantic_scorer: SemanticScorer,
     personalization_scorer: PersonalizationScorer,
     temporal_scorer: TemporalScorer,
-    document_scorer: DocumentScorer
+    document_scorer: DocumentScorer,
+    interview_score: Optional[float] = None
 ) -> dict:
     """Execute all recommendation scoring tiers for a single candidate-job pair."""
     # 1. Gather Normalized Profile Data
@@ -62,15 +64,15 @@ def run_pipeline_for_applicant_job(
     applicant_loc = personal.get("location") or f"{applicant.location_city or ''}, {applicant.location_state or ''}".strip(", ")
 
     # 2. Fetch Interview Score (Normalized 0.0 - 1.0)
-    from ..db import InterviewSession
-    latest_session = db.query(InterviewSession).filter(
-        InterviewSession.applicant_id == applicant.id,
-        InterviewSession.status == "completed"
-    ).order_by(InterviewSession.completed_at.desc()).first()
+    if interview_score is None:
+        from ..db import InterviewSession
+        latest_session = db.query(InterviewSession).filter(
+            InterviewSession.applicant_id == applicant.id,
+            InterviewSession.status == "completed"
+        ).order_by(InterviewSession.completed_at.desc()).first()
 
-    interview_score = None
-    if latest_session and latest_session.overall_score is not None:
-        interview_score = float(latest_session.overall_score) / 100.0
+        if latest_session and latest_session.overall_score is not None:
+            interview_score = float(latest_session.overall_score) / 100.0
 
     # 3. Scoring Tier 1: TF-IDF Skill Match
     tfidf_score = tfidf_scorer.score(user_skills, job.id)
@@ -146,13 +148,35 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
         logger.warning("No active jobs to recommend.")
         return {"job_recommendations": []}
 
-    # 2. Setup Scorer Engines
+    # 2. Setup Scorer Engines and precompute/cache data
     embedder = Embedder(db)
     tfidf_scorer = get_tfidf_scorer(db, active_jobs)
     semantic_scorer = SemanticScorer(embedder)
+    
     personalization_scorer = PersonalizationScorer(db)
+    personalization_scorer.preload_preferences(applicant_id)
+    
     temporal_scorer = TemporalScorer()
     document_scorer = DocumentScorer(embedder)
+
+    # Query Interview Score once outside the loop
+    from ..db import InterviewSession
+    latest_session = db.query(InterviewSession).filter(
+        InterviewSession.applicant_id == applicant.id,
+        InterviewSession.status == "completed"
+    ).order_by(InterviewSession.completed_at.desc()).first()
+
+    interview_score = None
+    if latest_session and latest_session.overall_score is not None:
+        interview_score = float(latest_session.overall_score) / 100.0
+
+    # Batch query JobRecommendation entries
+    job_ids = [job.id for job in active_jobs]
+    existing_recs_list = db.query(JobRecommendation).filter(
+        JobRecommendation.applicant_id == applicant_id,
+        JobRecommendation.job_id.in_(job_ids)
+    ).all()
+    existing_recs_lookup = {rec.job_id: rec for rec in existing_recs_list}
 
     scored_jobs = []
 
@@ -168,7 +192,8 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
                 semantic_scorer=semantic_scorer,
                 personalization_scorer=personalization_scorer,
                 temporal_scorer=temporal_scorer,
-                document_scorer=document_scorer
+                document_scorer=document_scorer,
+                interview_score=interview_score
             )
             score_percent = breakdown["final_score"] * 100
             scored_jobs.append((job, breakdown, score_percent))
@@ -184,11 +209,8 @@ def compute_recommendations(applicant_id: int, db: Session) -> dict:
 
     for i, (job, breakdown, score_percent) in enumerate(scored_jobs):
         try:
-            # Retrieve existing record if present to inspect cached explanations
-            existing_rec = db.query(JobRecommendation).filter(
-                JobRecommendation.applicant_id == applicant_id,
-                JobRecommendation.job_id == job.id
-            ).first()
+            # Retrieve existing record from pre-fetched lookup
+            existing_rec = existing_recs_lookup.get(job.id)
 
             explanation = None
             explanation_source = None
@@ -296,8 +318,10 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
         logger.warning(f"Skipping backfill: job_id={job_id} not approved or missing.")
         return
 
-    # Find candidates with parsed records
-    applicants = db.query(Applicant).join(LLMParsedRecord).all()
+    # Find candidates with parsed records, eagerly loading parsed_record
+    applicants = db.query(Applicant).options(
+        joinedload(Applicant.parsed_record)
+    ).join(LLMParsedRecord).all()
     if not applicants:
         return
 
@@ -311,9 +335,33 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
     embedder = Embedder(db)
     tfidf_scorer = get_tfidf_scorer(db, active_jobs)
     semantic_scorer = SemanticScorer(embedder)
+    
+    applicant_ids = [app.id for app in applicants]
+    
     personalization_scorer = PersonalizationScorer(db)
+    personalization_scorer.preload_preferences_batch(applicant_ids)
+    
     temporal_scorer = TemporalScorer()
     document_scorer = DocumentScorer(embedder)
+
+    # Batch query InterviewSession entries to prevent N+1 queries in run_pipeline_for_applicant_job
+    from ..db import InterviewSession
+    latest_sessions = db.query(InterviewSession).filter(
+        InterviewSession.applicant_id.in_(applicant_ids),
+        InterviewSession.status == "completed"
+    ).all()
+    
+    interview_scores = {}
+    for sess in sorted(latest_sessions, key=lambda s: s.completed_at or datetime.datetime.min):
+        if sess.overall_score is not None:
+            interview_scores[sess.applicant_id] = float(sess.overall_score) / 100.0
+
+    # Batch query JobRecommendation entries for this job across all applicants
+    existing_recs_list = db.query(JobRecommendation).filter(
+        JobRecommendation.job_id == job.id,
+        JobRecommendation.applicant_id.in_(applicant_ids)
+    ).all()
+    existing_recs_lookup = {rec.applicant_id: rec for rec in existing_recs_list}
 
     scored_applicants = []
 
@@ -328,7 +376,8 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
                 semantic_scorer=semantic_scorer,
                 personalization_scorer=personalization_scorer,
                 temporal_scorer=temporal_scorer,
-                document_scorer=document_scorer
+                document_scorer=document_scorer,
+                interview_score=interview_scores.get(applicant.id)
             )
             score_percent = breakdown["final_score"] * 100
             scored_applicants.append((applicant, breakdown, score_percent))
@@ -348,10 +397,7 @@ def compute_recommendations_for_new_job(job_id: int, db: Session) -> None:
         for idx, (applicant, breakdown, score_percent) in enumerate(batch):
             i = batch_start + idx
             try:
-                existing_rec = db.query(JobRecommendation).filter(
-                    JobRecommendation.applicant_id == applicant.id,
-                    JobRecommendation.job_id == job.id
-                ).first()
+                existing_rec = existing_recs_lookup.get(applicant.id)
 
                 explanation = None
                 explanation_source = None

@@ -1,0 +1,54 @@
+# Architecture Overview
+
+This page summarizes the overall monorepo structure, detailing how the backend and frontend components interface with each other and the database.
+
+---
+
+## Monorepo Layout
+
+The repository is structured as follows:
+
+- **`docs_wiki/`**: Reorganized project documentation portal.
+- **`deploy/`**: Docker Compose configuration and production environment configurations.
+- **`frontend/`**: Single Page Application (SPA) built with React 18 and Vite 5.
+- **`resume_pipeline/`**: REST API backend built with FastAPI (Python 3.11).
+- **`data/raw_files/`**: Local filesystem storage holding uploaded applicant resumes and parsing metadata.
+
+---
+
+## Technical Stack & Component Interaction
+
+```mermaid
+graph TD
+    Client[React Frontend /frontend] -->|REST API over HTTPS| API[FastAPI Backend /resume_pipeline]
+    API -->|LLM / Parsing / Scoring| Gemini[Google Gemini API]
+    API -->|Audit logs & Profiles| PostgreSQL[(PostgreSQL / Supabase)]
+    API -->|Local File Cache| Disk[File Storage /data/raw_files]
+```
+
+### 1. Backend (`resume_pipeline/`)
+The FastAPI application implements a standard model-schema-repository architecture:
+- **`app.py`**: Declares REST endpoints, CORS policies, rate limits, and routes.
+- **`db.py`**: Defines the SQLAlchemy database classes (18 database tables).
+- **`config.py`**: Reads configuration variables from the environment and local `.env` files.
+- **`repos/`**: Implements repositories to query PostgreSQL database tables using SQLAlchemy.
+
+### 2. Frontend (`frontend/`)
+The React application acts as the client-facing user interface:
+- Communicates with the FastAPI backend using **Axios**.
+- Incorporates **Framer Motion** for smooth animated transitions.
+- Utilizes **Tailwind CSS** for layout styling.
+
+### 3. Database Layer
+Uses SQLAlchemy models to communicate with PostgreSQL. In production, this targets **Supabase** instances region-pooled via region-specific connection hosts.
+
+---
+
+## Deep Dives
+
+For further details on specific architectural components:
+- **[System Architecture details](ARCHITECTURE.md)**
+- **[Database Schemas and tables](DATABASE.md)**
+- **[Interview Prep simulator](INTERVIEW_SYSTEM_ARCHITECTURE.md)**
+- **[Learning Path engine](LEARNING_PATH_ARCHITECTURE.md)**
+- **[Live real-time WebSockets connection layer](LIVE_INTERVIEW_ARCHITECTURE.md)**

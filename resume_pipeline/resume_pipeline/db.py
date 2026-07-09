@@ -26,9 +26,9 @@ except ImportError:
         stacklevel=1,
     )
 
-# Gemini text-embedding-004 outputs 3072-dimensional vectors.
-# Helper: use Vector(3072) if pgvector is available, else fall back to JSON.
-GEMINI_EMBEDDING_DIM = 3072
+# Gemini text-embedding-004 outputs 1536-dimensional vectors.
+# Helper: use Vector(1536) if pgvector is available, else fall back to JSON.
+GEMINI_EMBEDDING_DIM = 1536
 
 def _vector_column(dim: int = GEMINI_EMBEDDING_DIM) -> Column:
     if _PGVECTOR_AVAILABLE and _PGVector is not None:
@@ -156,7 +156,7 @@ class ApplicantEmbedding(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
-    embedding_vector = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(3072) via pgvector
+    embedding_vector = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(1536) via pgvector
     embedding_provider = Column(String(32), nullable=True)
     embedding_model = Column(String(128), nullable=True)
     source_hash = Column(String(64), nullable=True, index=True)
@@ -176,7 +176,7 @@ class JobEmbedding(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(Integer, ForeignKey('jobs.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
-    embedding_vector = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(3072) via pgvector
+    embedding_vector = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(1536) via pgvector
     embedding_provider = Column(String(32), nullable=True)
     embedding_model = Column(String(128), nullable=True)
     source_hash = Column(String(64), nullable=True, index=True)
@@ -191,7 +191,8 @@ class JobEmbeddingsCache(Base):
     __tablename__ = 'job_embeddings_cache'
 
     job_id = Column(Integer, ForeignKey('jobs.id', ondelete='CASCADE'), primary_key=True)
-    embedding = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(3072) via pgvector
+    source_hash = Column(String(64), primary_key=True, default="")
+    embedding = _vector_column(GEMINI_EMBEDDING_DIM)  # vector(1536) via pgvector
     computed_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     job = relationship('Job')
@@ -703,6 +704,87 @@ class ResumeParsed(Base):
     provenance = Column(JSON)
     flags = Column(JSON)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+# ============================================================
+# NETWORKING / MENTORSHIP TABLES
+# ============================================================
+
+class Mentor(Base):
+    __tablename__ = 'mentors'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, unique=True, index=True)
+    bio = Column(Text, nullable=True)
+    company = Column(String(200), nullable=False)
+    role = Column(String(200), nullable=False)
+    alumni_year = Column(String(50), nullable=True)
+    status = Column(String(100), default='Available')
+    skills = Column(JSON, nullable=True)  # JSON list of strings
+    match_score = Column(Integer, default=85)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationships
+    user = relationship('User')
+
+
+class MentorRequest(Base):
+    __tablename__ = 'mentor_requests'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    mentor_id = Column(Integer, ForeignKey('mentors.id', ondelete='CASCADE'), nullable=False, index=True)
+    message = Column(Text, nullable=True)
+    status = Column(Enum('pending', 'accepted', 'declined', name='mentor_request_status'), default='pending', index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationships
+    student = relationship('Applicant')
+    mentor = relationship('Mentor')
+
+
+# ============================================================
+# EMPLOYER INTERVIEW SCHEDULING / FEEDBACK TABLES
+# ============================================================
+
+class InterviewSchedule(Base):
+    __tablename__ = 'interview_schedules'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    employer_id = Column(Integer, ForeignKey('employers.id', ondelete='CASCADE'), nullable=False, index=True)
+    job_id = Column(Integer, ForeignKey('jobs.id', ondelete='SET NULL'), nullable=True, index=True)
+    interview_type = Column(String(50), nullable=False)  # technical | screening | system | culture
+    format = Column(String(50), default='video')         # video | in-person | phone
+    duration = Column(Integer, default=60)                # minutes
+    date_time = Column(DateTime, nullable=False)
+    interviewers = Column(JSON, nullable=True)            # JSON list of interviewer names/emails
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationships
+    applicant = relationship('Applicant')
+    employer = relationship('Employer')
+    job = relationship('Job')
+
+
+class InterviewFeedback(Base):
+    __tablename__ = 'interview_feedbacks'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    interview_schedule_id = Column(Integer, ForeignKey('interview_schedules.id', ondelete='SET NULL'), nullable=True, index=True)
+    applicant_id = Column(Integer, ForeignKey('applicants.id', ondelete='CASCADE'), nullable=False, index=True)
+    employer_id = Column(Integer, ForeignKey('employers.id', ondelete='CASCADE'), nullable=False, index=True)
+    scores = Column(JSON, nullable=False)                # JSON object with category ratings
+    behavioral_fit_notes = Column(Text, nullable=True)
+    justification_notes = Column(Text, nullable=True)
+    decision = Column(Enum('advance', 'hold', 'reject', name='hiring_decision'), default='hold', index=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationships
+    interview_schedule = relationship('InterviewSchedule')
+    applicant = relationship('Applicant')
+    employer = relationship('Employer')
 
 
 # ============================================================

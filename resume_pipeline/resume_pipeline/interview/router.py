@@ -5,7 +5,7 @@ All interview endpoints. Registered in app.py via include_router.
 import logging
 import uuid
 import json
-from typing import Optional, List, AsyncGenerator
+from typing import Optional, List, AsyncGenerator, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, File, UploadFile
 from fastapi.responses import StreamingResponse
@@ -458,10 +458,12 @@ def get_results(
 
 async def _stream_cached_plan(plan_text: str) -> AsyncGenerator[str, None]:
     """Yield cached study plan in small chunks to simulate streaming animation quickly."""
+    import asyncio
     chunk_size = 120
     for i in range(0, len(plan_text), chunk_size):
         chunk = plan_text[i:i+chunk_size]
         yield f"data: {json.dumps({'token': chunk})}\n\n"
+        await asyncio.sleep(0.005)
     yield "data: [DONE]\n\n"
 
 
@@ -884,6 +886,34 @@ def finish_interview(
 # GET /api/interview/skill-gap-analysis/{session_id}  — SSE stream
 # ---------------------------------------------------------------------------
 
+async def run_generator_in_thread(sync_gen) -> AsyncGenerator[Any, None]:
+    """Utility to run a synchronous generator in a background thread and yield asynchronously."""
+    import queue
+    import asyncio
+    q = queue.Queue(maxsize=10)
+    loop = asyncio.get_running_loop()
+
+    def producer():
+        try:
+            for item in sync_gen:
+                q.put(item)
+        except Exception as e:
+            q.put(e)
+        finally:
+            q.put(None)
+
+    # Offload the synchronous iteration to the thread pool executor (without awaiting)
+    loop.run_in_executor(None, producer)
+
+    while True:
+        item = await asyncio.to_thread(q.get)
+        if item is None:
+            break
+        if isinstance(item, Exception):
+            raise item
+        yield item
+
+
 async def _stream_skill_gap_analysis(
     session_id: str,
     experience_level: str,
@@ -916,7 +946,7 @@ async def _stream_skill_gap_analysis(
             stream=True
         )
         
-        for chunk in stream:
+        async for chunk in run_generator_in_thread(stream):
             delta = chunk.choices[0].delta.content
             if delta:
                 accumulated_tokens.append(delta)

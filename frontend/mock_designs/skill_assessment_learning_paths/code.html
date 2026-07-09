@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CareerSync AI - Student Portal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;700&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-tertiary": "#ffffff",
+                      "on-primary-fixed-variant": "#024493",
+                      "surface-container-highest": "#e0e3e8",
+                      "error": "#f43f5e",
+                      "on-tertiary-fixed": "#001a42",
+                      "on-error": "#ffffff",
+                      "surface": "#f7f9ff",
+                      "secondary-fixed": "#d9e2ff",
+                      "surface-muted": "#f8f9fa",
+                      "surface-variant": "#e0e3e8",
+                      "on-primary": "#ffffff",
+                      "background": "#f7f9ff",
+                      "secondary-container": "#b8cbfe",
+                      "on-surface-variant": "#434751",
+                      "on-surface": "#181c20",
+                      "surface-container-lowest": "#ffffff",
+                      "primary-container": "#2557a7",
+                      "on-tertiary-fixed-variant": "#004395",
+                      "inverse-primary": "#adc6ff",
+                      "tertiary": "#003f8b",
+                      "primary-fixed-dim": "#adc6ff",
+                      "surface-container-high": "#e5e8ee",
+                      "on-secondary-fixed": "#021a43",
+                      "inverse-on-surface": "#eef1f6",
+                      "tertiary-fixed": "#d8e2ff",
+                      "surface-dim": "#d7dadf",
+                      "on-tertiary-container": "#bcd0ff",
+                      "warning": "#f59e0b",
+                      "primary-fixed": "#d8e2ff",
+                      "on-secondary": "#ffffff",
+                      "on-secondary-container": "#425581",
+                      "success": "#10b981",
+                      "tertiary-container": "#0055b8",
+                      "surface-container": "#ebeef3",
+                      "primary": "#003f8b",
+                      "tertiary-fixed-dim": "#adc6ff",
+                      "surface-tint": "#2c5cad",
+                      "inverse-surface": "#2d3135",
+                      "outline": "#737783",
+                      "secondary": "#4b5e8a",
+                      "on-secondary-fixed-variant": "#334670",
+                      "on-primary-fixed": "#001a41",
+                      "on-background": "#181c20",
+                      "surface-container-low": "#f1f4f9",
+                      "secondary-fixed-dim": "#b3c6f8",
+                      "on-error-container": "#93000a",
+                      "outline-variant": "#c3c6d3",
+                      "error-container": "#ffdad6",
+                      "interactive-purple": "#a855f7",
+                      "surface-bright": "#f7f9ff",
+                      "border-subtle": "#e9ecef",
+                      "on-primary-container": "#bdd0ff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "base": "4px",
+                      "xs": "4px",
+                      "container-max": "1280px",
+                      "xl": "32px",
+                      "sm": "8px",
+                      "md": "16px",
+                      "lg": "24px",
+                      "gutter": "16px",
+                      "margin-mobile": "16px",
+                      "margin-desktop": "32px"
+              },
+              "fontFamily": {
+                      "display-lg-mobile": ["Hanken Grotesk"],
+                      "label-caps": ["JetBrains Mono"],
+                      "display-lg": ["Hanken Grotesk"],
+                      "headline-md": ["Hanken Grotesk"],
+                      "body-bold": ["Inter"],
+                      "metadata": ["Inter"],
+                      "body-base": ["Inter"]
+              },
+              "fontSize": {
+                      "display-lg-mobile": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                      "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                      "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                      "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                      "body-bold": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                      "metadata": ["13px", { "lineHeight": "18px", "fontWeight": "500" }],
+                      "body-base": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+              }
+            }
+          }
+        }
+      </script>
+<style>
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(233, 236, 239, 0.8);
+        }
+        .ai-shimmer {
+            background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .pulse-border {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(37, 87, 167, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(37, 87, 167, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(37, 87, 167, 0); }
+        }
+      </style>
+</head>
+<body class="bg-background text-on-background font-body-base min-h-screen flex flex-col">
+<!-- TopNavBar (Web) -->
+<nav class="hidden md:block bg-surface-container-lowest text-primary font-body-base border-b border-subtle shadow-sm docked full-width top-0 w-full z-40 relative">
+<div class="flex justify-between items-center w-full px-margin-desktop max-w-container-max mx-auto h-16">
+<div class="flex items-center gap-lg">
+<span class="text-headline-md font-headline-md text-primary tracking-tight">CareerSync AI</span>
+<div class="flex gap-md items-center ml-lg">
+<a class="text-primary border-b-2 border-primary pb-1 font-body-bold" href="#">Resources</a>
+<a class="text-on-surface-variant font-body-base hover:text-primary transition-colors duration-200" href="#">Dashboard</a>
+<a class="text-on-surface-variant font-body-base hover:text-primary transition-colors duration-200" href="#">Jobs</a>
+<a class="text-on-surface-variant font-body-base hover:text-primary transition-colors duration-200" href="#">Messages</a>
+</div>
+</div>
+<div class="flex items-center gap-md">
+<div class="relative">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-error rounded-full"></span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary">help</span>
+<button class="bg-primary-container text-on-primary-container hover:bg-primary hover:text-on-primary font-body-bold py-2 px-4 rounded-lg transition-colors duration-200 active:scale-95">
+                    Upload Resume
+                </button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-subtle">
+<img alt="User Profile" class="w-full h-full object-cover" data-alt="A professional portrait of a young student in a well-lit, modern study environment, signifying readiness for a career. Bright, soft white lighting with a high-end corporate minimalist aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJ4lWCY7hWNuU1tjW3mK4nWIPFCJWrSKEWx1Pax3B5tJlxLrCmsEGmimE74Gc29mOgwU3bscLIHl3NW7BaCZwtl3oalzyD_jgdxyL90iD8JVfgvd48_SBFn1Yzcd1fXLVkf85ip31f3bUQjpr3Mx5he6fBboSA37HE8aXzgvd2tkeePp9BI_qcYT7m9IIP6IRPpdGXy3gCjwAwJcJtovj6UTzV5G8-APKgTKt6ZoB3sYaumQUkCyrr7rNbVuijwgDc-XAjrMkzqSk"/>
+</div>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-grow w-full px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto py-xl flex flex-col md:flex-row gap-lg md:gap-xl pb-24 md:pb-xl">
+<!-- Primary Content Pane (70%) -->
+<div class="w-full md:w-[70%] flex flex-col gap-xl">
+<!-- Header Section -->
+<section class="flex flex-col gap-sm">
+<div class="flex items-center gap-sm mb-2">
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container rounded font-label-caps text-label-caps flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">psychology</span>
+                        AI RECOMMENDATIONS ACTIVE
+                    </span>
+</div>
+<h1 class="font-display-lg-mobile md:font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface">Your Learning Path</h1>
+<p class="font-body-base text-body-base text-on-surface-variant max-w-2xl">Based on your recent resume analysis, we've structured a personalized curriculum to bridge your skill gaps for <strong>Data Science</strong> roles.</p>
+</section>
+<!-- Bento Grid: Next Steps & Quizzes -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+<!-- Priority Action Card -->
+<div class="glass-panel rounded-xl p-lg flex flex-col gap-md relative overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
+<div class="absolute top-0 left-0 w-full h-1 bg-warning"></div>
+<div class="flex justify-between items-start">
+<div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">quiz</span>
+</div>
+<span class="font-metadata text-metadata text-on-surface-variant">Priority</span>
+</div>
+<div>
+<h3 class="font-body-bold text-body-bold text-on-surface">Python Data Structures Quiz</h3>
+<p class="font-metadata text-metadata text-on-surface-variant mt-1">Estimated time: 15 mins</p>
+</div>
+<p class="font-body-base text-body-base text-on-surface-variant line-clamp-2">Test your knowledge on dictionaries, lists, and sets to unlock advanced machine learning modules.</p>
+<div class="mt-auto pt-md">
+<button class="w-full py-2 bg-primary-container text-on-primary-container font-body-bold rounded-lg hover:bg-primary hover:text-on-primary transition-colors">Start Assessment</button>
+</div>
+</div>
+<!-- Progress/Metric Card -->
+<div class="bg-surface-container-lowest rounded-xl p-lg border border-subtle flex flex-col gap-md shadow-sm">
+<div class="flex justify-between items-center">
+<span class="font-body-bold text-body-bold text-on-surface">Cloud Architecture</span>
+<span class="material-symbols-outlined text-success">verified</span>
+</div>
+<div class="flex items-end gap-2 mt-auto">
+<span class="font-label-caps text-[48px] leading-none text-primary pulse-border rounded-full p-1">68%</span>
+<span class="font-metadata text-metadata text-on-surface-variant pb-2">Readiness Score</span>
+</div>
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[68%] rounded-full relative">
+<div class="absolute inset-0 ai-shimmer"></div>
+</div>
+</div>
+<p class="font-metadata text-metadata text-on-surface-variant mt-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-warning">trending_up</span>
+                         +12% since last assessment
+                     </p>
+</div>
+</section>
+<!-- Recommended Courses List -->
+<section class="flex flex-col gap-md">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-sm">Recommended Modules</h2>
+<div class="flex flex-col gap-sm">
+<!-- Course Item 1 -->
+<div class="bg-surface-container-lowest border border-subtle rounded-xl p-md flex flex-col md:flex-row items-start md:items-center gap-md hover:border-primary transition-colors group">
+<div class="flex items-center gap-md w-full md:w-auto flex-grow">
+<div class="w-16 h-16 rounded-lg bg-surface-variant flex items-center justify-center text-primary overflow-hidden flex-shrink-0">
+<img alt="Course Thumbnail" class="w-full h-full object-cover" data-alt="A stylized abstract representation of a neural network or machine learning concept, using clean lines and nodes on a light blue background. Corporate modern minimalism." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1Df71b1_j7eqV2ko6rJphe-MDJ3NtvJx-YKFOwSai2Nct-3MyW840yCq_Ex4esx7UJLJGl-rr8bEioUik50p4UuHI2yS4S42JzsxVpvZ95sk7n_RZA_2mnclhnQVLkWHsoNwYc6SELMiZWK7AANbcT29c3TZkSgBW4d43j5nHNJ0y3oaoXeIJdeH4fqspbGYv22bbGt80whgWysxiJZk7kdllmCEgwxQ2uvZstQqvxTO3jP5dLqMH18B6xA6rRQK1OgwsT_T_0Uw"/>
+</div>
+<div class="flex flex-col">
+<h4 class="font-body-bold text-body-bold text-on-surface group-hover:text-primary transition-colors">Intro to Neural Networks</h4>
+<span class="font-metadata text-metadata text-on-surface-variant flex items-center gap-2 mt-1">
+<span class="px-2 py-0.5 bg-surface-container-highest rounded text-on-surface-variant">Advanced</span>
+<span>Est: 2 hours</span>
+</span>
+</div>
+</div>
+<div class="flex items-center gap-md w-full md:w-auto justify-between md:justify-end mt-sm md:mt-0">
+<div class="hidden md:flex gap-2">
+<span class="px-2 py-1 bg-surface-container-highest text-on-surface-variant rounded font-metadata text-metadata">TensorFlow</span>
+</div>
+<button class="bg-primary-container text-on-primary-container font-body-bold py-1.5 px-4 rounded-lg hover:bg-primary hover:text-on-primary transition-colors text-sm whitespace-nowrap">
+        Start Assessment
+    </button>
+</div>
+</div>
+<!-- Course Item 2 -->
+<div class="bg-surface-container-lowest border border-subtle rounded-xl p-md flex flex-col md:flex-row items-start md:items-center gap-md hover:border-primary transition-colors group">
+<div class="flex items-center gap-md w-full md:w-auto flex-grow">
+<div class="w-16 h-16 rounded-lg bg-surface-variant flex items-center justify-center text-primary overflow-hidden flex-shrink-0">
+<span class="material-symbols-outlined text-[32px]">database</span>
+</div>
+<div class="flex flex-col">
+<h4 class="font-body-bold text-body-bold text-on-surface group-hover:text-primary transition-colors">Advanced SQL for Analytics</h4>
+<span class="font-metadata text-metadata text-on-surface-variant flex items-center gap-2 mt-1">
+<span class="px-2 py-0.5 bg-surface-container-highest rounded text-on-surface-variant">Intermediate</span>
+<span>Est: 1.5 hours</span>
+</span>
+</div>
+</div>
+<div class="flex items-center gap-md w-full md:w-auto justify-between md:justify-end mt-sm md:mt-0">
+<div class="hidden md:flex gap-2">
+<span class="px-2 py-1 bg-surface-container-highest text-on-surface-variant rounded font-metadata text-metadata">PostgreSQL</span>
+</div>
+<button class="bg-primary-container text-on-primary-container font-body-bold py-1.5 px-4 rounded-lg hover:bg-primary hover:text-on-primary transition-colors text-sm whitespace-nowrap">
+        Start Assessment
+    </button>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Sidebar / Utilities (30%) -->
+<aside class="w-full md:w-[30%] flex flex-col gap-lg">
+<!-- AI Coach Profile Area -->
+<div class="bg-surface-container-low rounded-xl p-lg border border-subtle flex flex-col items-center text-center shadow-sm">
+<div class="w-20 h-20 rounded-full bg-secondary-container flex items-center justify-center mb-md relative">
+<span class="material-symbols-outlined text-[40px] text-on-secondary-container">smart_toy</span>
+<span class="absolute bottom-0 right-0 w-4 h-4 bg-success rounded-full border-2 border-surface-container-low"></span>
+</div>
+<h3 class="font-body-bold text-body-bold text-on-surface">AI Career Coach</h3>
+<p class="font-metadata text-metadata text-on-surface-variant mt-1 mb-md">Analyzing your progress...</p>
+<button class="w-full py-2 bg-surface-container-lowest border border-outline-variant text-on-surface font-body-bold rounded-lg hover:bg-surface-container transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">chat</span>
+                    Ask for Advice
+                </button>
+</div>
+<!-- Certification Tracker -->
+<div class="bg-surface-container-lowest rounded-xl p-md border border-subtle shadow-sm flex flex-col gap-md">
+<h4 class="font-body-bold text-body-bold text-on-surface flex items-center justify-between">
+                    Upcoming Certifications
+                    <span class="material-symbols-outlined text-outline text-[18px]">workspace_premium</span>
+</h4>
+<div class="flex flex-col gap-sm">
+<div class="flex flex-col gap-1">
+<div class="flex justify-between font-metadata text-metadata">
+<span class="text-on-surface">AWS Cloud Practitioner</span>
+<span class="text-primary font-bold">85%</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full">
+<div class="bg-primary h-full w-[85%] rounded-full"></div>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<div class="flex justify-between font-metadata text-metadata">
+<span class="text-on-surface">Data Science Professional</span>
+<span class="text-primary font-bold">40%</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full">
+<div class="bg-primary h-full w-[40%] rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</main>
+<!-- BottomNavBar (Mobile) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 bg-surface-container-lowest border-t border-subtle shadow-lg rounded-t-xl">
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-metadata text-metadata">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all" href="#">
+<span class="material-symbols-outlined">search</span>
+<span class="font-metadata text-metadata">Jobs</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1 active:scale-90 transition-all" href="#">
+<span class="material-symbols-outlined">smart_toy</span>
+<span class="font-metadata text-metadata">AI Coach</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-metadata text-metadata">Profile</span>
+</a>
+</nav>
+</body></html>

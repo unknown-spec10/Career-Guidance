@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
 import { 
   Shield, Briefcase, CheckCircle, XCircle, 
   Clock, AlertTriangle, TrendingUp, Search, Coins, Plus, Minus, X,
@@ -11,6 +12,34 @@ import api from '../config/api'
 import { ANIMATION_DELAYS } from '../config/constants'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+
+const jobMarkdownComponents = {
+  h1: ({ children }) => <h1 className="text-sm font-bold text-slate-900 dark:text-white mb-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-sm font-bold text-slate-900 dark:text-white mb-2">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1.5">{children}</h3>,
+  p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-inherit">{children}</p>,
+  ul: ({ children }) => <ul className="mb-2 ml-4 space-y-1 list-disc text-inherit">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 ml-4 space-y-1 list-decimal text-inherit">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed pl-1">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-slate-900 dark:text-white">{children}</strong>,
+  code: ({ inline, children }) => {
+    if (inline) {
+      return <code className="bg-slate-100 dark:bg-slate-800 text-primary-700 dark:text-primary-400 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-mono text-[10px]">{children}</code>
+    }
+
+    return (
+      <pre className="bg-slate-950 text-slate-100 p-3 rounded-xl overflow-x-auto text-[10px] leading-relaxed border border-slate-800 mb-2">
+        <code>{children}</code>
+      </pre>
+    )
+  },
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:text-primary-700 underline font-semibold">
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-200 dark:border-primary-800 pl-3 italic text-slate-600 dark:text-slate-400 mb-2">{children}</blockquote>,
+}
 
 export default function AdminReviewsPage() {
   const navigate = useNavigate()
@@ -26,8 +55,17 @@ export default function AdminReviewsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
-  const [applicantQuery, setApplicantQuery] = useState('')
-  const [applicants, setApplicants] = useState([])
+  // User Management State
+  const [users, setUsers] = useState([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersTotal, setUsersTotal] = useState(0)
+  const [userSearchQuery, setUserSearchQuery] = useState('')
+  const [userRoleFilter, setUserRoleFilter] = useState('all')
+  const [userStatusFilter, setUserStatusFilter] = useState('all')
+  const [selectedUser, setSelectedUser] = useState(null)
+  const [selectedUserActivity, setSelectedUserActivity] = useState([])
+  const [selectedUserActivityLoading, setSelectedUserActivityLoading] = useState(false)
+
   const [allJobs, setAllJobs] = useState([])
   const [allJobsLoading, setAllJobsLoading] = useState(false)
   const [jobQuery, setJobQuery] = useState('')
@@ -62,6 +100,7 @@ export default function AdminReviewsPage() {
   const [systemHealthLoading, setSystemHealthLoading] = useState(false)
   const [systemHealthActionLoading, setSystemHealthActionLoading] = useState(null)
   const [llmResetLoading, setLlmResetLoading] = useState(false)
+  const [hoveredBar, setHoveredBar] = useState(null)
 
   // Candidate Mock Practice & Supervision
   const [applicantSessions, setApplicantSessions] = useState([])
@@ -73,7 +112,6 @@ export default function AdminReviewsPage() {
   useEffect(() => {
     fetchOverviewStats()
     fetchPendingReviews()
-    fetchApplicants()
     fetchAllJobs()
   }, [])
 
@@ -84,8 +122,10 @@ export default function AdminReviewsPage() {
       fetchPendingResumeReviews()
     } else if (activeTab === 'system-health') {
       fetchSystemHealth()
+    } else if (activeTab === 'users') {
+      fetchUsers()
     }
-  }, [activeTab])
+  }, [activeTab, userRoleFilter, userStatusFilter, userSearchQuery])
 
   useEffect(() => {
     const tab = searchParams.get('tab') || 'overview'
@@ -101,14 +141,70 @@ export default function AdminReviewsPage() {
     }
   }
 
-  const fetchApplicants = async () => {
+  const fetchUsers = async () => {
     try {
-      const response = await api.get('/api/applicants?limit=200')
-      const list = response.data?.applicants || []
-      setApplicants(list)
+      setUsersLoading(true)
+      let activeVal = undefined
+      if (userStatusFilter === 'active') activeVal = true
+      if (userStatusFilter === 'suspended') activeVal = false
+      
+      const params = new URLSearchParams()
+      if (userRoleFilter && userRoleFilter !== 'all') params.append('role', userRoleFilter)
+      if (activeVal !== undefined) params.append('is_active', String(activeVal))
+      if (userSearchQuery) params.append('search', userSearchQuery)
+      params.append('limit', '100')
+      
+      const response = await api.get(`/api/admin/users?${params.toString()}`)
+      const list = response.data?.users || []
+      setUsers(list)
+      setUsersTotal(response.data?.total || list.length)
+      
+      // Auto-select first user if none selected
+      if (list.length > 0 && !selectedUser) {
+        handleSelectUser(list[0])
+      }
     } catch (err) {
-      // Keep review page usable even if applicants lookup fails.
-      setApplicants([])
+      toast.error('Failed to fetch users list')
+      setUsers([])
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
+  const fetchUserActivity = async (userId) => {
+    try {
+      setSelectedUserActivityLoading(true)
+      const response = await api.get(`/api/admin/users/${userId}/activity`)
+      setSelectedUserActivity(response.data || [])
+    } catch (err) {
+      setSelectedUserActivity([])
+    } finally {
+      setSelectedUserActivityLoading(false)
+    }
+  }
+
+  const handleSelectUser = async (user) => {
+    setSelectedUser(user)
+    setSelectedUserActivity([])
+    
+    // Fetch activity log
+    fetchUserActivity(user.id)
+    
+    // If student, delegate to handleSelectApplicant
+    if (user.role === 'student' && user.db_applicant_id) {
+      const applicant = {
+        id: user.db_applicant_id,
+        applicant_id: user.applicant_id,
+        display_name: user.name || user.email,
+        user_id: user.id,
+        is_active: user.is_active
+      }
+      handleSelectApplicant(applicant)
+    } else {
+      setSelectedApplicant(null)
+      setSelectedApplicantCredits(null)
+      setApplicantSessions([])
+      setApplicantIntelligence(null)
     }
   }
 
@@ -297,13 +393,6 @@ export default function AdminReviewsPage() {
     }
   }
 
-  const filteredApplicants = applicants.filter((applicant) => {
-    const query = applicantQuery.trim().toLowerCase()
-    if (!query) return true
-    const name = (applicant.display_name || '').toLowerCase()
-    const applicantId = (applicant.applicant_id || '').toLowerCase()
-    return name.includes(query) || applicantId.includes(query) || String(applicant.id).includes(query)
-  })
 
   const handleCreditAdjustment = async () => {
     if (!selectedApplicant) {
@@ -590,35 +679,25 @@ export default function AdminReviewsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pt-24 pb-12 relative overflow-hidden">
-      {/* Ambient background glows */}
-      <div className="pointer-events-none absolute left-1/4 top-10 h-96 w-96 rounded-full bg-gradient-to-br from-primary-400/10 to-indigo-300/10 blur-[100px]" />
-      <div className="pointer-events-none absolute right-1/4 top-40 h-96 w-96 rounded-full bg-gradient-to-br from-sky-400/10 to-emerald-300/10 blur-[100px]" />
-
+    <div className="relative text-on-surface dark:text-inverse-on-surface">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      <div className="max-w-container-max mx-auto">
         
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative mb-8 overflow-hidden rounded-3xl border border-white/80 bg-white/70 p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.04)] backdrop-blur-md"
+          className="mb-lg relative overflow-hidden rounded-xl border border-border-subtle dark:border-outline-variant/30 bg-white dark:bg-inverse-surface/5 p-6 shadow-sm"
         >
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/40 via-white/50 to-yellow-50/40 opacity-70" />
-          <div className="relative flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary-700 mb-4">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary mb-3">
                 <Shield className="w-3.5 h-3.5" />
                 Admin workspace
               </div>
-              <div className="flex items-center space-x-3 mb-2">
-                <Shield className="w-8 h-8 text-yellow-500 animate-pulse" />
-                <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-slate-800 to-primary-950">
-                    Admin Management
-                  </span>
-                </h1>
-              </div>
-              <p className="text-gray-600 max-w-xl">One place for overview, job moderation, and applicant management.</p>
+              <h1 className="font-display-lg text-display-lg text-on-surface dark:text-inverse-on-surface font-extrabold mb-1">
+                Admin Control Panel
+              </h1>
+              <p className="font-body-base text-body-base text-on-surface-variant dark:text-surface-variant">One place for overview diagnostics, job moderation, and applicant management.</p>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -632,7 +711,6 @@ export default function AdminReviewsPage() {
               </div>
             </div>
           </div>
-
         </motion.div>
 
         {activeTab === 'overview' && (
@@ -781,249 +859,381 @@ export default function AdminReviewsPage() {
             </motion.div>
           )}
 
-          {/* Applicant Management */}
-          {activeTab === 'applicants' && (
+          {/* User Management Tab (replaces applicants) */}
+          {activeTab === 'users' && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 5 }}
-              className="border border-slate-100 bg-white/90 backdrop-blur-sm rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
+              className="border border-slate-100 dark:border-outline-variant/30 bg-white/90 dark:bg-inverse-surface/90 backdrop-blur-sm rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
             >
               <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-primary-500" />
-                  <span>All Applicants</span>
-                </h2>
-                <p className="text-xs font-semibold text-slate-400">Search applicants and manage credits from one place.</p>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary-500 animate-pulse" />
+                    <span>User Management Center</span>
+                  </h2>
+                  <p className="text-xs font-semibold text-slate-400 mt-1">Audit registry accounts, filter by roles, manage credit allocations, and toggle portal suspensions.</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/40 p-4 lg:col-span-1">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Search Applicant</label>
-                  <div className="relative mb-3">
-                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      value={applicantQuery}
-                      onChange={(e) => setApplicantQuery(e.target.value)}
-                      placeholder="Name, applicant_id, or DB id"
-                      className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
-                    />
+                {/* Left Panel: Search & User List */}
+                <div className="rounded-2xl border border-slate-100 dark:border-outline-variant/20 bg-slate-50/40 dark:bg-inverse-surface/10 p-4 lg:col-span-1 flex flex-col gap-4">
+                  {/* Search Query */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Search Account</label>
+                    <div className="relative">
+                      <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={userSearchQuery}
+                        onChange={(e) => setUserSearchQuery(e.target.value)}
+                        placeholder="Email or display name"
+                        className="w-full bg-white dark:bg-inverse-surface border border-slate-200 dark:border-outline-variant rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm dark:text-white"
+                      />
+                    </div>
                   </div>
-                  <div className="max-h-52 overflow-auto border border-slate-200 rounded-2xl bg-white shadow-sm">
-                    {filteredApplicants.slice(0, 20).map((applicant) => (
-                      <button
-                        key={applicant.id}
-                        onClick={() => handleSelectApplicant(applicant)}
-                        className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors ${selectedApplicant?.id === applicant.id ? 'bg-primary-50/50' : 'hover:bg-slate-50'}`}
-                      >
-                        <p className="font-bold text-sm text-slate-800">{applicant.display_name || `Applicant #${applicant.id}`}</p>
-                        <p className="text-[10px] text-slate-400 font-semibold">{applicant.applicant_id || `DB ID: ${applicant.id}`}</p>
-                      </button>
-                    ))}
-                    {filteredApplicants.length === 0 && (
-                      <p className="px-4 py-4 text-xs font-semibold text-slate-400 text-center">No applicants found.</p>
+
+                  {/* Role filter */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Filter by Role</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['all', 'student', 'employer', 'admin'].map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => setUserRoleFilter(r)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-all active:scale-95 duration-150 border ${
+                            userRoleFilter === r
+                              ? 'bg-primary-container text-white border-primary-500 shadow-sm'
+                              : 'bg-white dark:bg-inverse-surface text-slate-600 dark:text-slate-350 border-slate-200 dark:border-outline-variant hover:bg-slate-50'
+                          }`}
+                        >
+                          {r === 'all' ? 'All Roles' : `${r}s`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Status filter */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Account Status</label>
+                    <div className="flex gap-1.5">
+                      {['all', 'active', 'suspended'].map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => setUserStatusFilter(s)}
+                          className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-all active:scale-95 duration-150 border ${
+                            userStatusFilter === s
+                              ? 'bg-primary-container text-white border-primary-500 shadow-sm'
+                              : 'bg-white dark:bg-inverse-surface text-slate-600 dark:text-slate-350 border-slate-200 dark:border-outline-variant hover:bg-slate-50'
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* User List Grid */}
+                  <div className="border border-slate-200 dark:border-outline-variant/20 rounded-2xl bg-white dark:bg-inverse-surface/40 shadow-sm overflow-hidden flex-1 max-h-[30rem] overflow-y-auto">
+                    {usersLoading ? (
+                      <div className="py-16 text-center text-xs font-bold text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-primary-500" />
+                        Fetching registry accounts...
+                      </div>
+                    ) : users.length > 0 ? (
+                      users.map((u) => (
+                        <button
+                          key={u.id}
+                          onClick={() => handleSelectUser(u)}
+                          className={`w-full text-left px-4 py-3 border-b border-slate-100 dark:border-outline-variant/10 last:border-b-0 transition-colors flex items-center justify-between gap-3 ${
+                            selectedUser?.id === u.id
+                              ? 'bg-primary-50/50 dark:bg-primary-950/20'
+                              : 'hover:bg-slate-50 dark:hover:bg-surface-variant/10'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{u.name || u.email.split('@')[0]}</p>
+                            <p className="text-[10px] text-slate-400 font-semibold truncate">{u.email}</p>
+                          </div>
+                          
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            <span className={`inline-block rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider border ${
+                              u.role === 'admin' ? 'bg-rose-50 text-rose-700 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400' :
+                              u.role === 'employer' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400' :
+                              'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400'
+                            }`}>
+                              {u.role}
+                            </span>
+                            
+                            {!u.is_active && (
+                              <span className="text-[8px] font-extrabold text-rose-500 uppercase tracking-widest animate-pulse">
+                                Suspended
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-4 py-8 text-xs font-semibold text-slate-400 text-center">No accounts found matching filters.</p>
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
-                  {selectedApplicant ? (
+                {/* Right Panel: Selected User Detail View */}
+                <div className="rounded-2xl border border-slate-100 dark:border-outline-variant/30 bg-white dark:bg-inverse-surface p-5 shadow-sm lg:col-span-2 space-y-6">
+                  {selectedUser ? (
                     <div className="space-y-6">
-                      {/* Applicant Header with Account Status suspension control */}
-                      <div className="p-4 border border-slate-200 rounded-2xl bg-gradient-to-br from-slate-50/40 via-white to-slate-50/10 flex flex-wrap items-center justify-between gap-4">
+                      {/* User profile header card */}
+                      <div className="p-4 border border-slate-200 dark:border-outline-variant/20 rounded-2xl bg-gradient-to-br from-slate-50/40 via-white to-slate-50/10 dark:from-inverse-surface/30 dark:to-inverse-surface/10 flex flex-wrap items-center justify-between gap-4">
                         <div>
-                          <p className="font-black text-slate-800 text-base">{selectedApplicant.display_name || `Applicant #${selectedApplicant.id}`}</p>
-                          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedApplicant.applicant_id || `DB ID: ${selectedApplicant.id}`}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-black text-slate-800 dark:text-white text-base">{selectedUser.name || 'No Display Name'}</p>
+                            <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider border ${
+                              selectedUser.role === 'admin' ? 'bg-rose-50 text-rose-700 border-rose-100' :
+                              selectedUser.role === 'employer' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                              'bg-blue-50 text-blue-700 border-blue-100'
+                            }`}>
+                              {selectedUser.role}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedUser.email} &bull; Reg: {selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleDateString() : 'N/A'}</p>
                         </div>
-                        <div className="flex items-center gap-3 border border-slate-100 rounded-2xl bg-white/60 p-2 shadow-sm">
+                        
+                        <div className="flex items-center gap-3 border border-slate-100 dark:border-outline-variant/20 rounded-2xl bg-white dark:bg-inverse-surface/80 p-2 shadow-sm">
                           <div className="text-right">
                             <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Account Access</span>
-                            <span className={`text-[10px] font-black uppercase tracking-wider ${selectedApplicant.is_active !== false ? 'text-emerald-600' : 'text-rose-600 animate-pulse'}`}>
-                              {selectedApplicant.is_active !== false ? 'Active' : 'Suspended / Banned'}
+                            <span className={`text-[10px] font-black uppercase tracking-wider ${selectedUser.is_active !== false ? 'text-emerald-600' : 'text-rose-600 animate-pulse'}`}>
+                              {selectedUser.is_active !== false ? 'Active' : 'Suspended'}
                             </span>
                           </div>
                           <button
                             onClick={handleToggleUserSuspension}
                             disabled={suspensionLoading}
-                            className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all duration-200 active:scale-95 flex items-center gap-1 border ${
-                              selectedApplicant.is_active !== false
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all duration-200 active:scale-95 flex items-center gap-1 border cursor-pointer ${
+                              selectedUser.is_active !== false
                                 ? 'bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100'
                                 : 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
                             }`}
                           >
                             <Ban className="w-3 h-3" />
-                            <span>{suspensionLoading ? 'Updating...' : selectedApplicant.is_active !== false ? 'Suspend User' : 'Lift Suspension'}</span>
+                            <span>{suspensionLoading ? 'Updating...' : selectedUser.is_active !== false ? 'Suspend User' : 'Lift Suspension'}</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Nested Operations: Credits & Mock Session History */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Credits adjustment section */}
-                        <div className="p-4 border border-slate-100 rounded-2xl bg-slate-50/30 space-y-4">
-                          <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                            <Coins className="w-4 h-4 text-primary-500" />
-                            <span>Credit Management</span>
-                          </h3>
-                          <p className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
-                            Remaining Balance:
-                            <span className="text-sm font-black text-primary-600 bg-primary-50 px-2 py-0.5 rounded-lg border border-primary-100">
-                              {selectedApplicantCredits?.current_credits ?? '--'}
-                            </span>
-                          </p>
+                      {/* If the user is a student: Render their full audit panel */}
+                      {selectedUser.role === 'student' && selectedApplicant && (
+                        <div className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Credits adjustment section */}
+                            <div className="p-4 border border-slate-100 dark:border-outline-variant/20 rounded-2xl bg-slate-50/30 dark:bg-inverse-surface/10 space-y-4">
+                              <h3 className="font-bold text-slate-800 dark:text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                <Coins className="w-4 h-4 text-primary-500" />
+                                <span>Credit Management</span>
+                              </h3>
+                              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                                Remaining Balance:
+                                <span className="text-sm font-black text-primary-600 bg-primary-50 dark:bg-primary-950/20 px-2 py-0.5 rounded-lg border border-primary-100 dark:border-primary-800">
+                                  {selectedApplicantCredits?.current_credits ?? '--'}
+                                </span>
+                              </p>
 
-                          <div className="space-y-3">
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Adjustment Amount</label>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setCreditAmount('-10')}
-                                  className="px-2.5 py-2 border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-50 transition-all font-bold text-xs"
-                                >
-                                  -10
-                                </button>
-                                <input
-                                  type="number"
-                                  value={creditAmount}
-                                  onChange={(e) => setCreditAmount(e.target.value)}
-                                  placeholder="Use + / -"
-                                  className="flex-1 w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold text-center"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setCreditAmount('10')}
-                                  className="px-2.5 py-2 border border-emerald-200 text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all font-bold text-xs"
-                                >
-                                  +10
-                                </button>
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Reason / Description</label>
-                              <textarea
-                                value={creditReason}
-                                onChange={(e) => setCreditReason(e.target.value)}
-                                rows={2}
-                                placeholder="Audit logs reason..."
-                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold"
-                              />
-                            </div>
-
-                            <button
-                              onClick={handleCreditAdjustment}
-                              disabled={creditLoading}
-                              className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95 duration-200 text-xs disabled:opacity-50"
-                            >
-                              {creditLoading ? 'Applying...' : 'Apply Credit Adjust'}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Mock practice session history section */}
-                        <div className="p-4 border border-slate-100 rounded-2xl bg-slate-50/30 flex flex-col h-72">
-                          <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5 mb-3 flex-shrink-0">
-                            <GraduationCap className="w-4 h-4 text-emerald-500" />
-                            <span>Mock Sessions History</span>
-                          </h3>
-                          <div className="overflow-y-auto flex-1 pr-1 space-y-2 border border-slate-150 bg-white rounded-xl p-2 shadow-inner">
-                            {applicantSessionsLoading ? (
-                              <div className="py-12 text-center text-[10px] font-semibold text-slate-400">
-                                <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-emerald-500" />
-                                Loading session histories...
-                              </div>
-                            ) : applicantSessions.length > 0 ? (
-                              applicantSessions.map((session) => (
-                                <div key={session.id} className="p-2 border border-slate-100 rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-between gap-2">
-                                  <div>
-                                    <p className="font-bold text-[11px] text-slate-800 capitalize">{session.interview_type} practice ({session.difficulty})</p>
-                                    <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Persona: {session.interviewer_persona}</p>
-                                    <p className="text-[8px] text-slate-350">{session.created_at ? new Date(session.created_at).toLocaleDateString() : 'N/A'}</p>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className={`inline-block rounded-full px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
-                                      session.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
-                                      session.status === 'abandoned' ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-amber-50 text-amber-700 border border-amber-100 animate-pulse'
-                                    }`}>
-                                      {session.status}
-                                    </span>
-                                    {session.overall_score !== null && (
-                                      <p className="font-black text-xs text-slate-700 mt-1">Score: {session.overall_score.toFixed(0)}%</p>
-                                    )}
+                              <div className="space-y-3">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Adjustment Amount</label>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setCreditAmount('-10')}
+                                      className="px-2.5 py-2 border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all font-bold text-xs"
+                                    >
+                                      -10
+                                    </button>
+                                    <input
+                                      type="number"
+                                      value={creditAmount}
+                                      onChange={(e) => setCreditAmount(e.target.value)}
+                                      placeholder="Use + / -"
+                                      className="flex-1 w-full bg-white dark:bg-inverse-surface border border-slate-200 dark:border-outline-variant rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold text-center dark:text-white"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setCreditAmount('10')}
+                                      className="px-2.5 py-2 border border-emerald-200 text-emerald-600 rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-all font-bold text-xs"
+                                    >
+                                      +10
+                                    </button>
                                   </div>
                                 </div>
-                              ))
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Reason / Description</label>
+                                  <textarea
+                                    value={creditReason}
+                                    onChange={(e) => setCreditReason(e.target.value)}
+                                    rows={2}
+                                    placeholder="Audit logs reason..."
+                                    className="w-full bg-white dark:bg-inverse-surface border border-slate-200 dark:border-outline-variant rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-xs font-semibold dark:text-white"
+                                  />
+                                </div>
+
+                                <button
+                                  onClick={handleCreditAdjustment}
+                                  disabled={creditLoading}
+                                  className="w-full py-2.5 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95 duration-200 text-xs disabled:opacity-50 cursor-pointer"
+                                >
+                                  {creditLoading ? 'Applying...' : 'Apply Credit Adjust'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Mock practice session history section */}
+                            <div className="p-4 border border-slate-100 dark:border-outline-variant/20 rounded-2xl bg-slate-50/30 dark:bg-inverse-surface/10 flex flex-col h-72">
+                              <h3 className="font-bold text-slate-800 dark:text-white text-xs uppercase tracking-wider flex items-center gap-1.5 mb-3 flex-shrink-0">
+                                <GraduationCap className="w-4 h-4 text-emerald-500" />
+                                <span>Mock Sessions History</span>
+                              </h3>
+                              <div className="overflow-y-auto flex-1 pr-1 space-y-2 border border-slate-150 dark:border-outline-variant/10 bg-white dark:bg-inverse-surface/40 rounded-xl p-2 shadow-inner">
+                                {applicantSessionsLoading ? (
+                                  <div className="py-12 text-center text-[10px] font-semibold text-slate-400">
+                                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-emerald-500" />
+                                    Loading session histories...
+                                  </div>
+                                ) : applicantSessions.length > 0 ? (
+                                  applicantSessions.map((session) => (
+                                    <div key={session.id} className="p-2 border border-slate-100 dark:border-outline-variant/10 rounded-lg hover:bg-slate-50 dark:hover:bg-surface-variant/20 transition-colors flex items-center justify-between gap-2">
+                                      <div>
+                                        <p className="font-bold text-[11px] text-slate-800 dark:text-white capitalize">{session.interview_type} practice ({session.difficulty})</p>
+                                        <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Persona: {session.interviewer_persona}</p>
+                                        <p className="text-[8px] text-slate-350">{session.created_at ? new Date(session.created_at).toLocaleDateString() : 'N/A'}</p>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className={`inline-block rounded-full px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
+                                          session.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                                          session.status === 'abandoned' ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-amber-50 text-amber-700 border border-amber-100 animate-pulse'
+                                        }`}>
+                                          {session.status}
+                                        </span>
+                                        {session.overall_score !== null && (
+                                          <p className="font-black text-xs text-slate-700 dark:text-slate-300 mt-1">Score: {session.overall_score.toFixed(0)}%</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="py-16 text-center text-[10px] font-semibold text-slate-400">
+                                    No mock practice sessions completed.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Cumulative AI Intelligence insights profile section */}
+                          <div className="p-4 border border-slate-100 dark:border-outline-variant/20 rounded-2xl bg-gradient-to-br from-primary-50/10 via-indigo-50/5 to-white dark:from-inverse-surface/30 dark:to-inverse-surface/10 shadow-sm space-y-4">
+                            <h3 className="font-bold text-slate-800 dark:text-white text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 dark:border-outline-variant/10 pb-2">
+                              <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
+                              <span>Candidate AI Intelligence Profile</span>
+                            </h3>
+                            {applicantIntelligenceLoading ? (
+                              <div className="py-12 text-center text-xs font-semibold text-slate-400">
+                                <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-primary-500" />
+                                Synthesizing cumulative candidate intelligence...
+                              </div>
+                            ) : applicantIntelligence && applicantIntelligence.status !== 'no_sessions' ? (
+                              <div className="space-y-4 text-xs font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div className="p-3 rounded-xl bg-white dark:bg-inverse-surface border border-slate-100 dark:border-outline-variant/20 shadow-sm">
+                                    <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interviewer Tips</span>
+                                    <p className="text-[11px] text-slate-650 dark:text-slate-350 font-semibold">{applicantIntelligence.interviewer_tips || 'N/A'}</p>
+                                  </div>
+                                  <div className="p-3 rounded-xl bg-white dark:bg-inverse-surface border border-slate-100 dark:border-outline-variant/20 shadow-sm">
+                                    <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Core Weaknesses</span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {(applicantIntelligence.core_weaknesses || []).map((w, wIdx) => (
+                                        <span key={wIdx} className="rounded px-1.5 py-0.5 bg-rose-50 border border-rose-100 text-[9px] font-bold text-rose-600">
+                                          {w}
+                                        </span>
+                                      ))}
+                                      {(applicantIntelligence.core_weaknesses || []).length === 0 && <span className="text-[9px] text-slate-400">None logged</span>}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-xl bg-white dark:bg-inverse-surface border border-slate-100 dark:border-outline-variant/20 shadow-sm">
+                                    <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Key Strengths</span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {(applicantIntelligence.key_strengths || []).map((s, sIdx) => (
+                                        <span key={sIdx} className="rounded px-1.5 py-0.5 bg-emerald-50 border border-emerald-100 text-[9px] font-bold text-emerald-600">
+                                          {s}
+                                        </span>
+                                      ))}
+                                      {(applicantIntelligence.key_strengths || []).length === 0 && <span className="text-[9px] text-slate-400">None logged</span>}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="p-3.5 rounded-xl border border-slate-100 dark:border-outline-variant/20 bg-white/50 dark:bg-inverse-surface/40">
+                                  <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Growth Summary</span>
+                                  <p className="text-[11px] text-slate-650 dark:text-slate-350 font-normal leading-relaxed">{applicantIntelligence.growth_summary || 'No growth summary logged yet.'}</p>
+                                </div>
+                              </div>
                             ) : (
-                              <div className="py-16 text-center text-[10px] font-semibold text-slate-400">
-                                No mock practice sessions completed.
+                              <div className="py-8 text-center text-xs font-semibold text-slate-400">
+                                Candidate has not completed any mock sessions yet. No AI insights available.
                               </div>
                             )}
                           </div>
                         </div>
-                      </div>
+                      )}
 
-                      {/* Cumulative AI Intelligence insights profile section */}
-                      <div className="p-4 border border-slate-100 rounded-2xl bg-gradient-to-r from-primary-50/10 via-indigo-50/5 to-white shadow-sm space-y-4">
-                        <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-2">
-                          <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
-                          <span>Candidate AI Intelligence Profile</span>
+                      {/* User Activity log */}
+                      <div className="p-4 border border-slate-100 dark:border-outline-variant/20 rounded-2xl bg-slate-50/30 dark:bg-inverse-surface/10 space-y-4">
+                        <h3 className="font-bold text-slate-800 dark:text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
+                          <Activity className="w-4 h-4 text-primary-500 animate-pulse" />
+                          <span>Recent Activity History</span>
                         </h3>
-                        {applicantIntelligenceLoading ? (
-                          <div className="py-12 text-center text-xs font-semibold text-slate-400">
-                            <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-primary-500" />
-                            Synthesizing cumulative candidate intelligence...
-                          </div>
-                        ) : applicantIntelligence && applicantIntelligence.status !== 'no_sessions' ? (
-                          <div className="space-y-4 text-xs font-semibold text-slate-700 leading-relaxed">
-                            {/* Grid of parsed intelligence attributes */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
-                                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interviewer Tips</span>
-                                <p className="text-[11px] text-slate-600 font-semibold">{applicantIntelligence.interviewer_tips || 'N/A'}</p>
-                              </div>
-                              <div className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
-                                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Core Weaknesses</span>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {(applicantIntelligence.core_weaknesses || []).map((w, wIdx) => (
-                                    <span key={wIdx} className="rounded px-1.5 py-0.5 bg-rose-50 border border-rose-100 text-[9px] font-bold text-rose-600">
-                                      {w}
-                                    </span>
-                                  ))}
-                                  {(applicantIntelligence.core_weaknesses || []).length === 0 && <span className="text-[9px] text-slate-400">None logged</span>}
-                                </div>
-                              </div>
-                              <div className="p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
-                                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Key Strengths</span>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {(applicantIntelligence.key_strengths || []).map((s, sIdx) => (
-                                    <span key={sIdx} className="rounded px-1.5 py-0.5 bg-emerald-50 border border-emerald-100 text-[9px] font-bold text-emerald-600">
-                                      {s}
-                                    </span>
-                                  ))}
-                                  {(applicantIntelligence.key_strengths || []).length === 0 && <span className="text-[9px] text-slate-400">None logged</span>}
-                                </div>
-                              </div>
+                        <div className="max-h-56 overflow-y-auto space-y-2 border border-slate-150 dark:border-outline-variant/10 bg-white dark:bg-inverse-surface/40 rounded-xl p-3 shadow-inner">
+                          {selectedUserActivityLoading ? (
+                            <div className="py-8 text-center text-xs font-semibold text-slate-400">
+                              <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-primary-500" />
+                              Loading activity registry...
                             </div>
-
-                            {/* Summary description */}
-                            <div className="p-3.5 rounded-xl border border-slate-100 bg-white/50">
-                              <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Growth Summary</span>
-                              <p className="text-[11px] text-slate-650 font-normal leading-relaxed">{applicantIntelligence.growth_summary || 'No growth summary logged yet.'}</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="py-8 text-center text-xs font-semibold text-slate-400">
-                            Candidate has not completed any mock sessions yet. No AI insights available.
-                          </div>
-                        )}
+                          ) : selectedUserActivity.length > 0 ? (
+                            selectedUserActivity.map((log) => {
+                              let actionText = log.action
+                              if (log.action === 'user_ban_toggle') {
+                                const active = log.details?.new_status
+                                actionText = active ? 'Account suspension lifted by Admin' : 'Account suspended by Admin'
+                              } else if (log.action === 'credit_adjustment') {
+                                const amt = log.details?.amount
+                                actionText = `Credits adjusted by Admin (${amt > 0 ? `+${amt}` : amt})`
+                              }
+                              
+                              return (
+                                <div key={log.id} className="p-2.5 border border-slate-100 dark:border-outline-variant/10 rounded-lg hover:bg-slate-50 dark:hover:bg-surface-variant/20 flex items-center justify-between gap-3 text-[11px] leading-tight">
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-slate-800 dark:text-white">{actionText}</p>
+                                    {log.details?.reason && (
+                                      <p className="text-[9px] text-slate-400 mt-0.5">Reason: {log.details.reason}</p>
+                                    )}
+                                  </div>
+                                  <span className="text-[9px] text-slate-400 font-medium whitespace-nowrap">
+                                    {log.created_at ? new Date(log.created_at).toLocaleDateString() : 'N/A'}
+                                  </span>
+                                </div>
+                              )
+                            })
+                          ) : (
+                            <p className="text-center py-6 text-[10px] text-slate-400 font-semibold">No recent activity logs recorded for this user.</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ) : (
                     <div className="py-24 text-center">
-                      <Coins className="w-16 h-16 text-slate-200 mx-auto mb-3 animate-pulse" />
-                      <p className="text-slate-400 font-semibold text-xs">Select an applicant from the list to manage credits, view practice sessions, and audit AI insights.</p>
+                      <Users className="w-16 h-16 text-slate-250 mx-auto mb-3 animate-pulse" />
+                      <p className="text-slate-400 font-semibold text-xs">Select a user account from the registry to view profiles, manage credentials, and audit activity history.</p>
                     </div>
                   )}
                 </div>
@@ -1203,26 +1413,27 @@ export default function AdminReviewsPage() {
                 </div>
               </div>
             </motion.div>
-          )}
-
-          {/* System Health Tab */}
+          )}          {/* System Health Tab */}
           {activeTab === 'system-health' && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: ANIMATION_DELAYS.CARD_STAGGER * 4 }}
-              className="border border-slate-100 bg-white/90 backdrop-blur-sm rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
+              className="border border-slate-100 dark:border-outline-variant/30 bg-white/90 dark:bg-inverse-surface/90 backdrop-blur-sm rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]"
             >
-              <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-primary-500" />
-                  <span>System Health & Semantic Indexing Center</span>
-                </h2>
+              <div className="mb-6 flex items-center justify-between gap-3 flex-wrap font-sans">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-primary-500" />
+                    <span>System Health & Semantic Indexing Center</span>
+                  </h2>
+                  <p className="text-xs font-semibold text-slate-400 mt-1">Monitor real-time LLM telemetry, semantic index coverages, and trigger vector reconstructions.</p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleResetLLMStats}
                     disabled={llmResetLoading || systemHealthLoading}
-                    className="rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 p-2 text-rose-600 transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200"
+                    className="rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:border-rose-800/40 p-2 text-rose-600 dark:text-rose-400 transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200 cursor-pointer"
                     title="Reset LLM Telemetry Counters"
                   >
                     <RotateCcw className={`w-3.5 h-3.5 ${llmResetLoading ? 'animate-spin' : ''}`} />
@@ -1231,7 +1442,7 @@ export default function AdminReviewsPage() {
                   <button
                     onClick={fetchSystemHealth}
                     disabled={systemHealthLoading}
-                    className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200"
+                    className="rounded-xl border border-slate-200 dark:border-outline-variant/40 p-2 text-slate-500 hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-inverse-surface-variant transition-colors flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 active:scale-95 duration-200 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${systemHealthLoading ? 'animate-spin' : ''}`} />
                     <span>Refresh Stats</span>
@@ -1245,82 +1456,404 @@ export default function AdminReviewsPage() {
                   Loading system health diagnostics...
                 </div>
               ) : systemHealthStats ? (
-                <div className="space-y-6">
+                <div className="space-y-6 font-sans">
+                  {/* Dynamic Cooldown Banner Alert */}
+                  {(() => {
+                    const cooldowns = Object.entries(systemHealthStats.llm?.provider_stats || {})
+                      .filter(([_, s]) => (s.retry_after_remaining || 0) > 0)
+                    if (cooldowns.length > 0) {
+                      return (
+                        <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-start gap-3 animate-pulse">
+                          <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-black text-sm">Provider Quota Exhaustion / Cooldown Active</p>
+                            <p className="text-xs font-semibold opacity-90 mt-0.5">
+                              The system is currently observing a backup routing backoff for the following provider(s): {cooldowns.map(([p, s]) => `${p.toUpperCase()} (${s.retry_after_remaining}s remaining)`).join(', ')}. All API calls are falling back automatically.
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
+
                   {/* Stats Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {/* Applicant Embedding Coverage */}
-                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Applicants Embedded</p>
-                        <p className="text-2xl font-black text-slate-800">
-                          {systemHealthStats.embeddings?.coverage?.applicants_embedded ?? 0} / {systemHealthStats.embeddings?.coverage?.applicants_total ?? 0}
-                        </p>
-                        <p className="text-[10px] font-bold text-emerald-600 mt-1">
-                          {systemHealthStats.embeddings?.coverage?.applicants_total ? ((systemHealthStats.embeddings.coverage.applicants_embedded / systemHealthStats.embeddings.coverage.applicants_total) * 100).toFixed(1) : 0}% Coverage
-                        </p>
+                  {(() => {
+                    const llm = systemHealthStats.llm || {}
+                    const pStats = llm.provider_stats || {}
+                    
+                    const totalTokens = (pStats.groq?.tokens_total || 0) + 
+                                        (pStats.gemini?.tokens_total || 0) + 
+                                        (pStats.openrouter?.tokens_total || 0)
+                                        
+                    const totalRequests = (pStats.groq?.requests || 0) + 
+                                          (pStats.gemini?.requests || 0) + 
+                                          (pStats.openrouter?.requests || 0)
+                                          
+                    const totalLatency = (pStats.groq?.total_latency || 0) + 
+                                         (pStats.gemini?.total_latency || 0) + 
+                                         (pStats.openrouter?.total_latency || 0)
+                                         
+                    const avgLatency = totalRequests > 0 ? (totalLatency / totalRequests).toFixed(3) : '0.000'
+                    const totalFallbacks = llm.fallback_requests || 0
+                    
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {/* Token Usage */}
+                        <div className="p-5 border border-slate-100 dark:border-outline-variant/20 bg-white dark:bg-inverse-surface rounded-2xl shadow-sm flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Token Volume</p>
+                            <p className="text-2xl font-black text-slate-800 dark:text-white">
+                              {totalTokens.toLocaleString()}
+                            </p>
+                            <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-450 mt-1">
+                              All active routed channels
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-primary-50 dark:bg-primary-950/20 border border-primary-100 dark:border-primary-800 text-primary-600 dark:text-primary-400">
+                            <Cpu className="w-6 h-6" />
+                          </div>
+                        </div>
+
+                        {/* Avg Latency */}
+                        <div className="p-5 border border-slate-100 dark:border-outline-variant/20 bg-white dark:bg-inverse-surface rounded-2xl shadow-sm flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Average Response Latency</p>
+                            <p className="text-2xl font-black text-slate-800 dark:text-white">
+                              {avgLatency}s
+                            </p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-1">
+                              Across {totalRequests} total requests
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-800 text-blue-600 dark:text-blue-400">
+                            <Clock className="w-6 h-6" />
+                          </div>
+                        </div>
+
+                        {/* RAG Chunks */}
+                        <div className="p-5 border border-slate-100 dark:border-outline-variant/20 bg-white dark:bg-inverse-surface rounded-2xl shadow-sm flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">RAG Doc Chunks</p>
+                            <p className="text-2xl font-black text-slate-800 dark:text-white">
+                              {systemHealthStats.rag?.total_chunks ?? 0}
+                            </p>
+                            <p className="text-[10px] font-bold text-indigo-650 dark:text-indigo-400 mt-1">
+                              Index: {systemHealthStats.rag?.is_initialized ? 'Initialized' : 'Uninitialized'}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-850 text-indigo-600 dark:text-indigo-400">
+                            <Database className="w-6 h-6" />
+                          </div>
+                        </div>
+
+                        {/* Active Fallbacks */}
+                        <div className="p-5 border border-slate-100 dark:border-outline-variant/20 bg-white dark:bg-inverse-surface rounded-2xl shadow-sm flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Routed Fallbacks</p>
+                            <p className="text-2xl font-black text-slate-800 dark:text-white">
+                              {totalFallbacks}
+                            </p>
+                            <p className="text-[10px] font-bold text-amber-600 dark:text-amber-450 mt-1">
+                              Automatic failovers logged
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-850 text-amber-600 dark:text-amber-400">
+                            <TrendingUp className="w-6 h-6" />
+                          </div>
+                        </div>
                       </div>
-                      <div className="p-3 rounded-xl bg-primary-50 border border-primary-100 text-primary-600">
-                        <Users className="w-6 h-6" />
+                    )
+                  })()}
+
+                  {/* Comparison Charts & Recent Alerts */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* SVG Comparison Charts */}
+                    <div className="lg:col-span-2 p-5 border border-slate-100 dark:border-outline-variant/20 bg-white dark:bg-inverse-surface rounded-2xl shadow-sm relative">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider">Channel Telemetry Metrics</h3>
+                          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Real-time benchmark distributions for requests and response latencies.</p>
+                        </div>
+                        {hoveredBar && (
+                          <div className="bg-slate-900/90 text-white text-[9px] px-2 py-0.5 rounded border border-slate-800 shadow-md font-bold uppercase tracking-wider">
+                            {hoveredBar.provider} &bull; {hoveredBar.metric}: <span className="text-primary-400 font-extrabold">{hoveredBar.value}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Traffic Chart */}
+                        <div className="p-3 border border-slate-100 dark:border-outline-variant/10 rounded-xl bg-slate-50/20 dark:bg-inverse-surface/30">
+                          <p className="text-[10px] font-bold text-slate-500 dark:text-slate-350 uppercase tracking-widest text-center mb-2">Request Traffic distribution</p>
+                          {(() => {
+                            const pStats = systemHealthStats.llm?.provider_stats || {}
+                            const groqVal = pStats.groq?.requests || 0
+                            const geminiVal = pStats.gemini?.requests || 0
+                            const openrouterVal = pStats.openrouter?.requests || 0
+                            const maxVal = Math.max(groqVal, geminiVal, openrouterVal, 1)
+
+                            const hGroq = (groqVal / maxVal) * 110
+                            const hGemini = (geminiVal / maxVal) * 110
+                            const hOpenrouter = (openrouterVal / maxVal) * 110
+
+                            return (
+                              <svg viewBox="0 0 300 160" className="w-full h-auto">
+                                <defs>
+                                  <linearGradient id="groqGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#8b5cf6" />
+                                    <stop offset="100%" stopColor="#a78bfa" />
+                                  </linearGradient>
+                                  <linearGradient id="geminiGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#3b82f6" />
+                                    <stop offset="100%" stopColor="#60a5fa" />
+                                  </linearGradient>
+                                  <linearGradient id="openrouterGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#f59e0b" />
+                                    <stop offset="100%" stopColor="#fbbf24" />
+                                  </linearGradient>
+                                </defs>
+                                {/* Grid Lines */}
+                                <line x1="40" y1="20" x2="280" y2="20" stroke="#94a3b8" strokeOpacity="0.1" strokeDasharray="3" />
+                                <line x1="40" y1="65" x2="280" y2="65" stroke="#94a3b8" strokeOpacity="0.1" strokeDasharray="3" />
+                                <line x1="40" y1="110" x2="280" y2="110" stroke="#94a3b8" strokeOpacity="0.1" strokeDasharray="3" />
+                                <line x1="40" y1="130" x2="280" y2="130" stroke="#94a3b8" strokeOpacity="0.2" />
+
+                                {/* Groq Bar */}
+                                <rect
+                                  x="65"
+                                  y={130 - hGroq}
+                                  width="30"
+                                  height={hGroq}
+                                  fill="url(#groqGrad)"
+                                  rx="4"
+                                  className="cursor-pointer transition-all duration-300 hover:opacity-85"
+                                  onMouseEnter={() => setHoveredBar({ provider: 'Groq', metric: 'Traffic', value: `${groqVal} requests` })}
+                                  onMouseLeave={() => setHoveredBar(null)}
+                                />
+                                {/* Gemini Bar */}
+                                <rect
+                                  x="135"
+                                  y={130 - hGemini}
+                                  width="30"
+                                  height={hGemini}
+                                  fill="url(#geminiGrad)"
+                                  rx="4"
+                                  className="cursor-pointer transition-all duration-300 hover:opacity-85"
+                                  onMouseEnter={() => setHoveredBar({ provider: 'Gemini', metric: 'Traffic', value: `${geminiVal} requests` })}
+                                  onMouseLeave={() => setHoveredBar(null)}
+                                />
+                                {/* OpenRouter Bar */}
+                                <rect
+                                  x="205"
+                                  y={130 - hOpenrouter}
+                                  width="30"
+                                  height={hOpenrouter}
+                                  fill="url(#openrouterGrad)"
+                                  rx="4"
+                                  className="cursor-pointer transition-all duration-300 hover:opacity-85"
+                                  onMouseEnter={() => setHoveredBar({ provider: 'OpenRouter', metric: 'Traffic', value: `${openrouterVal} requests` })}
+                                  onMouseLeave={() => setHoveredBar(null)}
+                                />
+
+                                {/* X Labels */}
+                                <text x="80" y="145" textAnchor="middle" className="text-[8px] font-bold fill-slate-400">Groq</text>
+                                <text x="150" y="145" textAnchor="middle" className="text-[8px] font-bold fill-slate-400">Gemini</text>
+                                <text x="220" y="145" textAnchor="middle" className="text-[8px] font-bold fill-slate-400">OpenRouter</text>
+
+                                {/* Y Labels */}
+                                <text x="35" y="23" textAnchor="end" className="text-[8px] font-bold fill-slate-400">{maxVal.toFixed(0)}</text>
+                                <text x="35" y="70" textAnchor="end" className="text-[8px] font-bold fill-slate-400">{(maxVal/2).toFixed(0)}</text>
+                                <text x="35" y="133" textAnchor="end" className="text-[8px] font-bold fill-slate-400">0</text>
+                              </svg>
+                            )
+                          })()}
+                        </div>
+
+                        {/* Latency Chart */}
+                        <div className="p-3 border border-slate-100 dark:border-outline-variant/10 rounded-xl bg-slate-50/20 dark:bg-inverse-surface/30">
+                          <p className="text-[10px] font-bold text-slate-550 dark:text-slate-350 uppercase tracking-widest text-center mb-2">Average Response Latency (Sec)</p>
+                          {(() => {
+                            const pStats = systemHealthStats.llm?.provider_stats || {}
+                            const groqLat = pStats.groq?.avg_latency || 0
+                            const geminiLat = pStats.gemini?.avg_latency || 0
+                            const openrouterLat = pStats.openrouter?.avg_latency || 0
+                            const maxLat = Math.max(groqLat, geminiLat, openrouterLat, 1.0)
+
+                            const hGroq = (groqLat / maxLat) * 110
+                            const hGemini = (geminiLat / maxLat) * 110
+                            const hOpenrouter = (openrouterLat / maxLat) * 110
+
+                            return (
+                              <svg viewBox="0 0 300 160" className="w-full h-auto">
+                                {/* Grid Lines */}
+                                <line x1="40" y1="20" x2="280" y2="20" stroke="#94a3b8" strokeOpacity="0.1" strokeDasharray="3" />
+                                <line x1="40" y1="65" x2="280" y2="65" stroke="#94a3b8" strokeOpacity="0.1" strokeDasharray="3" />
+                                <line x1="40" y1="110" x2="280" y2="110" stroke="#94a3b8" strokeOpacity="0.1" strokeDasharray="3" />
+                                <line x1="40" y1="130" x2="280" y2="130" stroke="#94a3b8" strokeOpacity="0.2" />
+
+                                {/* Groq Bar */}
+                                <rect
+                                  x="65"
+                                  y={130 - hGroq}
+                                  width="30"
+                                  height={hGroq}
+                                  fill="url(#groqGrad)"
+                                  rx="4"
+                                  className="cursor-pointer transition-all duration-300 hover:opacity-85"
+                                  onMouseEnter={() => setHoveredBar({ provider: 'Groq', metric: 'Avg Latency', value: `${groqLat.toFixed(3)}s` })}
+                                  onMouseLeave={() => setHoveredBar(null)}
+                                />
+                                {/* Gemini Bar */}
+                                <rect
+                                  x="135"
+                                  y={130 - hGemini}
+                                  width="30"
+                                  height={hGemini}
+                                  fill="url(#geminiGrad)"
+                                  rx="4"
+                                  className="cursor-pointer transition-all duration-300 hover:opacity-85"
+                                  onMouseEnter={() => setHoveredBar({ provider: 'Gemini', metric: 'Avg Latency', value: `${geminiLat.toFixed(3)}s` })}
+                                  onMouseLeave={() => setHoveredBar(null)}
+                                />
+                                {/* OpenRouter Bar */}
+                                <rect
+                                  x="205"
+                                  y={130 - hOpenrouter}
+                                  width="30"
+                                  height={hOpenrouter}
+                                  fill="url(#openrouterGrad)"
+                                  rx="4"
+                                  className="cursor-pointer transition-all duration-300 hover:opacity-85"
+                                  onMouseEnter={() => setHoveredBar({ provider: 'OpenRouter', metric: 'Avg Latency', value: `${openrouterLat.toFixed(3)}s` })}
+                                  onMouseLeave={() => setHoveredBar(null)}
+                                />
+
+                                {/* X Labels */}
+                                <text x="80" y="145" textAnchor="middle" className="text-[8px] font-bold fill-slate-400">Groq</text>
+                                <text x="150" y="145" textAnchor="middle" className="text-[8px] font-bold fill-slate-400">Gemini</text>
+                                <text x="220" y="145" textAnchor="middle" className="text-[8px] font-bold fill-slate-400">OpenRouter</text>
+
+                                {/* Y Labels */}
+                                <text x="35" y="23" textAnchor="end" className="text-[8px] font-bold fill-slate-400">{maxLat.toFixed(1)}s</text>
+                                <text x="35" y="70" textAnchor="end" className="text-[8px] font-bold fill-slate-400">{(maxLat/2).toFixed(1)}s</text>
+                                <text x="35" y="133" textAnchor="end" className="text-[8px] font-bold fill-slate-400">0s</text>
+                              </svg>
+                            )
+                          })()}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Jobs Embedding Coverage */}
-                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
+                    {/* Dynamic Alerts List */}
+                    <div className="lg:col-span-1 p-5 border border-slate-100 dark:border-outline-variant/20 bg-white dark:bg-inverse-surface rounded-2xl shadow-sm flex flex-col justify-between">
                       <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Approved Jobs Embedded</p>
-                        <p className="text-2xl font-black text-slate-800">
-                          {systemHealthStats.embeddings?.coverage?.jobs_embedded ?? 0} / {systemHealthStats.embeddings?.coverage?.jobs_total ?? 0}
-                        </p>
-                        <p className="text-[10px] font-bold text-emerald-600 mt-1">
-                          {systemHealthStats.embeddings?.coverage?.jobs_total ? ((systemHealthStats.embeddings.coverage.jobs_embedded / systemHealthStats.embeddings.coverage.jobs_total) * 100).toFixed(1) : 0}% Coverage
-                        </p>
-                      </div>
-                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600">
-                        <Briefcase className="w-6 h-6" />
-                      </div>
-                    </div>
+                        <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-3">Live System Log Alerts</h3>
+                        
+                        {(() => {
+                          const alerts = []
+                          const llm = systemHealthStats.llm || {}
+                          const pStats = llm.provider_stats || {}
+                          
+                          // Check for cooldowns
+                          Object.entries(pStats).forEach(([name, s]) => {
+                            if ((s.retry_after_remaining || 0) > 0) {
+                              alerts.push({
+                                type: 'error',
+                                title: `${name.toUpperCase()} Backoff Cooldown`,
+                                desc: `${s.retry_after_remaining}s remaining before channel recovery.`,
+                              })
+                            }
+                          })
 
-                    {/* RAG Chunks */}
-                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">RAG Doc Chunks</p>
-                        <p className="text-2xl font-black text-slate-800">
-                          {systemHealthStats.rag?.total_chunks ?? 0}
-                        </p>
-                        <p className="text-[10px] font-bold text-slate-400 mt-1">
-                          Initialized: {systemHealthStats.rag?.is_initialized ? 'Yes' : 'No'}
-                        </p>
-                      </div>
-                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 text-amber-600">
-                        <Database className="w-6 h-6" />
-                      </div>
-                    </div>
+                          // Check for missing keys
+                          Object.entries(pStats).forEach(([name, s]) => {
+                            if (!s.is_configured) {
+                              alerts.push({
+                                type: 'warning',
+                                title: `${name.toUpperCase()} Key Missing`,
+                                desc: `No api key detected in environment config. Channel disabled.`,
+                              })
+                            }
+                          })
 
-                    {/* RAG Cache size */}
-                    <div className="p-5 border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Cache / Rebuilds</p>
-                        <p className="text-2xl font-black text-slate-800">
-                          {systemHealthStats.rag?.cache_size ?? 0} / {systemHealthStats.rag?.total_rebuilds ?? 0}
-                        </p>
-                        <p className="text-[10px] font-bold text-indigo-600 mt-1">
-                          Model: {systemHealthStats.rag?.model || 'Gemini'}
-                        </p>
+                          // RAG Status
+                          if (systemHealthStats.rag && !systemHealthStats.rag.is_initialized) {
+                            alerts.push({
+                              type: 'warning',
+                              title: 'RAG Index Empty',
+                              desc: 'Semantic doc index is uninitialized. Rebuild index recommended.',
+                            })
+                          }
+
+                          // Embeddings Coverage Drift
+                          const emb = systemHealthStats.embeddings?.coverage || {}
+                          if (emb.applicants_total > 0 && emb.applicants_embedded < emb.applicants_total) {
+                            alerts.push({
+                              type: 'info',
+                              title: 'Resume Index Drift',
+                              desc: `${emb.applicants_total - emb.applicants_embedded} profiles pending semantic re-indexing.`,
+                            })
+                          }
+                          if (emb.jobs_total > 0 && emb.jobs_embedded < emb.jobs_total) {
+                            alerts.push({
+                              type: 'info',
+                              title: 'Jobs Index Drift',
+                              desc: `${emb.jobs_total - emb.jobs_embedded} postings pending semantic re-indexing.`,
+                            })
+                          }
+
+                          if (alerts.length === 0) {
+                            return (
+                              <div className="py-8 text-center">
+                                <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
+                                <p className="text-xs font-bold text-slate-800 dark:text-white">All Systems Operational</p>
+                                <p className="text-[10px] text-slate-400 mt-1">No warnings or routing drifts active.</p>
+                              </div>
+                            )
+                          }
+
+                          return (
+                            <div className="space-y-3.5 max-h-48 overflow-y-auto pr-1">
+                              {alerts.map((al, idx) => (
+                                <div key={idx} className={`p-2.5 rounded-xl border flex items-start gap-2.5 text-[11px] leading-tight ${
+                                  al.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-400' :
+                                  al.type === 'warning' ? 'bg-amber-50 border-amber-100 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-400' :
+                                  'bg-blue-50 border-blue-100 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/30 dark:text-blue-400'
+                                }`}>
+                                  <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
+                                    al.type === 'error' ? 'text-rose-500' :
+                                    al.type === 'warning' ? 'text-amber-500' : 'text-blue-500'
+                                  }`} />
+                                  <div>
+                                    <p className="font-extrabold">{al.title}</p>
+                                    <p className="text-[9px] opacity-80 mt-0.5">{al.desc}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
                       </div>
-                      <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
-                        <Cpu className="w-6 h-6" />
+                      
+                      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-outline-variant/10 text-[9px] text-slate-400 font-semibold flex items-center justify-between">
+                        <span>Check interval: 10s</span>
+                        <span className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                          <span>Telemetry Active</span>
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   {/* Actions Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100 dark:border-outline-variant/20">
                     {/* Job Reindexing Card */}
-                    <div className="p-5 border border-slate-100 bg-slate-50/30 rounded-2xl flex flex-col justify-between h-48">
+                    <div className="p-5 border border-slate-100 dark:border-outline-variant/20 bg-slate-50/30 dark:bg-inverse-surface/30 rounded-2xl flex flex-col justify-between h-48">
                       <div>
                         <div className="flex items-center gap-2 mb-2">
                           <Server className="w-4 h-4 text-emerald-600" />
-                          <h3 className="font-bold text-slate-800 text-sm">Job Semantic Index</h3>
+                          <h3 className="font-bold text-slate-800 dark:text-white text-sm">Job Semantic Index</h3>
                         </div>
                         <p className="text-xs text-slate-400 font-semibold leading-relaxed">
                           Queue background embedding generation for all approved jobs. Essential for semantic matching scoring.
@@ -1329,7 +1862,7 @@ export default function AdminReviewsPage() {
                       <button
                         onClick={() => triggerReindex('jobs')}
                         disabled={systemHealthActionLoading !== null}
-                        className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold transition-all text-slate-700 flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50"
+                        className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 dark:bg-inverse-surface dark:hover:bg-inverse-surface-variant border border-slate-200 dark:border-outline-variant rounded-xl text-xs font-bold transition-all text-slate-700 dark:text-white flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50 cursor-pointer"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${systemHealthActionLoading === 'jobs' ? 'animate-spin' : ''}`} />
                         <span>Reindex Approved Jobs</span>
@@ -1337,11 +1870,11 @@ export default function AdminReviewsPage() {
                     </div>
 
                     {/* Applicant Reindexing Card */}
-                    <div className="p-5 border border-slate-100 bg-slate-50/30 rounded-2xl flex flex-col justify-between h-48">
+                    <div className="p-5 border border-slate-100 dark:border-outline-variant/20 bg-slate-50/30 dark:bg-inverse-surface/30 rounded-2xl flex flex-col justify-between h-48">
                       <div>
                         <div className="flex items-center gap-2 mb-2">
                           <Users className="w-4 h-4 text-primary-600" />
-                          <h3 className="font-bold text-slate-800 text-sm">Resume Semantic Index</h3>
+                          <h3 className="font-bold text-slate-800 dark:text-white text-sm">Resume Semantic Index</h3>
                         </div>
                         <p className="text-xs text-slate-400 font-semibold leading-relaxed">
                           Queue background embedding generation for all parsed resume profiles. Powerhouse of semantic queries.
@@ -1350,7 +1883,7 @@ export default function AdminReviewsPage() {
                       <button
                         onClick={() => triggerReindex('applicants')}
                         disabled={systemHealthActionLoading !== null}
-                        className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold transition-all text-slate-700 flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50"
+                        className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 dark:bg-inverse-surface dark:hover:bg-inverse-surface-variant border border-slate-200 dark:border-outline-variant rounded-xl text-xs font-bold transition-all text-slate-700 dark:text-white flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50 cursor-pointer"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${systemHealthActionLoading === 'applicants' ? 'animate-spin' : ''}`} />
                         <span>Reindex Resumes</span>
@@ -1358,11 +1891,11 @@ export default function AdminReviewsPage() {
                     </div>
 
                     {/* RAG Reinitialize Card */}
-                    <div className="p-5 border border-slate-100 bg-slate-50/30 rounded-2xl flex flex-col justify-between h-48">
+                    <div className="p-5 border border-slate-100 dark:border-outline-variant/20 bg-slate-50/30 dark:bg-inverse-surface/30 rounded-2xl flex flex-col justify-between h-48">
                       <div>
                         <div className="flex items-center gap-2 mb-2">
-                          <Database className="w-4 h-4 text-amber-600" />
-                          <h3 className="font-bold text-slate-800 text-sm">Documentation RAG</h3>
+                          <Database className="w-4 h-4 text-amber-600 animate-pulse" />
+                          <h3 className="font-bold text-slate-800 dark:text-white text-sm">Documentation RAG</h3>
                         </div>
                         <p className="text-xs text-slate-400 font-semibold leading-relaxed">
                           Force fully rebuilding the vector search chunk index from files. Resolves document answer drifts.
@@ -1371,7 +1904,7 @@ export default function AdminReviewsPage() {
                       <button
                         onClick={() => triggerReindex('rag')}
                         disabled={systemHealthActionLoading !== null}
-                        className="w-full py-2.5 px-4 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50 shadow-md shadow-primary-500/10"
+                        className="w-full py-2.5 px-4 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 duration-200 disabled:opacity-50 shadow-md shadow-primary-500/10 cursor-pointer"
                       >
                         <Play className="w-3.5 h-3.5" />
                         <span>{systemHealthActionLoading === 'rag' ? 'Rebuilding RAG...' : 'Force Rebuild RAG'}</span>
@@ -1379,9 +1912,7 @@ export default function AdminReviewsPage() {
                     </div>
                   </div>
 
-                  {/* ================================================================ */}
-                  {/* LLM Key & Routing Telemetry Panel                                */}
-                  {/* ================================================================ */}
+                  {/* LLM Key & Routing Telemetry Panel */}
                   {systemHealthStats.llm && (() => {
                     const llm = systemHealthStats.llm
                     const providers = [
@@ -1404,31 +1935,31 @@ export default function AdminReviewsPage() {
                         showRateLimit: false,
                       },
                       {
-                        key: 'nvidia_nim',
-                        label: 'Nvidia NIM',
-                        subtitle: llm.provider_stats?.nvidia_nim?.model || 'deepseek / kimi',
+                        key: 'openrouter',
+                        label: 'OpenRouter Backup',
+                        subtitle: llm.provider_stats?.openrouter?.model || 'deepseek / kimi',
                         accentColor: 'emerald',
                         icon: Cpu,
-                        stats: llm.provider_stats?.nvidia_nim,
+                        stats: llm.provider_stats?.openrouter,
                         showRateLimit: false,
                       },
                     ]
 
                     const colorMap = {
                       violet: {
-                        bg: 'bg-violet-50', border: 'border-violet-100', text: 'text-violet-700',
-                        iconBg: 'bg-violet-50 border-violet-100', badgeActive: 'bg-violet-100 text-violet-700 border-violet-200',
-                        bar: 'bg-violet-500', barBg: 'bg-violet-100',
+                        bg: 'bg-violet-50 dark:bg-violet-950/20', border: 'border-violet-100 dark:border-violet-900/30', text: 'text-violet-700 dark:text-violet-400',
+                        iconBg: 'bg-violet-50 dark:bg-violet-950/30 border-violet-100 dark:border-violet-900/30', badgeActive: 'bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-400 dark:border-violet-900/30',
+                        bar: 'bg-violet-500', barBg: 'bg-violet-100 dark:bg-violet-950/30',
                       },
                       blue: {
-                        bg: 'bg-blue-50', border: 'border-blue-100', text: 'text-blue-700',
-                        iconBg: 'bg-blue-50 border-blue-100', badgeActive: 'bg-blue-100 text-blue-700 border-blue-200',
-                        bar: 'bg-blue-500', barBg: 'bg-blue-100',
+                        bg: 'bg-blue-50 dark:bg-blue-950/20', border: 'border-blue-100 dark:border-blue-900/30', text: 'text-blue-700 dark:text-blue-400',
+                        iconBg: 'bg-blue-50 dark:bg-blue-950/30 border-blue-100 dark:border-blue-900/30', badgeActive: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/30',
+                        bar: 'bg-blue-500', barBg: 'bg-blue-100 dark:bg-blue-950/30',
                       },
                       emerald: {
-                        bg: 'bg-emerald-50', border: 'border-emerald-100', text: 'text-emerald-700',
-                        iconBg: 'bg-emerald-50 border-emerald-100', badgeActive: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-                        bar: 'bg-emerald-500', barBg: 'bg-emerald-100',
+                        bg: 'bg-emerald-50 dark:bg-emerald-950/20', border: 'border-emerald-100 dark:border-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-450',
+                        iconBg: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-100 dark:border-emerald-900/30', badgeActive: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-450 dark:border-emerald-900/30',
+                        bar: 'bg-emerald-500', barBg: 'bg-emerald-100 dark:bg-emerald-950/30',
                       },
                     }
 
@@ -1439,10 +1970,10 @@ export default function AdminReviewsPage() {
                     }
 
                     return (
-                      <div className="pt-6 border-t border-slate-100">
+                      <div className="pt-6 border-t border-slate-100 dark:border-outline-variant/20">
                         <div className="flex items-center gap-2 mb-4">
-                          <Zap className="w-4 h-4 text-violet-600" />
-                          <h3 className="text-sm font-bold text-slate-800">LLM Key &amp; Routing Telemetry</h3>
+                          <Zap className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                          <h3 className="text-sm font-bold text-slate-800 dark:text-white">LLM Provider Quota Registry</h3>
                           <span className="ml-auto text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                             Total: {fmtNum(llm.total_requests)} req &bull; {fmtNum(llm.fallback_requests)} fallbacks
                           </span>
@@ -1460,29 +1991,29 @@ export default function AdminReviewsPage() {
                             return (
                               <div
                                 key={key}
-                                className={`relative rounded-2xl border bg-white shadow-sm overflow-hidden transition-all ${
-                                  hasCooldown ? 'border-rose-300 ring-1 ring-rose-200' : 'border-slate-100'
+                                className={`relative rounded-2xl border bg-white dark:bg-inverse-surface shadow-sm overflow-hidden transition-all ${
+                                  hasCooldown ? 'border-rose-300 dark:border-rose-900 ring-1 ring-rose-200 dark:ring-rose-950/30' : 'border-slate-100 dark:border-outline-variant/10'
                                 }`}
                               >
                                 {/* Card header */}
                                 <div className={`px-4 py-3 flex items-center justify-between gap-3 border-b ${
-                                  hasCooldown ? 'border-rose-100 bg-rose-50/60' : `${c.bg} ${c.border}`
+                                  hasCooldown ? 'border-rose-100 dark:border-rose-955 bg-rose-50/60 dark:bg-rose-950/10' : `${c.bg} ${c.border}`
                                 }`}>
                                   <div className="flex items-center gap-2.5">
                                     <div className={`p-1.5 rounded-lg border ${c.iconBg}`}>
                                       <Icon className={`w-4 h-4 ${c.text}`} />
                                     </div>
                                     <div>
-                                      <p className="text-sm font-black text-slate-900 leading-none">{label}</p>
+                                      <p className="text-sm font-black text-slate-900 dark:text-white leading-none">{label}</p>
                                       <p className="text-[10px] font-semibold text-slate-400 mt-0.5 truncate max-w-[140px]">{subtitle}</p>
                                     </div>
                                   </div>
                                   <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${
                                     hasCooldown
-                                      ? 'bg-rose-100 text-rose-700 border-rose-200'
+                                      ? 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/30'
                                       : stats.is_configured
                                         ? c.badgeActive
-                                        : 'bg-slate-100 text-slate-500 border-slate-200'
+                                        : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-inverse-surface-variant dark:text-slate-400 dark:border-outline-variant/20'
                                   }`}>
                                     {hasCooldown ? 'Cooling Down' : stats.is_configured ? 'Active' : 'Not Set'}
                                   </span>
@@ -1490,36 +2021,36 @@ export default function AdminReviewsPage() {
 
                                 {/* 429 Cooldown alert */}
                                 {hasCooldown && (
-                                  <div className="mx-3 mt-3 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2">
+                                  <div className="mx-3 mt-3 px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 flex items-center gap-2">
                                     <AlertTriangle className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
-                                    <p className="text-[11px] font-bold text-rose-700">
+                                    <p className="text-[11px] font-bold text-rose-705 dark:text-rose-400">
                                       Rate limited — retry in <span className="font-black">{cooldown}s</span>
                                     </p>
                                   </div>
                                 )}
 
                                 {/* Stats grid */}
-                                <div className="p-4 space-y-3">
+                                <div className="p-4 space-y-3 font-sans">
                                   <div className="grid grid-cols-2 gap-3">
-                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 dark:bg-inverse-surface-variant/20 border border-slate-100 dark:border-outline-variant/10">
                                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Requests</p>
-                                      <p className="text-xl font-black text-slate-800 mt-0.5">{fmtNum(stats.requests)}</p>
-                                      <p className="text-[9px] font-semibold text-emerald-600">{fmtNum(stats.successes)} ok</p>
+                                      <p className="text-xl font-black text-slate-800 dark:text-white mt-0.5">{fmtNum(stats.requests)}</p>
+                                      <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-450">{fmtNum(stats.successes)} ok</p>
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 dark:bg-inverse-surface-variant/20 border border-slate-100 dark:border-outline-variant/10">
                                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Avg Latency</p>
-                                      <p className="text-xl font-black text-slate-800 mt-0.5">{stats.avg_latency ?? '—'}s</p>
-                                      <p className="text-[9px] font-semibold text-rose-500">{fmtNum(stats.errors)} err</p>
+                                      <p className="text-xl font-black text-slate-800 dark:text-white mt-0.5">{stats.avg_latency ?? '—'}s</p>
+                                      <p className="text-[9px] font-semibold text-rose-500 dark:text-rose-400">{fmtNum(stats.errors)} err</p>
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 dark:bg-inverse-surface-variant/20 border border-slate-100 dark:border-outline-variant/10">
                                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Fallbacks</p>
-                                      <p className="text-xl font-black text-slate-800 mt-0.5">{fmtNum(stats.fallbacks)}</p>
-                                      <p className="text-[9px] font-semibold text-amber-600">to NIM</p>
+                                      <p className="text-xl font-black text-slate-800 dark:text-white mt-0.5">{fmtNum(stats.fallbacks)}</p>
+                                      <p className="text-[9px] font-semibold text-amber-600 dark:text-amber-450">{key === 'openrouter' ? 'None' : 'to Backup'}</p>
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+                                    <div className="p-2.5 rounded-xl bg-slate-50/70 dark:bg-inverse-surface-variant/20 border border-slate-100 dark:border-outline-variant/10">
                                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Tokens Out</p>
-                                      <p className="text-xl font-black text-slate-800 mt-0.5">{fmtNum(stats.tokens_total)}</p>
-                                      <p className="text-[9px] font-semibold text-slate-400">{fmtNum(stats.tokens_prompt)} in</p>
+                                      <p className="text-xl font-black text-slate-800 dark:text-white mt-0.5">{fmtNum(stats.tokens_total)}</p>
+                                      <p className="text-[9px] font-semibold text-slate-400 mt-0.5">{fmtNum(stats.tokens_prompt)} in</p>
                                     </div>
                                   </div>
 
@@ -1529,8 +2060,8 @@ export default function AdminReviewsPage() {
                                       {/* Daily requests bar */}
                                       <div>
                                         <div className="flex items-center justify-between mb-1">
-                                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Daily Requests</span>
-                                          <span className="text-[10px] font-bold text-slate-700">
+                                          <span className="text-[9px] font-bold text-slate-550 dark:text-slate-405 uppercase tracking-wider">Daily Requests</span>
+                                          <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
                                             {fmtNum(stats.rate_limit_requests_remaining)} / {fmtNum(stats.rate_limit_requests_limit)}
                                           </span>
                                         </div>
@@ -1553,8 +2084,8 @@ export default function AdminReviewsPage() {
                                       {/* Per-minute tokens bar */}
                                       <div>
                                         <div className="flex items-center justify-between mb-1">
-                                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Tokens / Min</span>
-                                          <span className="text-[10px] font-bold text-slate-700">
+                                          <span className="text-[9px] font-bold text-slate-550 dark:text-slate-405 uppercase tracking-wider">Tokens / Min</span>
+                                          <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
                                             {fmtNum(stats.rate_limit_tokens_remaining)} / {fmtNum(stats.rate_limit_tokens_limit)}
                                           </span>
                                         </div>
@@ -1578,11 +2109,11 @@ export default function AdminReviewsPage() {
 
                                   {/* Non-Groq providers: token breakdown counters */}
                                   {!showRateLimit && (
-                                    <div className="pt-1 border-t border-slate-100">
+                                    <div className="pt-1 border-t border-slate-100 dark:border-outline-variant/10">
                                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2">Cumulative Token Usage</p>
                                       <div className="grid grid-cols-3 gap-1.5">
                                         {[['Prompt', stats.tokens_prompt], ['Completion', stats.tokens_completion], ['Total', stats.tokens_total]].map(([lbl, val]) => (
-                                          <div key={lbl} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <div key={lbl} className="text-center p-2 rounded-lg bg-slate-50 dark:bg-inverse-surface-variant/20 border border-slate-100 dark:border-outline-variant/10">
                                             <p className="text-[9px] font-bold text-slate-400 mb-0.5">{lbl}</p>
                                             <p className={`text-xs font-black ${c.text}`}>{fmtNum(val)}</p>
                                           </div>
@@ -1618,7 +2149,7 @@ export default function AdminReviewsPage() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             className="relative z-10 w-full max-w-4xl overflow-hidden rounded-3xl border border-slate-100 bg-white/95 backdrop-blur shadow-2xl"
           >
-            <div className="border-b border-slate-100 bg-gradient-to-br from-primary-50/40 via-white to-yellow-50/40 px-6 py-5">
+            <div className="border-b border-slate-100 bg-gradient-to-br from-primary-50/40 via-white to-yellow-50/40 dark:from-[#161c24] dark:via-[#1c252e] dark:to-[#161c24] px-6 py-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-primary-600">Job Details</p>
@@ -1660,9 +2191,17 @@ export default function AdminReviewsPage() {
                   <section className="rounded-2xl border border-slate-100 bg-slate-50/40 p-5">
                     <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Description</h4>
                     {!editingMode ? (
-                      <p className="whitespace-pre-wrap text-slate-700 text-sm leading-relaxed">
-                        {viewJobLoading ? 'Loading...' : viewingJob.description || 'No description provided.'}
-                      </p>
+                      <div className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed">
+                        {viewJobLoading ? (
+                          'Loading...'
+                        ) : viewingJob.description ? (
+                          <ReactMarkdown components={jobMarkdownComponents}>
+                            {viewingJob.description}
+                          </ReactMarkdown>
+                        ) : (
+                          'No description provided.'
+                        )}
+                      </div>
                     ) : (
                       <textarea
                         value={editForm.description}
@@ -1767,13 +2306,13 @@ export default function AdminReviewsPage() {
                 <>
                   <button
                     onClick={cancelEditJob}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 duration-200 transition-all"
+                    className="btn-secondary-sm !px-4 !py-2 !text-xs !rounded-xl"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={submitEditJob}
-                    className="rounded-xl bg-primary-600 px-4 py-2 text-xs font-bold text-white hover:bg-primary-700 active:scale-95 duration-200 transition-all shadow-md shadow-primary-500/10"
+                    className="btn-primary-sm !px-4 !py-2 !text-xs !rounded-xl shadow-md shadow-primary-500/10"
                   >
                     Save
                   </button>
@@ -1782,25 +2321,25 @@ export default function AdminReviewsPage() {
                 <>
                   <button
                     onClick={startEditJob}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 duration-200 transition-all"
+                    className="btn-secondary-sm !px-4 !py-2 !text-xs !rounded-xl"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => handleToggleDisable(viewingJob)}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 duration-200 transition-all"
+                    className="btn-secondary-sm !px-4 !py-2 !text-xs !rounded-xl"
                   >
                     {viewingJob.status === 'rejected' ? 'Enable' : 'Disable'}
                   </button>
                   <button
                     onClick={() => handleForceReview(viewingJob)}
-                    className="rounded-xl border border-primary-100 px-4 py-2 text-xs font-bold text-primary-700 hover:bg-primary-50 active:scale-95 duration-200 transition-all"
+                    className="btn-secondary-sm !px-4 !py-2 !text-xs !rounded-xl"
                   >
                     Force Review
                   </button>
                   <button
                     onClick={closeJobDetails}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 duration-200 transition-all"
+                    className="btn-secondary-sm !px-4 !py-2 !text-xs !rounded-xl"
                   >
                     Close
                   </button>
@@ -1850,7 +2389,7 @@ export default function AdminReviewsPage() {
               <button
                 onClick={closeRejectModal}
                 disabled={rejectSubmitting}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                className="btn-secondary-sm !px-4 !py-2 !text-xs !rounded-xl disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1891,7 +2430,7 @@ export default function AdminReviewsPage() {
             </p>
 
             <div className="flex items-center justify-end gap-3">
-              <button onClick={closeConfirmAction} disabled={confirmAction.loading} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
+              <button onClick={closeConfirmAction} disabled={confirmAction.loading} className="btn-secondary-sm !px-4 !py-2 !text-xs !rounded-xl">
                 Cancel
               </button>
               <button onClick={submitConfirmAction} disabled={confirmAction.loading} className="px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 text-xs font-bold active:scale-95 duration-200">

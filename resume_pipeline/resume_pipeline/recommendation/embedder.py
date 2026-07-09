@@ -9,8 +9,8 @@ from ..core.rate_limiter import gemini_embedding_limiter
 
 logger = logging.getLogger(__name__)
 
-# Gemini text-embedding-004 / gemini-embedding-2-preview outputs 3072-dim vectors.
-EMBEDDING_DIM = 3072
+# Gemini text-embedding-004 / gemini-embedding-2-preview outputs 1536-dim vectors.
+EMBEDDING_DIM = 1536  # Updated to match GEMINI_EMBEDDING_DIM in db.py
 
 
 class GeminiEmbeddingUnavailable(Exception):
@@ -35,12 +35,14 @@ class Embedder:
         if not api_key:
             logger.warning("GEMINI_API_KEY is empty in settings.")
         self.client = genai.Client(api_key=api_key) if api_key else None
+        self._applicant_cache = {}
+        self._job_cache = {}
 
     def embed(self, text: str, instruction: str | None = None) -> list[float]:
-        """Generate a 3072-dim embedding vector via Gemini.
+        """Generate a 1536-dim embedding vector via Gemini.
 
-        Explicitly pins output_dimensionality=3072 to guarantee consistency with
-        the vector(3072) DB columns regardless of API default changes.
+        Explicitly pins output_dimensionality=1536 to guarantee consistency with
+        the vector(1536) DB columns regardless of API default changes.
         """
         # 1. Circuit breaker check to fail fast and prevent hammering the API on failures
         if not gemini_embedding_limiter.allow_call():
@@ -93,18 +95,35 @@ class Embedder:
 
     def get_job_embedding(self, job_id: int, payload_builder_fn, job) -> list[float]:
         """Fetch job embedding from DB cache, or compute and cache if missing."""
-        cached = self.db.query(JobEmbeddingsCache).filter(JobEmbeddingsCache.job_id == job_id).first()
+        payload = payload_builder_fn(job)
+        source_hash = self._source_hash(payload)
+
+        # 1. Check local in-memory cache
+        cache_key = (job_id, source_hash)
+        if cache_key in self._job_cache:
+            return self._job_cache[cache_key]
+
+        # 2. Check DB cache using composite key
+        cached = (
+            self.db.query(JobEmbeddingsCache)
+            .filter(
+                JobEmbeddingsCache.job_id == job_id,
+                JobEmbeddingsCache.source_hash == source_hash
+            )
+            .first()
+        )
         if cached and cached.embedding is not None:
             emb = cached.embedding
-            # pgvector returns the vector as a list natively; handle JSON list too
-            return list(emb) if not isinstance(emb, list) else emb
+            vector = list(emb) if not isinstance(emb, list) else emb
+            self._job_cache[cache_key] = vector
+            return vector
 
-        payload = payload_builder_fn(job)
+        # 3. Compute and cache embedding
         instruction = "Represent this job posting for candidate matching:"
         vector = self.embed(payload, instruction=instruction)
 
         try:
-            cache_entry = JobEmbeddingsCache(job_id=job_id, embedding=vector)
+            cache_entry = JobEmbeddingsCache(job_id=job_id, source_hash=source_hash, embedding=vector)
             self.db.merge(cache_entry)
             self.db.commit()
             logger.info(f"Cached job embedding in DB for job_id={job_id}")
@@ -112,6 +131,7 @@ class Embedder:
             logger.error(f"Failed to cache job embedding in DB for job_id={job_id}: {e}")
             self.db.rollback()
 
+        self._job_cache[cache_key] = vector
         return vector
 
     # ------------------------------------------------------------------
@@ -140,14 +160,19 @@ class Embedder:
             instruction: Optional asymmetric retrieval prefix for the embedding model.
 
         Returns:
-            list[float] — 3072-dimensional embedding vector.
+            list[float] — 1536-dimensional embedding vector.
 
         Raises:
             GeminiEmbeddingUnavailable if the API fails AND no cached vector exists.
         """
         source_hash = self._source_hash(text, suffix)
 
-        # 1. Check DB cache — match by applicant_id AND source_hash
+        # 1. Check local in-memory cache
+        cache_key = (applicant.id, source_hash)
+        if cache_key in self._applicant_cache:
+            return self._applicant_cache[cache_key]
+
+        # 2. Check DB cache — match by applicant_id AND source_hash
         existing = (
             self.db.query(ApplicantEmbedding)
             .filter(
@@ -158,20 +183,22 @@ class Embedder:
         )
         if existing and existing.embedding_vector is not None:
             emb = existing.embedding_vector
+            vector = list(emb) if not isinstance(emb, list) else emb
             logger.debug(
                 f"Applicant embedding cache HIT for applicant_id={applicant.id} suffix='{suffix}'"
             )
-            return list(emb) if not isinstance(emb, list) else emb
+            self._applicant_cache[cache_key] = vector
+            return vector
 
         logger.info(
             f"Applicant embedding cache MISS for applicant_id={applicant.id} suffix='{suffix}' "
             "— calling Gemini API"
         )
 
-        # 2. Cache miss: generate via Gemini
+        # 3. Cache miss: generate via Gemini
         vector = self.embed(text, instruction=instruction)
 
-        # 3. Persist — use applicant_id + suffix as composite logical key
+        # 4. Persist — use applicant_id + suffix as composite logical key
         #    We store one row per (applicant_id, suffix) — upsert via delete+insert
         try:
             # Delete any stale row for this applicant + suffix combo
@@ -203,6 +230,7 @@ class Embedder:
             )
             self.db.rollback()
 
+        self._applicant_cache[cache_key] = vector
         return vector
 
     def get_cached_applicant_embedding_raw(self, applicant_id: int) -> list[float] | None:

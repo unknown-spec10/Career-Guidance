@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
@@ -90,6 +90,245 @@ const jobMarkdownComponents = {
   blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-200 pl-3 italic text-slate-600 mb-2">{children}</blockquote>,
 }
 
+const CooldownTimer = React.memo(({ expiresAt, onCooldownEnd, className }) => {
+  const [timeLeft, setTimeLeft] = useState('')
+
+  useEffect(() => {
+    if (!expiresAt) {
+      setTimeLeft('')
+      return undefined
+    }
+
+    const calculateTimeLeft = () => {
+      const difference = +new Date(expiresAt) - +new Date()
+      if (difference <= 0) {
+        setTimeLeft('')
+        if (onCooldownEnd) {
+          onCooldownEnd()
+        }
+        return
+      }
+
+      const hours = Math.floor(difference / (1000 * 60 * 60))
+      const minutes = Math.floor((difference / 1000 / 60) % 60)
+      const seconds = Math.floor((difference / 1000) % 60)
+
+      setTimeLeft(
+        `${hours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`
+      )
+    }
+
+    calculateTimeLeft()
+    const interval = setInterval(calculateTimeLeft, 1000)
+    return () => clearInterval(interval)
+  }, [expiresAt, onCooldownEnd])
+
+  if (!timeLeft) return <span className={className}>calculating...</span>
+
+  return (
+    <span className={className}>
+      {timeLeft}
+    </span>
+  )
+})
+CooldownTimer.displayName = 'CooldownTimer'
+
+const JobCard = React.memo(({
+  job,
+  rec,
+  candidateCity,
+  candidateSkills,
+  isApplied,
+  isApplying,
+  showApplicantFeatures,
+  onApply,
+  onOpenDetails
+}) => {
+  const handleOpenDetails = () => {
+    onOpenDetails(job)
+  }
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="p-6 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-primary-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col h-full relative overflow-hidden group"
+    >
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary-500/0 via-indigo-500/0 to-purple-500/0 group-hover:from-primary-500 group-hover:via-indigo-500 group-hover:to-purple-500 transition-all duration-300" />
+
+      <div className="flex justify-between items-start mb-3 gap-4">
+        <div className="flex-1 mr-2">
+          <div className="flex items-start gap-3 mb-1.5">
+            <div className="w-11 h-11 bg-primary-50 border border-primary-100 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm">
+              <Briefcase className="w-5 h-5 text-primary-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-bold text-lg leading-tight mb-1 text-slate-900 group-hover:text-primary-900 transition-colors line-clamp-2">{job.title}</h3>
+              <p className="text-sm font-semibold text-slate-500">{job.company}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {(() => {
+        const userCity = candidateCity || ''
+        const jobCity = (job.location_city || '').toLowerCase().trim()
+        const isCityMatched = userCity && jobCity && (userCity.includes(jobCity) || jobCity.includes(userCity))
+        
+        const showLocGreen = isCityMatched || (!job.location_city && job.work_type === 'remote')
+        const showWorkTypeGreen = job.work_type === 'remote' || job.work_type === 'hybrid'
+        const isExpMatched = (rec?.scoring_breakdown?.experience_fit ?? 0) >= 0.5
+        const isCgpaMatched = (rec?.scoring_breakdown?.academic_score ?? 0) >= 0.5
+
+        return (
+          <>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                showLocGreen 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                  : 'bg-slate-50 border-slate-100 text-slate-600'
+              }`}>
+                <MapPin className={`w-3.5 h-3.5 ${showLocGreen ? 'text-emerald-500' : 'text-slate-400'}`} />
+                <span>{job.location_city || 'Remote'}{job.location_state ? `, ${job.location_state}` : ''}</span>
+              </div>
+              <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium capitalize transition-all ${
+                showWorkTypeGreen 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                  : 'bg-slate-50 border-slate-100 text-slate-600'
+              }`}>
+                <Clock className={`w-3.5 h-3.5 ${showWorkTypeGreen ? 'text-emerald-500' : 'text-slate-400'}`} />
+                <span>{job.work_type || 'Full-time'}</span>
+              </div>
+              {job.min_experience_years !== null && job.min_experience_years !== undefined && (
+                <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                  isExpMatched 
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                    : 'bg-slate-50 border-slate-100 text-slate-600'
+                }`}>
+                  <Sparkles className={`w-3.5 h-3.5 ${isExpMatched ? 'text-emerald-500' : 'text-slate-400'}`} />
+                  <span>{job.min_experience_years}+ years</span>
+                </div>
+              )}
+              {job.min_cgpa && (
+                <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                  isCgpaMatched 
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                    : 'bg-slate-50 border-slate-100 text-slate-600'
+                }`}>
+                  <Award className={`w-3.5 h-3.5 ${isCgpaMatched ? 'text-emerald-500' : 'text-slate-400'}`} />
+                  <span>CGPA {job.min_cgpa}+</span>
+                </div>
+              )}
+            </div>
+
+            {/* Job Skills Section directly inside the card */}
+            {(() => {
+              const explicit = Array.isArray(job.required_skills) && job.required_skills.length > 0
+              const matched = rec?.scoring_breakdown?.skills_breakdown?.matched_skills || []
+              const partial = rec?.scoring_breakdown?.skills_breakdown?.partial_matches || []
+              const fallbackSkills = [...new Set([...matched, ...partial])]
+              const skillsToRender = explicit ? job.required_skills.slice(0, 3) : fallbackSkills.slice(0, 3)
+              
+              if (!skillsToRender || skillsToRender.length === 0) return null
+              
+              return (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {skillsToRender.map((skill) => {
+                    const skillName = typeof skill === 'string' ? skill : skill?.name || skill?.skill || 'Skill'
+                    const reqName = skillName.toLowerCase().trim()
+                    const isMatched = checkSkillMatch(candidateSkills, reqName) ||
+                                      matched.some(m => checkSkillMatch([m], reqName)) ||
+                                      partial.some(p => checkSkillMatch([p], reqName))
+                    return (
+                      <span
+                        key={skillName}
+                        className={`text-[10px] px-2 py-0.5 rounded-md font-semibold border transition-all inline-flex items-center ${
+                          isMatched 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                            : 'bg-slate-50 border-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {isMatched && <Check className="w-2.5 h-2.5 mr-0.5 text-emerald-600 flex-shrink-0" />}
+                        {skillName}
+                      </span>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </>
+        )
+      })()}
+
+      {job.description && (
+        <div className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 bg-slate-50/50 rounded-xl p-3 border border-slate-100 line-clamp-4 overflow-hidden">
+          <ReactMarkdown components={jobMarkdownComponents}>
+            {job.description}
+          </ReactMarkdown>
+        </div>
+      )}
+
+      {(job.min_salary || job.max_salary) && (
+        <div className="mb-4">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Salary Range</p>
+          <p className="text-sm font-bold text-primary-600">
+            {job.min_salary ? `INR ${(job.min_salary / 100000).toFixed(1)}L` : 'Competitive'}
+            {job.max_salary ? ` - INR ${(job.max_salary / 100000).toFixed(1)}L` : ''}
+          </p>
+        </div>
+      )}
+
+      <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
+        <div className="flex gap-2 w-full">
+          <button
+            onClick={handleOpenDetails}
+            className="flex-1 py-2 px-3 text-xs font-bold border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-700 active:scale-95 duration-200"
+          >
+            Details
+          </button>
+
+          {isApplied ? (
+            <button
+              disabled
+              className="flex-1 py-2 px-3 text-xs font-bold rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200 cursor-not-allowed text-center flex items-center justify-center gap-1.5"
+            >
+              <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              Applied
+            </button>
+          ) : (
+            <button
+              onClick={() => onApply(job.id)}
+              disabled={isApplying}
+              className="flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-all active:scale-95 duration-200 bg-primary-600 hover:bg-primary-700 text-white shadow-sm shadow-primary-500/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+            >
+              {isApplying ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Applying...
+                </>
+              ) : (
+                'Easy Apply'
+              )}
+            </button>
+          )}
+        </div>
+
+        {!showApplicantFeatures && (
+          <button
+            onClick={handleOpenDetails}
+            className="text-[9px] text-primary-600 font-extrabold hover:underline self-center pt-0.5"
+          >
+            View full job details
+          </button>
+        )}
+      </div>
+    </motion.div>
+  )
+})
+JobCard.displayName = 'JobCard'
+
 export default function JobsPage() {
   const navigate = useNavigate()
   const toast = useToast()
@@ -120,11 +359,15 @@ export default function JobsPage() {
   // Cooldown & Bypass State
   const [cooldownActive, setCooldownActive] = useState(false)
   const [cooldownExpiresAt, setCooldownExpiresAt] = useState(null)
-  const [cooldownTimeLeft, setCooldownTimeLeft] = useState('')
   const [bypassCost, setBypassCost] = useState(5)
   const [showBypassModal, setShowBypassModal] = useState(false)
   const [creditsBalance, setCreditsBalance] = useState(null)
   const [recalcLoading, setRecalcLoading] = useState(false)
+
+  const handleCooldownEnd = useCallback(() => {
+    setCooldownActive(false)
+    setCooldownExpiresAt(null)
+  }, [])
 
   const pageSize = 9
   const observerTarget = useRef(null)
@@ -192,35 +435,7 @@ export default function JobsPage() {
     fetchAppliedJobs()
   }, [currentUser?.email])
 
-  // Cooldown Countdown Timer
-  useEffect(() => {
-    if (!cooldownActive || !cooldownExpiresAt) {
-      setCooldownTimeLeft('')
-      return undefined
-    }
 
-    const calculateTimeLeft = () => {
-      const difference = +new Date(cooldownExpiresAt) - +new Date()
-      if (difference <= 0) {
-        setCooldownActive(false)
-        setCooldownExpiresAt(null)
-        setCooldownTimeLeft('')
-        return
-      }
-
-      const hours = Math.floor(difference / (1000 * 60 * 60))
-      const minutes = Math.floor((difference / 1000 / 60) % 60)
-      const seconds = Math.floor((difference / 1000) % 60)
-
-      setCooldownTimeLeft(
-        `${hours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`
-      )
-    }
-
-    calculateTimeLeft()
-    const interval = setInterval(calculateTimeLeft, 1000)
-    return () => clearInterval(interval)
-  }, [cooldownActive, cooldownExpiresAt])
 
   const fetchRecommendations = async () => {
     try {
@@ -411,7 +626,7 @@ export default function JobsPage() {
     }
   }
 
-  const handleApply = async (jobId) => {
+  const handleApply = useCallback(async (jobId) => {
     if (!currentUser) {
       navigate('/login')
       return
@@ -432,7 +647,17 @@ export default function JobsPage() {
     } finally {
       setApplyingId(null)
     }
-  }
+  }, [currentUser, navigate, toast])
+
+  const handleOpenDetails = useCallback(async (job) => {
+    try {
+      const response = await api.get(`/api/job/${job.id}`)
+      setSelectedJob(response.data.job)
+    } catch (error) {
+      console.error('Error fetching job details:', error)
+      setSelectedJob(job)
+    }
+  }, [setSelectedJob])
 
   const handleGenerateLearningPath = async (job) => {
     if (!job?.id) return
@@ -501,83 +726,89 @@ export default function JobsPage() {
   const activeFilterCount = [filters.q, filters.location, filters.work_type, filters.skills].filter(Boolean).length
 
   // Filter recommendations locally
-  const filteredRecommendations = rawRecommendations.filter((rec) => {
-    const job = rec.job || rec
-    if (!job) return false
+  const filteredRecommendations = useMemo(() => {
+    return rawRecommendations.filter((rec) => {
+      const job = rec.job || rec
+      if (!job) return false
 
-    // Title / Company / Description filter
-    if (filters.q) {
-      const q = filters.q.toLowerCase()
-      const title = (job.title || '').toLowerCase()
-      const company = (job.company || '').toLowerCase()
-      const desc = (job.description || '').toLowerCase()
-      if (!title.includes(q) && !company.includes(q) && !desc.includes(q)) {
-        return false
+      // Title / Company / Description filter
+      if (filters.q) {
+        const q = filters.q.toLowerCase()
+        const title = (job.title || '').toLowerCase()
+        const company = (job.company || '').toLowerCase()
+        const desc = (job.description || '').toLowerCase()
+        if (!title.includes(q) && !company.includes(q) && !desc.includes(q)) {
+          return false
+        }
       }
-    }
 
-    // Location filter
-    if (filters.location) {
-      const locFilter = filters.location.toLowerCase()
-      const city = (job.location_city || '').toLowerCase()
-      const state = (job.location_state || '').toLowerCase()
-      if (!city.includes(locFilter) && !state.includes(locFilter)) {
-        return false
+      // Location filter
+      if (filters.location) {
+        const locFilter = filters.location.toLowerCase()
+        const city = (job.location_city || '').toLowerCase()
+        const state = (job.location_state || '').toLowerCase()
+        if (!city.includes(locFilter) && !state.includes(locFilter)) {
+          return false
+        }
       }
-    }
 
-    // Work type filter
-    if (filters.work_type) {
-      if (job.work_type !== filters.work_type) {
-        return false
+      // Work type filter
+      if (filters.work_type) {
+        if (job.work_type !== filters.work_type) {
+          return false
+        }
       }
-    }
 
-    // Skills filter
-    if (filters.skills) {
-      const skillsFilter = filters.skills.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
-      if (skillsFilter.length > 0) {
-        const requiredSkills = Array.isArray(job.required_skills)
-          ? job.required_skills.map(s => String(s).toLowerCase().trim())
-          : []
-        const matchedSkills = rec.scoring_breakdown?.skills_breakdown?.matched_skills || []
-        const partialSkills = rec.scoring_breakdown?.skills_breakdown?.partial_matches || []
-        const recSkills = [...new Set([...matchedSkills, ...partialSkills])].map(s => String(s).toLowerCase().trim())
-        
-        const allJobSkills = [...new Set([...requiredSkills, ...recSkills])]
-        
-        const hasAllSkills = skillsFilter.every(sf => 
-          allJobSkills.some(js => js.includes(sf) || sf.includes(js))
-        )
-        if (!hasAllSkills) return false
+      // Skills filter
+      if (filters.skills) {
+        const skillsFilter = filters.skills.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+        if (skillsFilter.length > 0) {
+          const requiredSkills = Array.isArray(job.required_skills)
+            ? job.required_skills.map(s => (typeof s === 'object' && s !== null ? String(s.name || '') : String(s)).toLowerCase().trim())
+            : []
+          const matchedSkills = rec.scoring_breakdown?.skills_breakdown?.matched_skills || []
+          const partialSkills = rec.scoring_breakdown?.skills_breakdown?.partial_matches || []
+          const recSkills = [...new Set([...matchedSkills, ...partialSkills])].map(s => String(s).toLowerCase().trim())
+          
+          const allJobSkills = [...new Set([...requiredSkills, ...recSkills])]
+          
+          const hasAllSkills = skillsFilter.every(sf => 
+            allJobSkills.some(js => js.includes(sf) || sf.includes(js))
+          )
+          if (!hasAllSkills) return false
+        }
       }
-    }
 
-    return true
-  })
+      return true
+    })
+  }, [rawRecommendations, filters.q, filters.location, filters.work_type, filters.skills])
 
   // Sort recommendations locally
-  const sortedRecommendations = [...filteredRecommendations].sort((a, b) => {
-    const jobA = a.job || a
-    const jobB = b.job || b
+  const sortedRecommendations = useMemo(() => {
+    return [...filteredRecommendations].sort((a, b) => {
+      const jobA = a.job || a
+      const jobB = b.job || b
 
-    if (filters.sort === 'recent') {
-      const dateA = new Date(jobA.created_at || 0)
-      const dateB = new Date(jobB.created_at || 0)
-      return dateB - dateA
-    } else if (filters.sort === 'title') {
-      return (jobA.title || '').localeCompare(jobB.title || '')
-    } else {
-      // Relevance (score desc)
-      const scoreA = a.match_score ?? a.score ?? 0
-      const scoreB = b.match_score ?? b.score ?? 0
-      return scoreB - scoreA
-    }
-  })
+      if (filters.sort === 'recent') {
+        const dateA = new Date(jobA.created_at || 0)
+        const dateB = new Date(jobB.created_at || 0)
+        return dateB - dateA
+      } else if (filters.sort === 'title') {
+        return (jobA.title || '').localeCompare(jobB.title || '')
+      } else {
+        // Relevance (score desc)
+        const scoreA = a.match_score ?? a.score ?? 0
+        const scoreB = b.match_score ?? b.score ?? 0
+        return scoreB - scoreA
+      }
+    })
+  }, [filteredRecommendations, filters.sort])
 
-  const displayJobs = showApplicantFeatures
-    ? sortedRecommendations.map(rec => rec.job).filter(Boolean)
-    : jobs
+  const displayJobs = useMemo(() => {
+    return showApplicantFeatures
+      ? sortedRecommendations.map(rec => rec.job).filter(Boolean)
+      : jobs
+  }, [showApplicantFeatures, sortedRecommendations, jobs])
 
   // Infinite Scroll Hook
   useEffect(() => {
@@ -599,202 +830,11 @@ export default function JobsPage() {
     }
   }, [])
 
-  const JobCard = ({ job }) => {
-    const rec = recommendationDetailsByJobId[job.id] || null
 
-    const handleOpenDetails = async () => {
-      try {
-        const response = await api.get(`/api/job/${job.id}`)
-        setSelectedJob(response.data.job)
-      } catch (error) {
-        console.error('Error fetching job details:', error)
-        setSelectedJob(job)
-      }
-    }
-
-    return (
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        className="p-6 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-primary-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col h-full relative overflow-hidden group"
-      >
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary-500/0 via-indigo-500/0 to-purple-500/0 group-hover:from-primary-500 group-hover:via-indigo-500 group-hover:to-purple-500 transition-all duration-300" />
-
-        <div className="flex justify-between items-start mb-3 gap-4">
-          <div className="flex-1 mr-2">
-            <div className="flex items-start gap-3 mb-1.5">
-              <div className="w-11 h-11 bg-primary-50 border border-primary-100 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm">
-                <Briefcase className="w-5 h-5 text-primary-700" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-lg leading-tight mb-1 text-slate-900 group-hover:text-primary-900 transition-colors line-clamp-2">{job.title}</h3>
-                <p className="text-sm font-semibold text-slate-500">{job.company}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {(() => {
-          const userCity = candidateCity || ''
-          const jobCity = (job.location_city || '').toLowerCase().trim()
-          const isCityMatched = userCity && jobCity && (userCity.includes(jobCity) || jobCity.includes(userCity))
-          
-          const showLocGreen = isCityMatched || (!job.location_city && job.work_type === 'remote')
-          const showWorkTypeGreen = job.work_type === 'remote' || job.work_type === 'hybrid'
-          const isExpMatched = (rec?.scoring_breakdown?.experience_fit ?? 0) >= 0.5
-          const isCgpaMatched = (rec?.scoring_breakdown?.academic_score ?? 0) >= 0.5
-
-          return (
-            <>
-              <div className="flex flex-wrap gap-2 mb-3">
-                <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                  showLocGreen 
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
-                    : 'bg-slate-50 border-slate-100 text-slate-600'
-                }`}>
-                  <MapPin className={`w-3.5 h-3.5 ${showLocGreen ? 'text-emerald-500' : 'text-slate-400'}`} />
-                  <span>{job.location_city || 'Remote'}{job.location_state ? `, ${job.location_state}` : ''}</span>
-                </div>
-                <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium capitalize transition-all ${
-                  showWorkTypeGreen 
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
-                    : 'bg-slate-50 border-slate-100 text-slate-600'
-                }`}>
-                  <Clock className={`w-3.5 h-3.5 ${showWorkTypeGreen ? 'text-emerald-500' : 'text-slate-400'}`} />
-                  <span>{job.work_type || 'Full-time'}</span>
-                </div>
-                {job.min_experience_years !== null && job.min_experience_years !== undefined && (
-                  <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                    isExpMatched 
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
-                      : 'bg-slate-50 border-slate-100 text-slate-600'
-                  }`}>
-                    <Sparkles className={`w-3.5 h-3.5 ${isExpMatched ? 'text-emerald-500' : 'text-slate-400'}`} />
-                    <span>{job.min_experience_years}+ years</span>
-                  </div>
-                )}
-                {job.min_cgpa && (
-                  <div className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                    isCgpaMatched 
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
-                      : 'bg-slate-50 border-slate-100 text-slate-600'
-                  }`}>
-                    <Award className={`w-3.5 h-3.5 ${isCgpaMatched ? 'text-emerald-500' : 'text-slate-400'}`} />
-                    <span>CGPA {job.min_cgpa}+</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Job Skills Section directly inside the card */}
-              {(() => {
-                const explicit = Array.isArray(job.required_skills) && job.required_skills.length > 0
-                const matched = rec?.scoring_breakdown?.skills_breakdown?.matched_skills || []
-                const partial = rec?.scoring_breakdown?.skills_breakdown?.partial_matches || []
-                const fallbackSkills = [...new Set([...matched, ...partial])]
-                const skillsToRender = explicit ? job.required_skills.slice(0, 3) : fallbackSkills.slice(0, 3)
-                
-                if (!skillsToRender || skillsToRender.length === 0) return null
-                
-                return (
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {skillsToRender.map((skill, idx) => {
-                      const skillName = typeof skill === 'string' ? skill : skill?.name || skill?.skill || `Skill ${idx + 1}`
-                      const reqName = skillName.toLowerCase().trim()
-                      const isMatched = checkSkillMatch(candidateSkills, reqName) ||
-                                        matched.some(m => checkSkillMatch([m], reqName)) ||
-                                        partial.some(p => checkSkillMatch([p], reqName))
-                      return (
-                        <span
-                          key={`${skillName}-${idx}`}
-                          className={`text-[10px] px-2 py-0.5 rounded-md font-semibold border transition-all inline-flex items-center ${
-                            isMatched 
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
-                              : 'bg-slate-50 border-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {isMatched && <Check className="w-2.5 h-2.5 mr-0.5 text-emerald-600 flex-shrink-0" />}
-                          {skillName}
-                        </span>
-                      )
-                    })}
-                  </div>
-                )
-              })()}
-            </>
-          )
-        })()}
-
-        {job.description && (
-          <div className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 bg-slate-50/50 rounded-xl p-3 border border-slate-100 line-clamp-4 overflow-hidden">
-            <ReactMarkdown components={jobMarkdownComponents}>
-              {job.description}
-            </ReactMarkdown>
-          </div>
-        )}
-
-        {(job.min_salary || job.max_salary) && (
-          <div className="mb-4">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Salary Range</p>
-            <p className="text-sm font-bold text-primary-600">
-              {job.min_salary ? `INR ${(job.min_salary / 100000).toFixed(1)}L` : 'Competitive'}
-              {job.max_salary ? ` - INR ${(job.max_salary / 100000).toFixed(1)}L` : ''}
-            </p>
-          </div>
-        )}
-
-        <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
-          <div className="flex gap-2 w-full">
-            <button
-              onClick={handleOpenDetails}
-              className="flex-1 py-2 px-3 text-xs font-bold border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all text-slate-700 active:scale-95 duration-200"
-            >
-              Details
-            </button>
-
-            {appliedJobIds.has(job.id) ? (
-              <button
-                disabled
-                className="flex-1 py-2 px-3 text-xs font-bold rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200 cursor-not-allowed text-center flex items-center justify-center gap-1.5"
-              >
-                <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                Applied
-              </button>
-            ) : (
-              <button
-                onClick={() => handleApply(job.id)}
-                disabled={applyingId === job.id}
-                className="flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-all active:scale-95 duration-200 bg-primary-600 hover:bg-primary-700 text-white shadow-sm shadow-primary-500/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
-              >
-                {applyingId === job.id ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Applying...
-                  </>
-                ) : (
-                  'Easy Apply'
-                )}
-              </button>
-            )}
-          </div>
-
-          {!showApplicantFeatures && (
-            <button
-              onClick={handleOpenDetails}
-              className="text-[9px] text-primary-600 font-extrabold hover:underline self-center pt-0.5"
-            >
-              View full job details
-            </button>
-          )}
-        </div>
-      </motion.div>
-    )
-  }
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-24 pb-12">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="relative">
+      <div className="max-w-container-max mx-auto">
         
         {/* Header Row */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
@@ -802,13 +842,13 @@ export default function JobsPage() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-              {showApplicantFeatures ? 'AI Recommended Jobs' : 'Browse Jobs'}
+            <h1 className="font-display-lg text-display-lg text-on-surface dark:text-inverse-on-surface mb-xs font-bold leading-tight">
+              {showApplicantFeatures ? 'Recommended Match Roles' : 'Browse Listings'}
             </h1>
-            <p className="text-gray-600">
+            <p className="font-body-base text-body-base text-on-surface-variant dark:text-surface-variant">
               {showApplicantFeatures 
-                ? 'Personalized career recommendations sorted by AI matching relevance.' 
-                : 'Discover opportunities that match your skills and goals.'}
+                ? 'Personalized career matches sorted by algorithmic suitability.' 
+                : 'Discover opportunities that align with your career specifications.'}
             </p>
           </motion.div>
           
@@ -822,7 +862,7 @@ export default function JobsPage() {
                 <button
                   onClick={() => handleRecomputeRecommendations(false)}
                   disabled={recalcLoading}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all text-sm shadow-md border duration-200 active:scale-95 ${
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all text-sm shadow-md border duration-200 active:scale-95 cursor-pointer ${
                     recalcLoading
                       ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
                       : 'bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 hover:from-amber-600 hover:via-orange-600 hover:to-yellow-600 border-amber-400 text-white shadow-amber-500/20 hover:shadow-amber-500/30'
@@ -830,20 +870,20 @@ export default function JobsPage() {
                 >
                   <Zap className={`w-4 h-4 text-white ${recalcLoading ? '' : 'animate-bounce'}`} />
                   <span>{recalcLoading ? 'Updating...' : `Refresh Now (${bypassCost}c)`}</span>
-                  {cooldownTimeLeft && (
-                    <span className="ml-1 text-[10px] font-medium bg-black/25 px-2 py-0.5 rounded-full font-mono text-amber-100">
-                      {cooldownTimeLeft}
-                    </span>
-                  )}
+                  <CooldownTimer
+                    expiresAt={cooldownExpiresAt}
+                    onCooldownEnd={handleCooldownEnd}
+                    className="ml-1 text-[10px] font-medium bg-black/25 px-2 py-0.5 rounded-full font-mono text-amber-100"
+                  />
                 </button>
               ) : (
                 <button
                   onClick={() => handleRecomputeRecommendations(false)}
                   disabled={recalcLoading}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border font-semibold transition-all text-sm shadow-sm ${
+                  className={`inline-flex items-center gap-2 font-semibold transition-all shadow-sm cursor-pointer ${
                     recalcLoading
-                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed px-4 py-2 rounded-xl border text-sm'
+                      : 'btn-secondary-sm !px-4 !py-2 !rounded-xl !text-sm text-slate-700 dark:text-slate-300'
                   }`}
                 >
                   <RefreshCcw className={`w-4 h-4 ${recalcLoading ? 'animate-spin' : ''}`} />
@@ -858,11 +898,11 @@ export default function JobsPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-6 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm"
+          className="mb-lg bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow"
         >
-          <div className="mb-4">
-            <h3 className="text-base font-bold text-slate-900">Search & Filter</h3>
-            <p className="text-xs text-slate-500">Refine the job list using keyword, location, type, skill, and sort criteria.</p>
+          <div className="mb-md">
+            <h3 className="font-body-bold text-[15px] font-bold text-on-surface dark:text-inverse-on-surface">Search Listings</h3>
+            <p className="font-metadata text-[12px] text-on-surface-variant dark:text-surface-variant mt-0.5">Filter match criteria to pinpoint relevant postings.</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -1000,7 +1040,18 @@ export default function JobsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <AnimatePresence>
             {displayJobs.map((job) => (
-              <JobCard key={job.id} job={job} />
+              <JobCard
+                key={job.id}
+                job={job}
+                rec={recommendationDetailsByJobId[job.id] || null}
+                candidateCity={candidateCity}
+                candidateSkills={candidateSkills}
+                isApplied={appliedJobIds.has(job.id)}
+                isApplying={applyingId === job.id}
+                showApplicantFeatures={showApplicantFeatures}
+                onApply={handleApply}
+                onOpenDetails={handleOpenDetails}
+              />
             ))}
           </AnimatePresence>
         </div>
@@ -1067,7 +1118,7 @@ export default function JobsPage() {
                 </div>
                 <button
                   onClick={() => setSelectedJob(null)}
-                  className="relative text-slate-500 hover:text-slate-900 hover:bg-white/80 border border-slate-200 bg-white/60 p-2.5 rounded-xl transition-all flex-shrink-0 shadow-sm"
+                  className="relative text-slate-500 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 bg-white p-2.5 rounded-xl transition-all flex-shrink-0 shadow-sm"
                 >
                   <X className="w-6 h-6" />
                 </button>
@@ -1108,8 +1159,8 @@ export default function JobsPage() {
 
                       {explanationLines.length > 0 ? (
                         <ul className="space-y-2">
-                          {explanationLines.slice(0, 4).map((line, idx) => (
-                            <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                          {explanationLines.slice(0, 4).map((line) => (
+                            <li key={line} className="flex items-start gap-2 text-sm text-gray-700">
                               <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
                               <span>{line}</span>
                             </li>
@@ -1174,7 +1225,7 @@ export default function JobsPage() {
                                                     partial.some(p => checkSkillMatch([p], reqName))
                                   return (
                                     <span
-                                      key={`${skill}-${idx}`}
+                                      key={skillName}
                                       className={`px-3 py-1 rounded-full text-xs font-medium border transition-all inline-flex items-center ${
                                         isMatched
                                           ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm'
@@ -1375,9 +1426,11 @@ export default function JobsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex flex-col justify-between">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cooldown Left</span>
-                    <span className="text-base font-extrabold text-amber-600 mt-1 font-mono">
-                      {cooldownTimeLeft || "calculating..."}
-                    </span>
+                    <CooldownTimer
+                      expiresAt={cooldownExpiresAt}
+                      onCooldownEnd={handleCooldownEnd}
+                      className="text-base font-extrabold text-amber-600 mt-1 font-mono"
+                    />
                   </div>
                   <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex flex-col justify-between">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Balance</span>

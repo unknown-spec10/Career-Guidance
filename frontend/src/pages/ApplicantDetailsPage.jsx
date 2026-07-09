@@ -163,32 +163,25 @@ export default function ApplicantDetailsPage() {
   const summary = parsed.summary || ''
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pt-24 pb-12 relative overflow-hidden">
-      {/* Ambient background glows */}
-      <div className="pointer-events-none absolute left-1/4 top-10 h-96 w-96 rounded-full bg-gradient-to-br from-primary-400/10 to-indigo-300/10 blur-[100px]" />
-      <div className="pointer-events-none absolute right-1/4 top-40 h-96 w-96 rounded-full bg-gradient-to-br from-sky-400/10 to-emerald-300/10 blur-[100px]" />
-
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+    <div className="relative text-on-surface dark:text-inverse-on-surface">
+      <div className="max-w-container-max mx-auto">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
+          className="mb-lg"
         >
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center space-x-2 text-slate-500 hover:text-slate-800 transition-colors duration-200 mb-4 font-bold text-xs"
+            className="flex items-center space-x-2 text-slate-500 hover:text-slate-800 transition-colors duration-200 mb-4 font-bold text-xs cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
           </button>
           
-          <div className="relative overflow-hidden rounded-3xl border border-white/80 bg-white/70 p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.04)] backdrop-blur-md">
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/40 via-white/50 to-white/40 opacity-70" />
-            <div className="relative">
-              <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
-                {applicant?.display_name || 'Applicant Details'}
-              </h1>
-            </div>
+          <div className="relative overflow-hidden rounded-xl border border-border-subtle dark:border-outline-variant/30 bg-white dark:bg-inverse-surface/5 p-6 shadow-sm">
+            <h1 className="font-display-lg text-display-lg text-on-surface dark:text-inverse-on-surface font-extrabold mb-1">
+              {applicant?.display_name || 'Applicant Profile'}
+            </h1>
           </div>
         </motion.div>
 
@@ -269,7 +262,7 @@ export default function ApplicantDetailsPage() {
                   {skills.map((skill, idx) => (
                     <span
                       key={idx}
-                      className="px-3 py-1 bg-primary-50 border border-primary-100 rounded-xl text-xs font-bold text-primary-750 shadow-sm"
+                      className="px-3 py-1 bg-primary-50 border border-primary-100 rounded-xl text-xs font-bold text-primary-700 dark:text-primary-600 shadow-sm"
                     >
                       {skill.name}
                     </span>

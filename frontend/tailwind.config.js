@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: "class",
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,7 +8,9 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Original colors for backward compatibility
         primary: {
+          DEFAULT: 'var(--color-primary)',
           50: '#e6f2ff',
           100: '#cce5ff',
           200: '#99ccff',
@@ -30,7 +33,97 @@ module.exports = {
           700: '#495057',
           800: '#343a40',
           900: '#212529',
-        }
+        },
+        // Academic Modern Design System Colors
+        "surface-muted": "#f8f9fa",
+        "primary-fixed-dim": "var(--color-primary-fixed-dim)",
+        "warning": "#f59e0b",
+        "surface-container-low": "#f1f4f9",
+        "surface-container-high": "#e5e8ee",
+        "on-error": "#ffffff",
+        "error-container": "#ffdad6",
+        "on-primary": "#ffffff",
+        "on-primary-fixed-variant": "#024493",
+        "surface-container-highest": "#e0e3e8",
+        "secondary-container": "#b8cbfe",
+        "on-tertiary-container": "#bcd0ff",
+        "interactive-purple": "#a855f7",
+        "on-secondary-container": "#425581",
+        "on-tertiary-fixed": "#001a42",
+        "inverse-on-surface": "var(--color-inverse-on-surface)",
+        "surface": "#f7f9ff",
+        "tertiary-fixed-dim": "#adc6ff",
+        "outline-variant": "var(--color-outline-variant)",
+        "surface-variant": "var(--color-surface-variant)",
+        "error": "#f43f5e",
+        "on-primary-container": "var(--color-on-primary-container)",
+        "secondary-fixed": "#d9e2ff",
+        "inverse-surface": "var(--color-inverse-surface)",
+        "on-surface": "#181c20",
+        "surface-tint": "#2c5cad",
+        "surface-bright": "#f7f9ff",
+        "border-subtle": "#e9ecef",
+        "on-tertiary-fixed-variant": "#004395",
+        "secondary-fixed-dim": "#b3c6f8",
+        "surface-container": "#ebeef3",
+        "on-secondary-fixed": "#021a43",
+        "inverse-primary": "#adc6ff",
+        "primary-container": "var(--color-primary-container)",
+        "on-secondary": "#ffffff",
+        "on-error-container": "#93000a",
+        "on-secondary-fixed-variant": "#334670",
+        "on-surface-variant": "#434751",
+        "outline": "#737783",
+        "surface-dim": "#d7dadf",
+        "tertiary-fixed": "#d8e2ff",
+        "success": "#10b981",
+        "secondary": "#4b5e8a",
+        "on-background": "#181c20",
+        "tertiary-container": "#0055b8",
+        "on-primary-fixed": "#001a41",
+        "background": "#f7f9ff",
+        "surface-container-lowest": "#ffffff",
+        "on-tertiary": "#ffffff",
+        "tertiary": "#003f8b",
+        "primary-fixed": "#d8e2ff"
+      },
+      borderRadius: {
+        "sm": "0.25rem",
+        "DEFAULT": "0.5rem",
+        "md": "0.75rem",
+        "lg": "1.0rem",
+        "xl": "0.75rem", // Soft rounded-xl for bento grid cards (from design.md/mockups)
+        "full": "9999px"
+      },
+      spacing: {
+        "xs": "4px",
+        "sm": "8px",
+        "md": "16px",
+        "lg": "24px",
+        "xl": "32px",
+        "base": "4px",
+        "gutter": "16px",
+        "margin-mobile": "16px",
+        "margin-desktop": "32px",
+        "container-max": "1280px"
+      },
+      fontFamily: {
+        "body-bold": ["Inter", "sans-serif"],
+        "label-caps": ["JetBrains Mono", "monospace"],
+        "display-lg": ["Hanken Grotesk", "sans-serif"],
+        "headline-md": ["Hanken Grotesk", "sans-serif"],
+        "metadata": ["Inter", "sans-serif"],
+        "display-lg-mobile": ["Hanken Grotesk", "sans-serif"],
+        "body-base": ["Inter", "sans-serif"]
+      },
+      fontSize: {
+        "body-bold": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+        "metadata": ["13px", { "lineHeight": "18px", "fontWeight": "500" }],
+        "display-lg-mobile": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+        "body-base": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
       },
       animation: {
         'fade-in': 'fadeIn 0.6s ease-in-out',

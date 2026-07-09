@@ -112,7 +112,7 @@ export default function EmployerJobDetails(){
             <h4 className="font-bold text-slate-800 text-sm mb-3">Required Skills</h4>
             <div className="flex flex-wrap gap-2">
               {(job?.required_skills || []).map((s, idx) => (
-                <span key={idx} className="px-3 py-1.5 rounded-xl bg-primary-50 border border-primary-100 text-primary-750 text-xs font-bold shadow-sm">
+                <span key={idx} className="px-3 py-1.5 rounded-xl bg-primary-50 border border-primary-100 text-primary-700 dark:text-primary-600 text-xs font-bold shadow-sm">
                   {s.name || s}
                 </span>
               ))}
@@ -122,7 +122,7 @@ export default function EmployerJobDetails(){
           <div className="flex gap-3 pt-4 border-t border-slate-100">
             <button
               onClick={() => navigate('/employer/dashboard')}
-              className="flex-1 py-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-bold text-slate-700 active:scale-95 duration-200 text-sm text-center"
+              className="btn-secondary flex-1 !py-3 !rounded-xl !text-sm text-center"
             >
               Back
             </button>

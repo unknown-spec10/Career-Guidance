@@ -164,6 +164,34 @@ def _evaluate_with_groq(
 # Streaming hint — sent before showing next question on weak answer
 # ---------------------------------------------------------------------------
 
+async def run_generator_in_thread(sync_gen) -> AsyncGenerator[str, None]:
+    """Utility to run a synchronous generator in a background thread and yield asynchronously."""
+    import queue
+    import asyncio
+    q = queue.Queue(maxsize=10)
+    loop = asyncio.get_running_loop()
+
+    def producer():
+        try:
+            for item in sync_gen:
+                q.put(item)
+        except Exception as e:
+            q.put(e)
+        finally:
+            q.put(None)
+
+    # Offload the synchronous iteration to the thread pool executor (without awaiting)
+    loop.run_in_executor(None, producer)
+
+    while True:
+        item = await asyncio.to_thread(q.get)
+        if item is None:
+            break
+        if isinstance(item, Exception):
+            raise item
+        yield item
+
+
 async def stream_hint(
     skill_tag: str,
     missing_concepts: List[str],
@@ -185,13 +213,14 @@ async def stream_hint(
     messages = [{"role": "user", "content": prompt}]
     
     try:
-        for chunk in llm_router.generate_chat_completion_stream(
+        sync_gen = llm_router.generate_chat_completion_stream(
             messages=messages,
             provider="groq",
             model_name=GROQ_MODEL,
             temperature=0.6,
             max_tokens=150
-        ):
+        )
+        async for chunk in run_generator_in_thread(sync_gen):
             yield f"data: {json.dumps({'token': chunk})}\n\n"
     except Exception as e:
         logger.error(f"stream_hint fallback stream error: {e}")
@@ -234,13 +263,14 @@ Be encouraging and specific. Address the candidate directly ("Your answer...").
     messages = [{"role": "user", "content": prompt}]
     
     try:
-        for chunk in llm_router.generate_chat_completion_stream(
+        sync_gen = llm_router.generate_chat_completion_stream(
             messages=messages,
             provider="groq",
             model_name=GROQ_MODEL,
             temperature=0.5,
             max_tokens=400
-        ):
+        )
+        async for chunk in run_generator_in_thread(sync_gen):
             yield f"data: {json.dumps({'token': chunk})}\n\n"
     except Exception as e:
         logger.error(f"stream_feedback stream error: {e}")
@@ -290,13 +320,14 @@ async def stream_study_plan(
     messages = [{"role": "user", "content": prompt}]
 
     try:
-        for chunk in llm_router.generate_chat_completion_stream(
+        sync_gen = llm_router.generate_chat_completion_stream(
             messages=messages,
             provider="groq",
             model_name=GROQ_MODEL,
             temperature=0.7,
             max_tokens=2048
-        ):
+        )
+        async for chunk in run_generator_in_thread(sync_gen):
             yield f"data: {json.dumps({'token': chunk})}\n\n"
         
     except Exception as e:

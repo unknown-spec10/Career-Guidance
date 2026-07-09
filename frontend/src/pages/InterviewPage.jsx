@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Cpu, Users, Heart, Shuffle, Zap, Target, BarChart2, 
-  MessageSquare, AlertTriangle, Clock, ArrowRight, RefreshCw, ChevronLeft, Trophy, Calendar, Mic,
-  Smile, ShieldAlert
+import {
+  Cpu, Users, Heart, Shuffle, Zap, Target, BarChart2,
+  Clock, ArrowRight, RefreshCw, ChevronLeft, Award, Play, Mic,
+  Smile, ShieldAlert, AlertTriangle
 } from 'lucide-react'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
@@ -12,23 +12,22 @@ import { ToastContainer } from '../components/Toast'
 import useInterviewSession from '../hooks/useInterviewSession'
 
 const INTERVIEW_TYPES = [
-  { id: 'technical', label: 'Technical', icon: Cpu, desc: 'Data structures, system design, coding fundamentals' },
-  { id: 'hr', label: 'HR & Management', icon: Users, desc: 'Background, future goals, behavioral fit' },
-  { id: 'behavioral', label: 'Behavioral', icon: Heart, desc: 'Leadership, conflict resolution, teamwork' },
-  { id: 'mixed', label: 'Mixed Mode', icon: Shuffle, desc: 'A custom blended session of all styles' },
+  { id: 'technical', label: 'Technical Round', icon: Cpu, desc: 'Algorithms, system design, coding syntax' },
+  { id: 'hr', label: 'HR Behavioral', icon: Users, desc: 'STAR stories, company fit, leadership scenarios' },
+  { id: 'behavioral', label: 'Soft Skills Fit', icon: Heart, desc: 'Conflict resolution, team building, situational judgement' },
+  { id: 'mixed', label: 'Mixed Mode Prep', icon: Shuffle, desc: 'A blended custom panel of all styles' },
 ]
 
 const DIFFICULTIES = [
-  { id: 'easy', label: 'Easy', color: 'text-green-600 bg-green-50 border-green-200 active-border-green-500', desc: 'Foundational concepts' },
-  { id: 'medium', label: 'Medium', color: 'text-amber-600 bg-amber-50 border-amber-200 active-border-amber-500', desc: 'Applied knowledge' },
-  { id: 'hard', label: 'Hard', color: 'text-red-600 bg-red-50 border-red-200 active-border-red-500', desc: 'System design & edge cases' },
+  { id: 'easy', label: 'Easy', color: 'text-success bg-success/10 border-success/20', desc: 'Foundational concepts' },
+  { id: 'medium', label: 'Medium', color: 'text-warning bg-warning/10 border-warning/20', desc: 'Applied knowledge' },
+  { id: 'hard', label: 'Hard', color: 'text-error bg-error/10 border-error/20', desc: 'Scalability & edge cases' },
 ]
 
 const PERSONAS = [
-  { id: 'Friendly Senior Engineer', label: 'Friendly Senior Engineer', icon: Smile, desc: 'Warm, collaborative, encouraging. Offers helpful hints when you get stuck.', badge: 'Warm & Encouraging', badgeColor: 'bg-green-50 text-green-700 border-green-200 hover:border-green-300' },
-  { id: 'Tough FAANG Interviewer', label: 'Tough FAANG Interviewer', icon: ShieldAlert, desc: 'Strict, minimal reactions, optimal performance focus. Absolutely no hints.', badge: 'Strict & optimal', badgeColor: 'bg-red-50 text-red-700 border-red-200 hover:border-red-300' },
-  { id: 'HR Behavioral Round', label: 'HR Behavioral Round', icon: Users, desc: 'Focuses on soft skills, culture fit, situational judgment, and the STAR method.', badge: 'STAR Stories', badgeColor: 'bg-purple-50 text-purple-700 border-purple-200 hover:border-purple-300' },
-  { id: 'Startup CTO', label: 'Startup CTO', icon: Cpu, desc: 'Pragmatic, values rapid shipping, simplicities, MVPs, and trade-offs over academic theory.', badge: 'Pragmatic Builder', badgeColor: 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-300' },
+  { id: 'Friendly Senior Engineer', label: 'Friendly Senior Engineer', icon: Smile, desc: 'Warm, collaborative, offers helpful hints when you get stuck.', badge: 'Warm Hinting' },
+  { id: 'Tough FAANG Interviewer', label: 'Tough FAANG Interviewer', icon: ShieldAlert, desc: 'Strict, minimal feedback, optimal performance focus. No hints.', badge: 'Strict Strict' },
+  { id: 'Startup CTO', label: 'Startup CTO', icon: Cpu, desc: 'Pragmatic, values quick shipping, trade-offs, and shipping MVPs.', badge: 'Pragmatic MVP' }
 ]
 
 const QUESTION_COUNTS = [5, 10, 15]
@@ -52,7 +51,6 @@ export default function InterviewPage() {
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
 
-  // Check resume status, active sessions, and history
   useEffect(() => {
     const checkStatus = async () => {
       try {
@@ -72,7 +70,7 @@ export default function InterviewPage() {
           setHistory(historyRes.value.data || [])
         }
       } catch (err) {
-        console.error('Failed to load portal configuration data:', err)
+        console.error('Failed to load prep configs:', err)
         setResumeStatus('missing')
       } finally {
         setHistoryLoading(false)
@@ -83,7 +81,7 @@ export default function InterviewPage() {
 
   const handleStart = async () => {
     if (resumeStatus === 'missing') {
-      toast.error('Please upload and parse your resume first.')
+      toast.error('Please upload your resume in the dashboard first.')
       return
     }
     setIsStarting(true)
@@ -112,487 +110,290 @@ export default function InterviewPage() {
       voice_mode: false,
       interviewer_persona: session.interviewer_persona || 'Friendly Senior Engineer',
     })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-    toast.success(`Loaded configuration: ${session.interview_type} (${session.difficulty}, ${session.num_questions} Qs, Persona: ${session.interviewer_persona || 'Friendly Senior Engineer'})`)
+    toast.success(`Config loaded: ${session.interview_type}`)
   }
 
-  const estimatedTime = Math.round(config.num_questions * 3)
-
   return (
-    <div className="min-h-screen bg-slate-50 pt-24 pb-12">
+    <div className="relative">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-4xl">
-        
-        {/* Back Link */}
-        <button 
-          onClick={() => navigate('/dashboard')}
-          className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-gray-900 transition-colors mb-6"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Back to Dashboard
-        </button>
-
-        {/* Header */}
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }} 
-          animate={{ opacity: 1, y: 0 }} 
-          className="mb-8"
-        >
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary-700 mb-4">
-            <Zap className="w-3.5 h-3.5" />
-            AI Interview Engine
-          </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-            Mock Interview Practice
+      
+      {/* Welcome Header */}
+      <div className="mb-xl flex flex-col md:flex-row md:items-end justify-between gap-md relative z-10">
+        <div>
+          <h1 className="font-display-lg text-display-lg text-on-surface dark:text-inverse-on-surface mb-xs font-bold leading-tight">
+            AI Interview Coach
           </h1>
-          <p className="text-gray-600">
-            Hone your skills with a smart, resume-aware mock interview. Receive detailed score sheets, concept breakdowns, and a gap-focused study plan.
+          <p className="font-body-base text-body-base text-on-surface-variant dark:text-surface-variant">
+            Set up real-time voice or text sessions aligned with your resume experience.
           </p>
-        </motion.div>
+        </div>
+      </div>
 
-        {/* Unfinished session banner */}
-        <AnimatePresence>
-          {activeSession && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative mb-6 overflow-hidden rounded-2xl border border-primary-100 bg-primary-50/50 p-5 shadow-sm"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-primary-100 rounded-lg text-primary-700">
-                    <RefreshCw className="w-5 h-5 animate-spin" style={{ animationDuration: '3s' }} />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-950 text-sm">Unfinished Session Active</h3>
-                    <p className="text-xs text-gray-600">
-                      You have an active {activeSession.interview_type} session with {activeSession.answers_submitted} of {activeSession.total_questions} questions answered.
-                    </p>
+      {/* Warning if resume missing */}
+      {resumeStatus === 'missing' && (
+        <div className="mb-lg p-md bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold flex items-start gap-2.5">
+          <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0" />
+          <div>
+            <h4>Resume Profile Required</h4>
+            <p className="text-slate-500 font-normal mt-0.5">
+              Please go to the <Link to="/student/dashboard" className="underline text-rose-900">Dashboard</Link> and upload a resume before starting mock sessions so the coach can tailor questions to your skills.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Active Session Callout */}
+      {activeSession && (
+        <div className="mb-lg bg-primary/10 border border-primary/20 p-md rounded-xl flex flex-col sm:flex-row justify-between items-center gap-md">
+          <div>
+            <h4 className="font-body-bold text-[14px] text-primary dark:text-primary-fixed-dim">Active session in progress</h4>
+            <p className="text-xs text-slate-500 mt-0.5">You have a pending mock session created recently.</p>
+          </div>
+          <button 
+            onClick={handleResumeSession}
+            className="px-4 py-2 bg-primary text-white rounded-lg font-body-bold text-xs hover:bg-primary-500 transition-all cursor-pointer"
+          >
+            Resume Session
+          </button>
+        </div>
+      )}
+
+      {/* Bento Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-lg items-start">
+        
+        {/* Settings Columns (8/12 width) */}
+        <div className="lg:col-span-8 flex flex-col gap-lg">
+          
+          {/* Card 1: Setup configurations */}
+          <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-lg soft-shadow">
+            <h2 className="text-lg font-bold text-on-surface dark:text-inverse-on-surface mb-lg flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-primary" />
+              Configure Mock Session
+            </h2>
+
+            <div className="space-y-lg">
+              
+              {/* Type Selection */}
+              <div>
+                <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-sm">Interview Type</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-sm">
+                  {INTERVIEW_TYPES.map(type => {
+                    const active = config.interview_type === type.id
+                    const Icon = type.icon
+                    return (
+                      <button
+                        key={type.id}
+                        onClick={() => setConfig(prev => ({ ...prev, interview_type: type.id }))}
+                        className={`p-md rounded-lg text-left border transition-all cursor-pointer flex gap-3 ${
+                          active
+                            ? 'bg-primary/5 dark:bg-primary/10 border-primary text-primary dark:text-primary-fixed-dim font-body-bold'
+                            : 'border-border-subtle hover:bg-surface-container-low text-on-surface-variant dark:text-surface-variant'
+                        }`}
+                      >
+                        <div className={`p-2 rounded-lg ${active ? 'bg-primary/10 text-primary dark:text-primary-fixed-dim' : 'bg-slate-50 text-slate-400'}`}>
+                          <Icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-[13px] font-bold">{type.label}</h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-tight font-normal">{type.desc}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Persona Selection */}
+              <div>
+                <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-sm">Coach Persona</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-sm">
+                  {PERSONAS.map(p => {
+                    const active = config.interviewer_persona === p.id
+                    const Icon = p.icon
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setConfig(prev => ({ ...prev, interviewer_persona: p.id }))}
+                        className={`p-md rounded-lg text-left border transition-all cursor-pointer ${
+                          active
+                            ? 'bg-primary/5 dark:bg-primary/10 border-primary text-primary dark:text-primary-fixed-dim font-body-bold'
+                            : 'border-border-subtle hover:bg-surface-container-low text-on-surface-variant dark:text-surface-variant'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <Icon className={`w-5 h-5 ${active ? 'text-primary' : 'text-slate-400'}`} />
+                          <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">{p.badge}</span>
+                        </div>
+                        <h4 className="text-[12px] font-bold">{p.label}</h4>
+                        <p className="text-[10px] text-slate-400 mt-1 font-normal leading-normal">{p.desc}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Difficulty Selection */}
+              <div>
+                <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-sm">Complexity Level</label>
+                <div className="grid grid-cols-3 gap-sm">
+                  {DIFFICULTIES.map(diff => {
+                    const active = config.difficulty === diff.id
+                    return (
+                      <button
+                        key={diff.id}
+                        onClick={() => setConfig(prev => ({ ...prev, difficulty: diff.id }))}
+                        className={`p-sm rounded-lg text-center border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                          active
+                            ? diff.color + ' font-body-bold shadow-sm'
+                            : 'border-border-subtle hover:bg-surface-container-low text-on-surface-variant dark:text-surface-variant'
+                        }`}
+                      >
+                        <span className="text-[13px] font-bold">{diff.label}</span>
+                        <span className="text-[9px] text-slate-400 mt-0.5 font-normal">{diff.desc}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Details & Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-md pt-md border-t border-border-subtle dark:border-outline-variant/10">
+                
+                {/* Topic Focus */}
+                <div>
+                  <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-xs">Sub-topic Focus (Optional)</label>
+                  <input
+                    type="text"
+                    name="topic_focus"
+                    placeholder="e.g. system design, async loops, STAR behavioral"
+                    value={config.topic_focus}
+                    onChange={(e) => setConfig(prev => ({ ...prev, topic_focus: e.target.value }))}
+                    className="w-full bg-slate-50 dark:bg-inverse-surface/30 border border-border-subtle rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all dark:text-white"
+                  />
+                </div>
+
+                {/* Question Count Selection */}
+                <div>
+                  <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-xs">Question Count</label>
+                  <div className="flex bg-slate-50 dark:bg-inverse-surface/30 rounded-lg p-0.5 border border-border-subtle">
+                    {QUESTION_COUNTS.map(cnt => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setConfig(prev => ({ ...prev, num_questions: cnt }))}
+                        className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer text-center ${
+                          config.num_questions === cnt
+                            ? 'bg-white dark:bg-inverse-surface text-primary border border-border-subtle shadow-sm'
+                            : 'text-slate-400 hover:text-slate-650'
+                        }`}
+                      >
+                        {cnt} Qs
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <button 
-                  onClick={handleResumeSession}
-                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-xl text-xs shadow-sm transition-colors self-start sm:self-center"
+
+              </div>
+
+              {/* Voice Mode Toggle */}
+              <div className="pt-md flex items-center justify-between border-t border-border-subtle dark:border-outline-variant/10">
+                <div>
+                  <h4 className="text-[13px] font-bold text-on-surface dark:text-inverse-on-surface">Voice Interactive Mode</h4>
+                  <p className="text-[11px] text-slate-400 leading-tight mt-0.5 font-normal">Synthesize voice responses and answer using speech recognition.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfig(prev => ({ ...prev, voice_mode: !prev.voice_mode }))}
+                  className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer relative ${config.voice_mode ? 'bg-primary' : 'bg-slate-200'}`}
                 >
-                  Resume Interview →
+                  <div className={`w-5.5 h-5.5 rounded-full bg-white shadow transition-all transform ${config.voice_mode ? 'translate-x-5.5' : 'translate-x-0'}`} />
                 </button>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
-        {/* Resume missing warning */}
-        <AnimatePresence>
-          {resumeStatus === 'missing' && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="mb-6 p-4 border border-red-200 bg-red-50 text-red-800 rounded-2xl flex items-start gap-3 shadow-sm text-sm"
+            </div>
+          </div>
+
+        </div>
+
+        {/* Info & History Pane (4/12 width) */}
+        <div className="lg:col-span-4 flex flex-col gap-lg">
+          
+          {/* Action Trigger Card */}
+          <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/5 text-primary border border-primary/10 flex items-center justify-center mx-auto mb-3">
+              <Zap className="w-6 h-6 animate-pulse" />
+            </div>
+            <h3 className="font-body-bold text-[15px] font-bold text-on-surface dark:text-inverse-on-surface">Ready to start?</h3>
+            <p className="font-metadata text-[11px] text-slate-400 leading-normal my-sm">
+              Estimated duration: {config.num_questions * 3} minutes.
+            </p>
+            <button
+              onClick={handleStart}
+              disabled={isStarting || resumeStatus === 'missing'}
+              className="w-full py-2.5 bg-primary hover:bg-primary-500 text-white rounded-lg font-body-bold text-xs transition-all shadow-md flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">Resume Profile Missing:</span> To generate tailored questions matching your experience, please <a href="/dashboard" className="underline font-semibold hover:text-red-950">upload and parse your resume</a> on the dashboard workspace first.
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Main Form Box */}
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }} 
-          animate={{ opacity: 1, y: 0, transition: { delay: 0.1 } }}
-          className="relative bg-white border border-gray-200 rounded-3xl p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] mb-8"
-        >
-          {/* Interview Type Selection */}
-          <div className="mb-8">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">
-              Select Focus Style
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {INTERVIEW_TYPES.map(({ id, label, icon: Icon, desc }) => {
-                const isSelected = config.interview_type === id
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setConfig(c => ({ ...c, interview_type: id }))}
-                    className={`flex items-start gap-4 p-4 rounded-2xl border text-left transition-all ${
-                      isSelected 
-                        ? 'border-primary-500 bg-primary-50/40 shadow-sm ring-1 ring-primary-500' 
-                        : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
-                  >
-                    <div className={`p-2.5 rounded-xl flex-shrink-0 ${isSelected ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-500'}`}>
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className={`font-bold text-sm ${isSelected ? 'text-primary-950' : 'text-gray-900'}`}>{label}</h4>
-                      <p className="text-xs text-gray-500 mt-1 leading-normal">{desc}</p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+              <Play className="w-4 h-4 fill-current" />
+              {isStarting ? 'Setting up Round...' : 'Launch AI Practice'}
+            </button>
           </div>
 
-          {/* Interviewer Persona Selection */}
-          <div className="mb-8">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4 flex items-center gap-1.5">
-              Select Interviewer Persona
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {PERSONAS.map(({ id, label, icon: Icon, desc, badge, badgeColor }) => {
-                const isSelected = config.interviewer_persona === id
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setConfig(c => ({ ...c, interviewer_persona: id }))}
-                    className={`flex items-start gap-4 p-4 rounded-2xl border text-left transition-all ${
-                      isSelected 
-                        ? 'border-primary-500 bg-primary-50/40 shadow-sm ring-1 ring-primary-500' 
-                        : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
-                  >
-                    <div className={`p-2.5 rounded-xl flex-shrink-0 ${isSelected ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-500'}`}>
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className={`font-bold text-sm ${isSelected ? 'text-primary-950' : 'text-gray-900'}`}>{label}</h4>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${badgeColor}`}>
-                          {badge}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1 leading-normal">{desc}</p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Difficulty Level */}
-          <div className="mb-8">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">
-              Difficulty Level
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {DIFFICULTIES.map(({ id, label, color, desc }) => {
-                const isSelected = config.difficulty === id
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setConfig(c => ({ ...c, difficulty: id }))}
-                    className={`flex flex-col items-center justify-center p-4 rounded-2xl border text-center transition-all ${
-                      isSelected 
-                        ? `border-primary-500 bg-primary-50/30 ring-1 ring-primary-500` 
-                        : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
-                  >
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${color} mb-2`}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                      {label}
-                    </span>
-                    <p className="text-[11px] text-gray-500 leading-normal">{desc}</p>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Question Count */}
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">
-                Number of Questions
-              </h3>
-              <span className="text-sm font-bold text-primary-700">
-                {config.num_questions} questions · ~{estimatedTime} min
-              </span>
-            </div>
-            <div className="flex gap-3">
-              {QUESTION_COUNTS.map(n => {
-                const isSelected = config.num_questions === n
-                return (
-                  <button
-                    key={n}
-                    onClick={() => setConfig(c => ({ ...c, num_questions: n }))}
-                    className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all ${
-                      isSelected 
-                        ? 'bg-primary-600 border-primary-600 text-white shadow-sm' 
-                        : 'bg-white border-gray-200 hover:border-gray-300 text-gray-700'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Topic Focus */}
-          <div className="mb-8">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
-              Specific Topic Focus <span className="text-gray-300 font-normal">(Optional)</span>
-            </h3>
-            <input
-              type="text"
-              placeholder="e.g. React hooks, SQL database optimization, system architecture..."
-              value={config.topic_focus}
-              onChange={e => setConfig(c => ({ ...c, topic_focus: e.target.value }))}
-              maxLength={200}
-              className="w-full bg-white border border-gray-300 text-gray-900 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm placeholder:text-gray-400"
-            />
-          </div>
-
-          {/* Voice Mode Toggle */}
-          <div className="mb-8 p-4 border border-slate-100 bg-slate-50/50 rounded-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-start gap-3">
-                <div className={`p-2 rounded-xl flex-shrink-0 ${config.voice_mode ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-500'}`}>
-                  <Mic className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-gray-900 flex items-center gap-2">
-                    Interactive Voice Mode
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-0.5 leading-normal">
-                    Speak your answers naturally and hear questions read aloud by our premium engine.
-                  </p>
-                </div>
-              </div>
-              
-              <button
-                type="button"
-                id="voice-mode-toggle"
-                onClick={() => setConfig(c => ({ ...c, voice_mode: !c.voice_mode }))}
-                className={`relative inline-flex h-6.5 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500/20 ${
-                  config.voice_mode ? 'bg-primary-600' : 'bg-gray-200'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5.5 w-5.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    config.voice_mode ? 'translate-x-5.5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* Pricing Info */}
-          <div className="flex items-center gap-2.5 p-4 bg-primary-50/60 border border-primary-100 rounded-2xl text-xs text-primary-800">
-            <Zap className="w-4 h-4 text-primary-600 flex-shrink-0" />
-            <span>
-              Generating this custom mock session costs <strong className="text-primary-950 font-bold">{config.num_questions} credits</strong>. Evaluation and study plans are included free of charge.
-            </span>
-          </div>
-        </motion.div>
-
-        {/* Start Button Action */}
-        <motion.div 
-          initial={{ opacity: 0 }} 
-          animate={{ opacity: 1, transition: { delay: 0.2 } }}
-          className="mb-8"
-        >
-          <button
-            id="start-interview-btn"
-            onClick={handleStart}
-            disabled={isStarting || resumeStatus === 'missing'}
-            className={`w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all shadow-sm ${
-              isStarting || resumeStatus === 'missing'
-                ? 'bg-gray-200 border border-gray-300 text-gray-400 cursor-not-allowed'
-                : 'bg-primary-600 hover:bg-primary-700 text-white hover:shadow-md active:scale-[0.99]'
-            }`}
-          >
-            {isStarting ? (
-              <>
-                <RefreshCw className="w-5 h-5 animate-spin" />
-                Assembling Your Custom Interview...
-              </>
+          {/* History Tracker */}
+          <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow flex-1">
+            <h3 className="font-body-bold text-[14px] font-bold text-on-surface dark:text-inverse-on-surface mb-md">Practice History</h3>
+            
+            {historyLoading ? (
+              <div className="text-center py-6 text-xs text-on-surface-variant">Loading records...</div>
+            ) : history.length === 0 ? (
+              <div className="text-center py-6 text-xs text-on-surface-variant">No sessions completed yet. Launch your first round!</div>
             ) : (
-              <>
-                <span>Begin Mock Practice Session</span>
-                <ArrowRight className="w-5 h-5" />
-              </>
+              <div className="space-y-sm">
+                {history.slice(0, 4).map((session, index) => {
+                  const score = session.overall_score || session.score
+                  const isGood = score && score >= 75
+                  
+                  return (
+                    <div 
+                      key={session.session_id || index}
+                      className="p-sm bg-slate-50 dark:bg-inverse-surface/10 border border-border-subtle dark:border-outline-variant/20 rounded-lg flex items-center justify-between"
+                    >
+                      <div>
+                        <h4 className="font-body-bold text-[12px] text-on-surface dark:text-inverse-on-surface capitalize truncate max-w-[120px]">{session.interview_type} Round</h4>
+                        <p className="text-[10px] text-slate-400 capitalize mt-0.5">
+                          {session.difficulty} • {session.num_questions} Qs
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        {score !== null && score !== undefined && (
+                          <div className="text-right mr-1">
+                            <span className={`font-label-caps text-sm font-bold ${isGood ? 'text-success' : 'text-warning'}`}>{Math.round(score)}%</span>
+                            <span className="block text-[8px] text-slate-400 uppercase tracking-wider font-semibold">Score</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => {
+                            if (session.status?.toLowerCase() === 'completed') {
+                              navigate(`/dashboard/interview/results/${session.session_id}`)
+                            } else {
+                              handleRetake(session)
+                            }
+                          }}
+                          className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-primary transition-colors cursor-pointer"
+                        >
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             )}
-          </button>
-        </motion.div>
-
-        {/* Benefits strip */}
-        <motion.div 
-          initial={{ opacity: 0 }} 
-          animate={{ opacity: 1, transition: { delay: 0.3 } }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4 p-5 bg-white border border-gray-200 rounded-2xl text-center shadow-sm"
-        >
-          {[
-            { icon: Target, label: 'Resume Matching', desc: 'Sourced from your skills', color: 'text-purple-600' },
-            { icon: Zap, label: 'Adaptive Prompts', desc: 'Responsive difficulty', color: 'text-amber-500' },
-            { icon: BarChart2, label: 'Deep Breakdown', desc: 'Skill-by-skill metrics', color: 'text-blue-600' },
-            { icon: Clock, label: `~${estimatedTime} Min Session`, desc: 'Estimated completion', color: 'text-green-600' },
-          ].map(({ icon: Icon, label, desc, color }) => (
-            <div key={label} className="flex flex-col items-center p-2">
-              <Icon className={`w-5 h-5 ${color} mb-1.5`} />
-              <span className="text-xs font-bold text-gray-900 leading-tight">{label}</span>
-              <span className="text-[10px] text-gray-400 mt-0.5 leading-tight">{desc}</span>
-            </div>
-          ))}
-        </motion.div>
-
-        {/* Practice History Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, transition: { delay: 0.4 } }}
-          className="mt-12"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-bold text-gray-950 flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-500" />
-              Practice History
-            </h2>
-            <span className="text-xs text-gray-500 font-semibold bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-              {history.length} {history.length === 1 ? 'session' : 'sessions'}
-            </span>
           </div>
 
-          {historyLoading ? (
-            <div className="flex flex-col items-center justify-center p-12 bg-white border border-gray-200 rounded-3xl shadow-sm text-gray-500">
-              <RefreshCw className="w-8 h-8 animate-spin text-primary-600 mb-2" />
-              <p className="text-sm">Retrieving your practice history...</p>
-            </div>
-          ) : history.length === 0 ? (
-            <div className="p-8 text-center bg-white border border-gray-200 rounded-3xl shadow-sm">
-              <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <h3 className="font-bold text-gray-900 mb-1">No Practice Sessions Yet</h3>
-              <p className="text-sm text-gray-500 max-w-sm mx-auto leading-normal">
-                Start your first mock interview above to see your scores, details, and study plans listed here.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {history.map((session) => {
-                const createdDate = new Date(session.created_at).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })
-                
-                return (
-                  <div 
-                    key={session.session_id} 
-                    className="bg-white border border-gray-200 rounded-2xl p-5 shadow-[0_2px_8px_rgb(0,0,0,0.02)] hover:shadow-md transition-shadow flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-left"
-                  >
-                    {/* Left Side: Type, Date, Config, Topic */}
-                    <div className="flex-grow space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-bold text-gray-950 capitalize">
-                          {session.interview_type === 'mixed' ? 'Mixed Mode' : `${session.interview_type} Interview`}
-                        </span>
-                        
-                        {/* Difficulty Badge */}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                          session.difficulty === 'easy' ? 'bg-green-50 text-green-700 border border-green-200' :
-                          session.difficulty === 'medium' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                          'bg-red-50 text-red-700 border border-red-200'
-                        }`}>
-                          {session.difficulty}
-                        </span>
+        </div>
 
-                        {/* Question Count Badge */}
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                          {session.num_questions} Questions
-                        </span>
-
-                        {/* Interviewer Persona Badge */}
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {session.interviewer_persona || 'Friendly Senior Engineer'}
-                        </span>
-
-                        {/* Status / Score Badge */}
-                        {session.status === 'completed' ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-200 flex items-center gap-1">
-                            <Trophy className="w-3 h-3 text-primary-600" />
-                            Score: {session.overall_score !== null ? `${Math.round(session.overall_score * 100)}%` : 'N/A'}
-                          </span>
-                        ) : session.status === 'active' ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 animate-pulse">
-                            Active
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
-                            Abandoned
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Topic Focus (if exists) */}
-                      {session.topic_focus && (
-                        <p className="text-xs text-gray-500 leading-snug">
-                          <span className="font-semibold text-gray-600">Focus:</span> {session.topic_focus}
-                        </p>
-                      )}
-
-                      {/* Creation date */}
-                      <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span>Started on {createdDate}</span>
-                      </div>
-                    </div>
-
-                    {/* Right Side: Action Buttons */}
-                    <div className="flex items-center gap-2 sm:self-center">
-                      {session.status === 'completed' && (
-                        <>
-                          <button
-                            onClick={() => navigate(`/dashboard/interview/results/${session.session_id}`)}
-                            className="px-3.5 py-2 border border-gray-300 hover:border-gray-400 bg-white text-gray-700 font-semibold rounded-xl text-xs shadow-sm transition-all"
-                          >
-                            View Report
-                          </button>
-                          <button
-                            onClick={() => handleRetake(session)}
-                            className="px-3.5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-xl text-xs shadow-sm transition-all flex items-center gap-1.5"
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                            Retake
-                          </button>
-                        </>
-                      )}
-
-                      {session.status === 'active' && (
-                        <>
-                          <button
-                            onClick={() => navigate(`/dashboard/interview/${session.session_id}`)}
-                            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs shadow-sm transition-all"
-                          >
-                            Resume
-                          </button>
-                          <button
-                            onClick={() => handleRetake(session)}
-                            className="px-3.5 py-2 border border-gray-300 hover:border-gray-400 bg-white text-gray-700 font-semibold rounded-xl text-xs shadow-sm transition-all"
-                          >
-                            Retake
-                          </button>
-                        </>
-                      )}
-
-                      {session.status === 'abandoned' && (
-                        <button
-                          onClick={() => handleRetake(session)}
-                          className="px-3.5 py-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-xl text-xs shadow-sm transition-all flex items-center gap-1.5"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          Retake Settings
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </motion.div>
       </div>
+
     </div>
   )
 }

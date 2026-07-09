@@ -28,12 +28,13 @@ import {
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
+import { ToastContainer } from '../components/Toast'
 import secureStorage from '../utils/secureStorage'
 import { calculateProfileCompletion } from '../utils/profileCompletion'
 
 export default function StudentProfile() {
   const navigate = useNavigate()
-  const { showToast } = useToast()
+  const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [loadingResumeData, setLoadingResumeData] = useState(true)
   const [error, setError] = useState(null)
@@ -211,12 +212,12 @@ export default function StudentProfile() {
 
     try {
       await api.patch('/api/auth/deactivate')
-      showToast('Account deactivated successfully', 'success')
+      toast.success('Account deactivated successfully')
       secureStorage.clear()
       navigate('/login')
     } catch (err) {
       console.error('Error deactivating account:', err)
-      showToast(err.response?.data?.detail || 'Failed to deactivate account', 'error')
+      toast.error(err.response?.data?.detail || 'Failed to deactivate account')
     }
   }
 
@@ -226,23 +227,23 @@ export default function StudentProfile() {
       await api.patch('/api/auth/profile', {
         name: profile.full_name
       })
-      showToast('Profile updated successfully', 'success')
+      toast.success('Profile updated successfully')
       setEditing(false)
       fetchProfile()
     } catch (err) {
       console.error('Error updating profile:', err)
-      showToast('Failed to update profile', 'error')
+      toast.error('Failed to update profile')
     }
   }
 
   const handleChangePassword = async (e) => {
     e.preventDefault()
     if (passwords.new !== passwords.confirm) {
-      showToast('New passwords do not match', 'error')
+      toast.error('New passwords do not match')
       return
     }
     if (passwords.new.length < 8) {
-      showToast('Password must be at least 8 characters', 'error')
+      toast.error('Password must be at least 8 characters')
       return
     }
     try {
@@ -250,11 +251,11 @@ export default function StudentProfile() {
         current_password: passwords.current,
         new_password: passwords.new,
       })
-      showToast('Password changed successfully', 'success')
+      toast.success('Password changed successfully')
       setPasswords({ current: '', new: '', confirm: '' })
     } catch (err) {
       console.error('Error changing password:', err)
-      showToast(err.response?.data?.detail || 'Failed to change password', 'error')
+      toast.error(err.response?.data?.detail || 'Failed to change password')
     }
   }
 
@@ -286,12 +287,12 @@ export default function StudentProfile() {
           setResumeStatusType('info')
           setResumeStatusMessage('Parsing queued. This may take up to a minute...')
           await pollForParsedResume()
-          showToast('Resume uploaded. Parsing started.', 'success')
+          toast.success('Resume uploaded. Parsing started.')
         } else {
           setParsingResume(false)
           setResumeStatusType('success')
           setResumeStatusMessage('Resume uploaded and parsed successfully.')
-          showToast('Resume uploaded and parsed successfully', 'success')
+          toast.success('Resume uploaded and parsed successfully')
           fetchResumeData()
         }
       }
@@ -300,7 +301,7 @@ export default function StudentProfile() {
       setParsingResume(false)
       setResumeStatusType('error')
       setResumeStatusMessage(err.response?.data?.detail || 'Failed to upload or parse resume.')
-      showToast('Failed to upload resume', 'error')
+      toast.error('Failed to upload resume')
     } finally {
       setUploadingResume(false)
     }
@@ -383,9 +384,9 @@ export default function StudentProfile() {
   const profileCompletionLoading = loading || loadingResumeData
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-background dark:bg-transparent">
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-6 pt-24 pb-12">
+      <div className="max-w-7xl mx-auto px-6 pt-6 pb-12">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
@@ -569,7 +570,7 @@ export default function StudentProfile() {
               {resumeData?.education && resumeData.education.length > 0 ? (
                 <div className="space-y-4">
                   {resumeData.education.map((edu, idx) => (
-                    <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div key={edu.id || `edu-${edu.institution}-${edu.degree}-${idx}`} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <h4 className="font-bold text-gray-900">{edu.institution}</h4>
                       <p className="text-sm text-gray-600">{[edu.start_date, edu.end_date].filter(Boolean).join(' - ')}</p>
                       <p className="text-sm text-gray-700">{[edu.degree, edu.field].filter(Boolean).join(' - ')}</p>
@@ -601,7 +602,7 @@ export default function StudentProfile() {
               {resumeData?.experience && resumeData.experience.length > 0 ? (
                 <div className="space-y-4">
                   {resumeData.experience.map((exp, idx) => (
-                    <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div key={exp.id || `exp-${exp.company}-${exp.title}-${idx}`} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <h4 className="font-bold text-gray-900">{exp.title}</h4>
                       <p className="text-sm text-gray-700">{exp.company}</p>
                       <p className="text-sm text-gray-600">{[exp.start_date, exp.end_date].filter(Boolean).join(' - ')}</p>
@@ -776,7 +777,7 @@ export default function StudentProfile() {
                                     const isPositive = sugg.toLowerCase().includes('excellent') || sugg.toLowerCase().includes('great job');
                                     return (
                                       <div 
-                                        key={idx} 
+                                        key={`sugg-${sugg.slice(0, 30)}-${idx}`} 
                                         className={`flex items-start gap-2 p-2 rounded-xl text-xs ${
                                           isPositive 
                                             ? 'bg-emerald-50/50 text-emerald-800 border border-emerald-100/50' 
@@ -834,7 +835,7 @@ export default function StudentProfile() {
                   {(parsedSkills.length > 0 ? parsedSkills : profile.skills).length > 0 ? (
                     (parsedSkills.length > 0 ? parsedSkills : profile.skills).map((skill, idx) => (
                       <div
-                        key={idx}
+                        key={skill}
                         className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-900 rounded-full font-medium border border-blue-300"
                       >
                         {editing && parsedSkills.length === 0 ? (
@@ -888,15 +889,18 @@ export default function StudentProfile() {
 
               {creditInfo ? (
                 <div>
-                  <div className="text-center py-8 bg-yellow-50 rounded-lg border border-yellow-200 mb-6">
-                    <div className="text-5xl font-bold text-yellow-600 mb-2">{creditBalance}</div>
-                    <p className="text-gray-600 font-medium">Tokens remaining</p>
-                    <p className="text-sm text-gray-500 mt-1">Estimated {estimatedAnalyses} deep career analyses</p>
-                    <p className="text-xs text-gray-500 mt-2">
+                  <div className="text-center py-8 bg-yellow-50 dark:bg-amber-500/10 border border-yellow-200 dark:border-amber-500/25 rounded-lg mb-6">
+                    <div className="text-5xl font-bold text-yellow-600 dark:text-amber-500 mb-2">{creditBalance}</div>
+                    <p className="text-gray-600 dark:text-slate-400 font-medium">Tokens remaining</p>
+                    <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Estimated {estimatedAnalyses} deep career analyses</p>
+                    <p className="text-xs text-gray-500 dark:text-slate-500 mt-2">
                       Next refill in {creditInfo.next_refill_days}d {creditInfo.next_refill_hours}h
                     </p>
                   </div>
-                  <button className="w-full px-6 py-3 text-blue-600 hover:text-blue-700 font-semibold flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => navigate('/dashboard/credits/transactions')}
+                    className="w-full px-6 py-3 text-blue-600 hover:text-blue-700 dark:text-primary-fixed-dim dark:hover:text-primary font-semibold flex items-center justify-center gap-2"
+                  >
                     View Transaction History <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -915,16 +919,15 @@ export default function StudentProfile() {
               </div>
 
               <div className="space-y-6">
-                {/* Account Status */}
-                <div className="p-6 bg-green-50 rounded-lg border border-green-200">
+                <div className="p-6 bg-green-50 dark:bg-emerald-500/10 rounded-lg border border-green-200 dark:border-emerald-500/25">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-gray-700">Account Status</p>
-                      <p className={`text-lg font-bold mt-1 ${accountActive ? 'text-green-600' : 'text-red-600'}`}>
+                      <p className="text-sm font-semibold text-gray-700 dark:text-slate-400">Account Status</p>
+                      <p className={`text-lg font-bold mt-1 ${accountActive ? 'text-green-600 dark:text-emerald-400' : 'text-red-600 dark:text-rose-400'}`}>
                         {accountActive ? 'Active' : 'Deactivated'}
                       </p>
                     </div>
-                    <CheckCircle className={`w-8 h-8 ${accountActive ? 'text-green-600' : 'text-red-600'}`} />
+                    <CheckCircle className={`w-8 h-8 ${accountActive ? 'text-green-600 dark:text-emerald-500' : 'text-red-600 dark:text-rose-500'}`} />
                   </div>
                 </div>
 
@@ -996,13 +999,15 @@ export default function StudentProfile() {
                 </form>
 
                 {/* Danger Zone */}
-                <div className="p-6 bg-red-50 rounded-lg border border-red-200">
-                  <h4 className="font-bold text-red-900 mb-4">Danger Zone</h4>
+                <div className="p-6 bg-red-50 dark:bg-rose-500/10 rounded-lg border border-red-200 dark:border-rose-500/25">
+                  <h4 className="font-bold text-red-900 dark:text-rose-400 mb-4">Danger Zone</h4>
                   <button
                     onClick={handleDeactivateAccount}
                     disabled={!accountActive}
                     className={`w-full px-6 py-3 text-white rounded-lg transition font-semibold ${
-                      accountActive ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-400 cursor-not-allowed'
+                      accountActive 
+                        ? 'bg-red-600 hover:bg-red-700 dark:bg-rose-600 dark:hover:bg-rose-500 shadow-sm shadow-rose-500/10' 
+                        : 'bg-gray-400 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed'
                     }`}
                   >
                     Deactivate Account
@@ -1015,9 +1020,10 @@ export default function StudentProfile() {
 
         {/* Footer */}
         <footer className="mt-16 pt-8 border-t border-gray-200 text-center text-gray-600 text-sm">
-          <p>© 2024 Career AI. Empowering students with intelligent guidance.</p>
+          <p>© 2026 CareerSync AI. Empowering students with intelligent guidance.</p>
         </footer>
       </div>
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
 }

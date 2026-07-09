@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Schedule Interview - Career Guidance AI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,100..900;1,100..900&amp;family=Inter:wght@100..900&amp;family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#2c5cad",
+                        "secondary-fixed-dim": "#b3c6f8",
+                        "on-surface": "#181c20",
+                        "on-primary-container": "#bdd0ff",
+                        "inverse-on-surface": "#eef1f6",
+                        "background": "#f7f9ff",
+                        "warning": "#f59e0b",
+                        "on-secondary": "#ffffff",
+                        "tertiary": "#003f8b",
+                        "tertiary-fixed": "#d8e2ff",
+                        "on-tertiary-container": "#bcd0ff",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#001a42",
+                        "on-tertiary-fixed-variant": "#004395",
+                        "primary": "#003f8b",
+                        "inverse-primary": "#adc6ff",
+                        "outline": "#737783",
+                        "surface-container": "#ebeef3",
+                        "tertiary-container": "#0055b8",
+                        "surface-variant": "#e0e3e8",
+                        "primary-fixed-dim": "#adc6ff",
+                        "surface-container-low": "#f1f4f9",
+                        "on-secondary-fixed-variant": "#334670",
+                        "surface-container-highest": "#e0e3e8",
+                        "on-background": "#181c20",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#d7dadf",
+                        "success": "#10b981",
+                        "primary-container": "#2557a7",
+                        "surface-bright": "#f7f9ff",
+                        "surface-muted": "#f8f9fa",
+                        "on-secondary-container": "#425581",
+                        "tertiary-fixed-dim": "#adc6ff",
+                        "on-tertiary": "#ffffff",
+                        "secondary-container": "#b8cbfe",
+                        "on-error-container": "#93000a",
+                        "on-primary-fixed": "#001a41",
+                        "secondary": "#4b5e8a",
+                        "on-surface-variant": "#434751",
+                        "error": "#f43f5e",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed": "#d8e2ff",
+                        "inverse-surface": "#2d3135",
+                        "interactive-purple": "#a855f7",
+                        "on-primary-fixed-variant": "#024493",
+                        "surface-container-high": "#e5e8ee",
+                        "on-secondary-fixed": "#021a43",
+                        "border-subtle": "#e9ecef",
+                        "surface": "#f7f9ff",
+                        "secondary-fixed": "#d9e2ff",
+                        "outline-variant": "#c3c6d3"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sm": "8px",
+                        "xs": "4px",
+                        "base": "4px",
+                        "margin-mobile": "16px",
+                        "gutter": "16px",
+                        "margin-desktop": "32px",
+                        "container-max": "1280px",
+                        "lg": "24px",
+                        "xl": "32px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["JetBrains Mono", "monospace"],
+                        "display-lg": ["Hanken Grotesk", "sans-serif"],
+                        "body-bold": ["Inter", "sans-serif"],
+                        "body-base": ["Inter", "sans-serif"],
+                        "headline-md": ["Hanken Grotesk", "sans-serif"],
+                        "display-lg-mobile": ["Hanken Grotesk", "sans-serif"],
+                        "metadata": ["Inter", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "body-bold": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-base": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "display-lg-mobile": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "metadata": ["13px", { "lineHeight": "18px", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9ff; }
+        h1, h2, h3, h4, h5, h6, .hanken { font-family: 'Hanken Grotesk', sans-serif; }
+        .jetbrains { font-family: 'JetBrains Mono', monospace; }
+        
+        /* Shimmer effect for AI loading/processing */
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+        .animate-shimmer {
+            animation: shimmer 2s infinite linear;
+            background: linear-gradient(to right, #f8f9fa 4%, #e9ecef 25%, #f8f9fa 36%);
+            background-size: 1000px 100%;
+        }
+        
+        /* Subtle pulse for AI badge */
+        @keyframes subtle-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(37, 87, 167, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(37, 87, 167, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(37, 87, 167, 0); }
+        }
+        .ai-pulse {
+            animation: subtle-pulse 2s infinite;
+        }
+
+        /* Hide scrollbar for clean UI */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="text-on-surface bg-surface min-h-screen overflow-x-hidden">
+<!-- Side Navigation (Web) -->
+<aside aria-label="Side Navigation" class="fixed inset-y-0 left-0 w-64 overflow-y-auto border-r border-subtle dark:border-outline-variant bg-surface-muted dark:bg-surface-dim flex-col gap-sm p-md hidden md:flex z-50 shadow-sm">
+<div class="mb-xl flex flex-col items-center pt-md">
+<div class="w-16 h-16 rounded-lg bg-surface-container-lowest mb-sm flex items-center justify-center border border-subtle overflow-hidden">
+<img alt="Company Logo" class="w-full h-full object-cover" data-alt="A sleek, modern corporate logo design for an tech employer. Geometric shapes, primarily blue and dark navy tones on a white background. High resolution, professional, minimalist aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBrKfXQuyyqCfZS1M0hcKC0uV4b4AaCSvHLfmYnQdCMHsVFd5-YU5bCIlU_kPlWd2EP1Q_naN1D6i1rt0gWK3MQStngJ9fGRsgvyv46twV01NR1bw5KMXO0fC2v3SMEW_GHiHwjDtD6VzbVIRgwhEMvP999Eo0HUShHlDJ9Mg_rkRPGNJegsIK-YQ9zXomaUmWrT_L2fQD3VLQiME-Wk_NGJFYCvDhRjjysDrMsQhROA8nzFilyEjlbAvZEdE925k05E_zQfI_nLgk"/>
+</div>
+<h2 class="font-headline-md text-headline-md text-primary dark:text-inverse-primary text-center hanken">Employer Portal</h2>
+<p class="text-metadata font-metadata text-on-surface-variant mt-1 text-center">Manage Recruitment</p>
+</div>
+<button class="w-full bg-primary-container text-on-primary rounded-lg py-3 px-4 font-body-bold text-body-bold shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mb-xl">
+<span class="material-symbols-outlined text-sm">add</span> Post New Job
+        </button>
+<nav class="flex-1 flex flex-col gap-1 w-full">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-all duration-150 font-body-base text-body-base" href="#">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-all duration-150 font-body-base text-body-base" href="#">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="work">work</span>
+                My Jobs
+            </a>
+<!-- Active Tab -->
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary rounded-lg font-body-bold text-body-bold shadow-sm" href="#">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="group" data-weight="fill" style="font-variation-settings: 'FILL' 1;">group</span>
+                Talent Pool
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-all duration-150 font-body-base text-body-base" href="#">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="analytics">analytics</span>
+                Analytics
+            </a>
+</nav>
+<div class="mt-auto pt-lg border-t border-subtle flex flex-col gap-1 w-full">
+<a class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-all font-body-base text-body-base" href="#">
+<span class="material-symbols-outlined text-interactive-purple">account_balance_wallet</span>
+                Credit Wallet
+            </a>
+<a class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-all font-body-base text-body-base" href="#">
+<span class="material-symbols-outlined">settings</span>
+                Settings
+            </a>
+<a class="flex items-center gap-3 px-4 py-2 rounded-lg text-error hover:bg-error-container transition-all font-body-base text-body-base" href="#">
+<span class="material-symbols-outlined">logout</span>
+                Logout
+            </a>
+</div>
+</aside>
+<!-- Main Layout Wrapper -->
+<div class="md:ml-64 flex flex-col min-h-screen">
+<!-- Top Navigation (Web) -->
+<header aria-label="Top Navigation" class="w-full sticky top-0 z-40 border-b border-subtle dark:border-outline-variant bg-surface-container-lowest dark:bg-inverse-surface flex justify-between items-center px-margin-desktop py-4 hidden md:flex">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md text-primary dark:text-inverse-primary hanken">Career Guidance AI</span>
+</div>
+<div class="flex items-center gap-sm">
+<button aria-label="Notifications" class="p-2 rounded-full hover:bg-surface-container-low transition-colors duration-200 text-on-surface-variant dark:text-surface-variant">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button aria-label="Help" class="p-2 rounded-full hover:bg-surface-container-low transition-colors duration-200 text-on-surface-variant dark:text-surface-variant">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<div class="w-10 h-10 rounded-full bg-surface-container-high ml-2 overflow-hidden border border-subtle">
+<img alt="Employer Profile Avatar" class="w-full h-full object-cover" data-alt="A professional headshot of a corporate recruiter in a modern office setting. High quality, well-lit, shallow depth of field. Soft, bright light mode aesthetic with subtle blue and white tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDk2XNg4duujUV6p-xM3xyy9J-5jldY8bAo5L1sMvML_aHpYHQ2aS5EjAyOZ8TE5lp9CvFQYbUu_1VeityD7nNeEr3eqDv5UFxTYF-zZ8L6UEknkrYpo61eY8ABmkitZTPIJ1qtVP3IFgPueQ1cos-6YQxSqz2lJAB87NT0OdkBtkmTPL2EvNM2s5vFI4qnlVuLiiphZgQPAmVYusGrSj0VEE4S1JbLe1LEJgiTvD0nRhKoAmYanWGf2zE2Gaq-GYzy6IHBZT-XV9E"/>
+</div>
+</div>
+</header>
+<!-- Mobile Top Bar (Visible only on mobile) -->
+<header class="md:hidden flex items-center justify-between p-margin-mobile bg-surface-container-lowest border-b border-subtle sticky top-0 z-40">
+<span class="font-headline-md text-headline-md text-primary hanken">Employer Portal</span>
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden">
+<img alt="Employer Profile Avatar" class="w-full h-full object-cover" data-alt="A professional headshot of a corporate recruiter in a modern office setting. High quality, well-lit. Light mode aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDbG5J7fT3rxP1MFWSDjf34T5pYD2wW9uZGT7V6bOjnxAmgEVtTmFG0l8Hf0ivGUErD_zBo-FKfcEQrSTt1kVNHfrljtix6LYTDfh_6z9PYXdoEW-Mc0YGYaueHAmEdRhrLGQCkaajHjzQcqho3enHSw-EUqxDmE5troU8YgW3tDVcH-W4wzO_idbNqB1nD16vpFkn6D635zfjxXJDXuYaQjgQeAFv2W7ny8gFDHBRmhgYC8kIGBoOpKflQZi2VMSumWfwluFHGht0"/>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 w-full p-margin-mobile md:p-margin-desktop bg-surface">
+<div class="max-w-container-max mx-auto">
+<!-- Breadcrumbs -->
+<nav aria-label="Breadcrumb" class="flex items-center text-metadata font-metadata text-on-surface-variant mb-xl gap-2">
+<a class="hover:text-primary transition-colors" href="#">Jobs</a>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<a class="hover:text-primary transition-colors" href="#">Application Review</a>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<span class="text-primary font-body-bold">Schedule Interview</span>
+</nav>
+<!-- Header Section -->
+<header class="mb-xl">
+<h1 class="font-display-lg-mobile md:font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface hanken mb-4">Schedule Interview: Sarah Jenkins</h1>
+<div class="flex flex-wrap items-center gap-sm">
+<div class="inline-flex items-center gap-2 bg-surface-container-lowest border border-subtle px-3 py-1.5 rounded-full text-metadata font-metadata">
+<span class="material-symbols-outlined text-sm text-secondary">work</span>
+                        Role: Sr. Frontend Developer
+                    </div>
+<div class="inline-flex items-center gap-2 bg-secondary-fixed-dim/30 border border-secondary-container px-3 py-1.5 rounded-full text-metadata font-metadata text-primary-container">
+<span class="material-symbols-outlined text-sm text-success">verified</span>
+                        Match: 98%
+                    </div>
+<div class="inline-flex items-center gap-2 bg-surface-container-lowest border border-subtle px-3 py-1.5 rounded-full text-metadata font-metadata">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">location_on</span>
+                        Remote (PST)
+                    </div>
+</div>
+</header>
+<!-- 3-Column Bento Grid Layout for Scheduling -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-lg">
+<!-- Column 1: Settings & Agenda -->
+<div class="flex flex-col gap-lg">
+<!-- Interview Settings Card -->
+<section class="bg-surface-container-lowest rounded-xl border border-subtle p-lg shadow-sm">
+<h2 class="font-headline-md text-headline-md text-on-surface hanken mb-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">tune</span>
+                            Interview Settings
+                        </h2>
+<div class="grid grid-cols-1 gap-lg mb-lg">
+<!-- Type -->
+<div class="flex flex-col gap-2">
+<label class="font-metadata text-metadata text-on-surface-variant uppercase tracking-wider jetbrains" for="interview-type">Interview Type</label>
+<div class="relative">
+<select class="w-full appearance-none bg-surface-muted border border-subtle rounded-lg px-4 py-3 font-body-base text-body-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all" id="interview-type">
+<option selected="" value="technical">Technical Round</option>
+<option value="screening">Initial Screening</option>
+<option value="system">System Design</option>
+<option value="culture">Culture Fit</option>
+</select>
+<span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant">expand_more</span>
+</div>
+</div>
+<!-- Format -->
+<div class="flex flex-col gap-2">
+<label class="font-metadata text-metadata text-on-surface-variant uppercase tracking-wider jetbrains">Format</label>
+<div class="flex bg-surface-muted rounded-lg p-1 border border-subtle">
+<button class="flex-1 py-2 px-4 rounded-md bg-surface-container-lowest shadow-sm font-body-bold text-body-bold text-primary border border-subtle/50 flex items-center justify-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm">videocam</span> Video Call
+                                    </button>
+<button class="flex-1 py-2 px-4 rounded-md text-on-surface-variant font-body-base text-body-base hover:bg-surface-container-low flex items-center justify-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm">meeting_room</span> In-Person
+                                    </button>
+</div>
+</div>
+</div>
+<!-- Duration -->
+<div class="flex flex-col gap-2">
+<label class="font-metadata text-metadata text-on-surface-variant uppercase tracking-wider jetbrains">Duration</label>
+<div class="flex flex-wrap gap-sm">
+<button class="px-4 py-2 rounded-full border border-subtle text-on-surface-variant hover:bg-surface-container-low transition-colors font-body-base text-body-base">30 min</button>
+<button class="px-4 py-2 rounded-full border border-subtle text-on-surface-variant hover:bg-surface-container-low transition-colors font-body-base text-body-base">45 min</button>
+<button class="px-4 py-2 rounded-full border-2 border-primary bg-primary-fixed/20 text-primary font-body-bold text-body-bold shadow-sm transition-all ai-pulse">60 min</button>
+<button class="px-4 py-2 rounded-full border border-subtle text-on-surface-variant hover:bg-surface-container-low transition-colors font-body-base text-body-base">90 min</button>
+</div>
+</div>
+</section>
+<!-- Agenda & Notes -->
+<section class="bg-surface-container-lowest rounded-xl border border-subtle p-lg shadow-sm">
+<h2 class="font-headline-md text-headline-md text-on-surface hanken mb-sm flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">edit_note</span>
+                            Meeting Agenda &amp; Notes
+                        </h2>
+<p class="text-metadata font-metadata text-on-surface-variant mb-md">These notes will be visible to interviewers, not the candidate.</p>
+<textarea class="w-full bg-surface-muted border border-subtle rounded-lg p-4 font-body-base text-body-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all min-h-[120px]" placeholder="Add technical focus areas, specific behavioral questions, or general notes for the panel..."></textarea>
+</section>
+</div>
+<!-- Column 2: Calendar Selection -->
+<div class="flex flex-col gap-lg">
+<!-- Calendar Integration Card -->
+<section class="bg-surface-container-lowest rounded-xl border border-subtle p-lg shadow-sm h-full">
+<div class="flex justify-between items-center mb-lg flex-wrap gap-2">
+<h2 class="font-headline-md text-headline-md text-on-surface hanken flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">calendar_month</span>
+                                Select Time Slot
+                            </h2>
+<div class="flex items-center gap-2 text-metadata font-metadata text-on-surface-variant bg-surface-muted px-3 py-1.5 rounded-full border border-subtle">
+<span class="w-2 h-2 rounded-full bg-success"></span> PST (Candidate)
+                            </div>
+</div>
+<!-- AI Suggester Badge -->
+<div class="bg-gradient-to-r from-tertiary-fixed to-primary-fixed-dim border border-primary/20 rounded-lg p-4 mb-lg flex items-start gap-4 flex-col sm:flex-row">
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary shrink-0 ai-pulse shadow-sm">
+<span class="material-symbols-outlined">auto_awesome</span>
+</div>
+<div>
+<h3 class="font-body-bold text-body-bold text-primary-container mb-1">AI Smart Suggestions</h3>
+<p class="text-body-base font-body-base text-on-surface-variant mb-3 text-sm">Based on Sarah's active profile and your team's calendar.</p>
+<div class="flex flex-col gap-2">
+<button class="bg-surface-container-lowest border border-primary-container/30 hover:border-primary hover:shadow-sm text-primary-container px-3 py-2 rounded-md font-body-bold text-body-bold flex items-center justify-between gap-2 transition-all w-full text-sm">
+                                        Tomorrow, 2:00 PM 
+                                        <span class="text-success text-xs font-metadata flex items-center"><span class="material-symbols-outlined text-[14px]">trending_up</span> 95%</span>
+</button>
+<button class="bg-surface-container-lowest border border-subtle hover:border-primary-container/50 text-on-surface-variant px-3 py-2 rounded-md font-body-base text-body-base transition-all w-full text-sm text-left">
+                                        Oct 26, 10:00 AM
+                                    </button>
+</div>
+</div>
+</div>
+<!-- Dummy Calendar View -->
+<div class="border border-subtle rounded-lg overflow-hidden flex-1 min-h-[300px] flex flex-col">
+<div class="grid grid-cols-5 bg-surface-muted border-b border-subtle text-center text-metadata font-metadata text-on-surface-variant py-2">
+<div>M 23</div>
+<div>T 24</div>
+<div>W 25</div>
+<div class="text-primary font-body-bold border-b-2 border-primary">T 26</div>
+<div>F 27</div>
+</div>
+<div class="grid grid-cols-5 flex-1 bg-surface-container-lowest p-2 gap-1 overflow-y-auto no-scrollbar relative min-h-[250px]">
+<!-- Background lines -->
+<div class="absolute inset-0 grid grid-rows-4 pointer-events-none opacity-20">
+<div class="border-b border-subtle"></div>
+<div class="border-b border-subtle"></div>
+<div class="border-b border-subtle"></div>
+<div class="border-b border-subtle"></div>
+</div>
+<!-- Slots (Visual representation) -->
+<div class="col-start-4 mt-4 h-16 bg-primary-container text-on-primary rounded border border-primary-fixed shadow-md flex flex-col items-center justify-center font-metadata text-metadata relative z-10 cursor-pointer text-xs p-1 text-center">
+<span>2:00 PM</span>
+<span class="absolute top-1 right-1 flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+</span>
+</div>
+<div class="col-start-2 mt-20 h-16 bg-surface-muted border border-subtle text-on-surface-variant rounded flex flex-col items-center justify-center font-metadata text-metadata relative z-10 cursor-pointer hover:bg-surface-container-low text-xs p-1 text-center">
+<span>4:00 PM</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Column 3: Interviewers & Actions -->
+<div class="flex flex-col gap-lg">
+<!-- Interviewers Card -->
+<section class="bg-surface-container-lowest rounded-xl border border-subtle p-lg shadow-sm">
+<div class="flex justify-between items-center mb-md">
+<h2 class="font-headline-md text-headline-md text-on-surface hanken">Interviewers</h2>
+<span class="bg-surface-muted text-on-surface-variant px-2 py-1 rounded text-xs font-label-caps jetbrains border border-subtle">2/4 Available</span>
+</div>
+<div class="flex flex-col gap-sm mb-lg">
+<!-- Interviewer 1 -->
+<div class="flex items-center justify-between p-3 border border-subtle rounded-lg bg-surface-muted">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden border border-subtle">
+<img alt="David Chen" class="w-full h-full object-cover" data-alt="Small headshot of an Asian male software engineering manager. Bright corporate office setting, light mode." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAiG1FVrOG79YQ99mrQRK72U0CH-6ZvRsEVacm4yqmxqvgc-fZYd9UBazCDlHwH_fU5hR3i1oAnfOekfHFJsvTyUVXYHnoNA1LlVWtuvEoTfcHBWGTZ5NcZisIbc4nwzW_CZIsg0hAxjVjIwPsSZ75SEVnW6jM_MorB5IWcK5eRLQJIVFUU8pHWeZquEWv1lw3iVWQIt6Qa3xEsWU6DVz-3cdWQiU8Vul0ksTaZfaxdU_zX7TvKJpLCvCdjyCK9BT90PYnde46pfpU"/>
+</div>
+<div>
+<p class="font-body-bold text-body-bold text-on-surface text-sm">David Chen</p>
+<p class="font-metadata text-metadata text-on-surface-variant text-[11px]">Engineering Manager</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-success text-sm" title="Available">check_circle</span>
+</div>
+<!-- Interviewer 2 -->
+<div class="flex items-center justify-between p-3 border border-subtle rounded-lg bg-surface-muted">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden border border-subtle">
+<img alt="Maria Gomez" class="w-full h-full object-cover" data-alt="Small headshot of a Hispanic female senior developer. Bright corporate office setting, light mode." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBlmNpgrVPGx0mdk5jmcgXAE1HB4xL81XPKKwvalJp36uNFMNm2UIjKIy_Ug6tZOJ0wEyjRVO49oij-iEpJ-qwcXjMsWWR5dTa6raxgzmnI15J5LC190CdQjR3WR0L_JZSam409aENicd_wXa-FwRoQy7sUwUAe46cSx5Zlx1pqM3KRQwwRHrY_ls3fTSOA-_s1_kesHcYP_wtPDr7_i6zV4SgYKVZmsUBJCnc4NdwBJIwAu5KfBr5Tkn48DwBGfdtvFcLEdue1PdQ"/>
+</div>
+<div>
+<p class="font-body-bold text-body-bold text-on-surface text-sm">Maria Gomez</p>
+<p class="font-metadata text-metadata text-on-surface-variant text-[11px]">Lead Dev</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-success text-sm" title="Available">check_circle</span>
+</div>
+</div>
+<button class="w-full py-2 border-2 border-dashed border-subtle rounded-lg text-on-surface-variant font-body-bold text-body-bold hover:bg-surface-container-low hover:border-outline-variant transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">person_add</span> Add Interviewer
+                        </button>
+</section>
+<!-- Summary & Action Card -->
+<section class="bg-surface-container-lowest rounded-xl border border-subtle p-lg shadow-sm">
+<h3 class="font-headline-md text-headline-md text-on-surface hanken mb-md">Summary</h3>
+<ul class="flex flex-col gap-3 mb-xl border-b border-subtle pb-md">
+<li class="flex justify-between items-start font-body-base text-body-base">
+<span class="text-on-surface-variant">Candidate</span>
+<span class="font-body-bold text-on-surface text-right">Sarah Jenkins</span>
+</li>
+<li class="flex justify-between items-start font-body-base text-body-base">
+<span class="text-on-surface-variant">Type</span>
+<span class="font-body-bold text-on-surface text-right">Technical Round</span>
+</li>
+<li class="flex justify-between items-start font-body-base text-body-base">
+<span class="text-on-surface-variant">Time</span>
+<span class="font-body-bold text-on-surface text-right">Oct 26, 2:00 PM PST<br/><span class="text-metadata font-normal text-on-surface-variant">(60 min)</span></span>
+</li>
+<li class="flex justify-between items-start font-body-base text-body-base">
+<span class="text-on-surface-variant">Format</span>
+<span class="font-body-bold text-on-surface text-right flex items-center gap-1"><span class="material-symbols-outlined text-sm">videocam</span> Video</span>
+</li>
+</ul>
+<button class="w-full bg-primary-container text-on-primary rounded-lg py-4 font-body-bold text-body-bold shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 active:scale-[0.98]">
+<span class="material-symbols-outlined">send</span> Confirm &amp; Send Invite
+                        </button>
+<p class="text-center text-metadata font-metadata text-on-surface-variant mt-3">An email with a calendar invite and video link will be sent to the candidate and interviewers.</p>
+</section>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Bottom Navigation (Mobile) -->
+<nav aria-label="Bottom Navigation" class="md:hidden fixed bottom-0 w-full bg-surface-container-lowest border-t border-subtle flex justify-around p-2 z-40 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+<a class="flex flex-col items-center p-2 text-on-surface-variant" href="#">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="text-[10px] font-metadata mt-1">Dashboard</span>
+</a>
+<a class="flex flex-col items-center p-2 text-on-surface-variant" href="#">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="work">work</span>
+<span class="text-[10px] font-metadata mt-1">My Jobs</span>
+</a>
+<a class="flex flex-col items-center p-2 text-primary" href="#">
+<span aria-hidden="true" class="material-symbols-outlined bg-secondary-container text-on-secondary-container px-4 py-1 rounded-full" data-icon="group" data-weight="fill" style="font-variation-settings: 'FILL' 1;">group</span>
+<span class="text-[10px] font-metadata mt-1 font-bold">Talent Pool</span>
+</a>
+<a class="flex flex-col items-center p-2 text-on-surface-variant" href="#">
+<span aria-hidden="true" class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="text-[10px] font-metadata mt-1">Analytics</span>
+</a>
+</nav>
+<script>
+        // Simple script for micro-interactions
+        document.addEventListener('DOMContentLoaded', () => {
+            const durationButtons = document.querySelectorAll('button:contains("min")');
+            // Mock interaction for duration selection
+            // In a real app, this would be more robust
+        });
+    </script>
+</body></html>

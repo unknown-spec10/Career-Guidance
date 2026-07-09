@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
-
+import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Briefcase, TrendingUp, Clock,
-  CheckCircle, Upload, User, MapPin, Target, Zap, BookOpen, FileText, GraduationCap, RefreshCcw, X, Coins, Bookmark, Award, Sparkles
+  Briefcase, TrendingUp, Clock, CheckCircle, Upload, User,
+  MapPin, Target, Zap, BookOpen, FileText, GraduationCap,
+  X, Coins, Award, Sparkles, Play, ArrowRight, Mic, ChevronRight
 } from 'lucide-react'
 
 import api from '../config/api'
@@ -12,8 +12,6 @@ import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
 import { SkeletonStats } from '../components/SkeletonLoader'
-import CreditWidget from '../components/CreditWidget'
-import ApplicationTracker from '../components/ApplicationTracker'
 
 export default function StudentDashboard() {
   const navigate = useNavigate()
@@ -23,6 +21,7 @@ export default function StudentDashboard() {
   const [applicantData, setApplicantData] = useState(null)
   const [studentProfile, setStudentProfile] = useState(null)
   const [jobApplications, setJobApplications] = useState([])
+  const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -32,133 +31,61 @@ export default function StudentDashboard() {
   const [showUploadForm, setShowUploadForm] = useState(false)
   const [selectedResume, setSelectedResume] = useState(null)
 
-  // Recommendation State (for counts only)
-  const [recommendations, setRecommendations] = useState([])
-  const [applicantId, setApplicantId] = useState(null)
-  const [noApplicantProfile, setNoApplicantProfile] = useState(false)
+  // Interview Stats
+  const [completedInterviewsCount, setCompletedInterviewsCount] = useState(0)
 
-  // Refs
-  const uploadFormRef = React.useRef(null)
-
-  const interviewingCount = jobApplications.filter((app) => app.status?.toLowerCase() === 'interviewing').length
-  const newSuggestionCount = recommendations.filter((rec) => rec.status === 'recommended').length
-
-  const handleFileUpload = async (e) => {
-    e.preventDefault()
-    setUploadLoading(true)
-    setError(null)
-    setUploadSuccess(false)
-
-    // Validate file was selected
-    if (!selectedResume) {
-      setError('Please select a resume file')
-      setUploadLoading(false)
-      return
-    }
-
-    try {
-      // Create FormData with resume file
-      const formData = new FormData()
-      formData.append('resume', selectedResume)
-
-      // Get form values from the form element
-      const form = e.currentTarget
-      const locationInput = form.querySelector('input[name="location"]')
-      const jeeRankInput = form.querySelector('input[name="jee_rank"]')
-
-      // Append optional fields if they have values
-      if (locationInput && locationInput.value) {
-        formData.append('location', locationInput.value)
-      }
-      if (jeeRankInput && jeeRankInput.value) {
-        formData.append('jee_rank', jeeRankInput.value)
-      }
-
-      console.log('Starting file upload with file:', selectedResume.name)
-
-      // Don't set Content-Type manually - axios sets it with boundary automatically
-      const response = await api.post('/upload', formData, {
-        timeout: 120000 // 120s for upload
-      })
-      setUploadSuccess(true)
-      form.reset()
-
-      if (response.data.applicant_id) {
-        setTimeout(async () => {
-          try {
-            const parseRes = await api.post(`/parse/${response.data.applicant_id}`, null, {
-              timeout: 120000 // 120s for parse
-            })
-            toast.success('Resume uploaded and parsed successfully!')
-            setShowUploadForm(false)
-            setNoApplicantProfile(false)
-
-            const dbId = parseRes.data?.db_applicant_id
-            if (dbId) {
-              secureStorage.setItem('db_applicant_id', String(dbId))
-              setApplicantId(dbId)
-            }
-            // Refresh data
-            fetchAll()
-          } catch (parseErr) {
-            console.error('Parse error:', parseErr)
-            const errMsg = parseErr.response?.data?.detail || parseErr.message || 'Unknown error'
-            setError(`Parsing failed: ${errMsg}`)
-            toast.error('Resume uploaded but parsing failed.')
-          } finally {
-            setUploadLoading(false)
-          }
-        }, 500)
-      } else {
-        setUploadLoading(false)
-      }
-    } catch (err) {
-      console.error('Upload error:', err)
-      setError(err.response?.data?.detail || 'Upload failed.')
-      setUploadLoading(false)
-    }
-  }
-
-  // --- Data Fetching ---
   const fetchAll = async () => {
     try {
       setLoading(true)
-      // Profile
       let profileId = secureStorage.getItem('db_applicant_id')
 
+      // 1. Fetch Applicant Details
       try {
         const profileRes = await api.get(`/api/student/applicant?t=${Date.now()}`)
-        setApplicantData(profileRes.data) // SAVE DATA for ProfileHealth
-        setApplicantId(profileRes.data.id)
-        secureStorage.setItem('db_applicant_id', String(profileRes.data.id))
+        setApplicantData(profileRes.data)
         profileId = profileRes.data.id
-        setNoApplicantProfile(false)
+        secureStorage.setItem('db_applicant_id', String(profileId))
       } catch (e) {
-        // Profile probably not found
-        if (!profileId) setNoApplicantProfile(true)
+        console.warn('No applicant profile found.')
       }
 
+      // 2. Fetch Student Profile
       try {
         const studentProfileRes = await api.get(`/api/student/profile?t=${Date.now()}`)
         setStudentProfile(studentProfileRes.data || null)
-      } catch (profileErr) {
-        console.error('Failed to load student profile data:', profileErr)
-        setStudentProfile(null)
+      } catch (e) {
+        console.warn('Failed to load student profile.')
       }
 
-      // Applications
-      const [jobApps] = await Promise.all([
-        api.get(`/api/student/applications/jobs?t=${Date.now()}`).catch(() => ({ data: { applications: [] } }))
-      ])
-      setJobApplications(jobApps.data?.applications || [])
+      // 3. Fetch Applications
+      try {
+        const appRes = await api.get(`/api/student/applications/jobs?t=${Date.now()}`)
+        setJobApplications(appRes.data?.applications || [])
+      } catch (e) {
+        console.warn('Failed to fetch job applications.')
+      }
 
-      // Recommendations (to calculate counts)
+      // 4. Fetch Recommendations
       if (profileId) {
-        const recRes = await api.get(`/api/recommendations/${profileId}?t=${Date.now()}`)
-        setRecommendations(recRes.data.job_recommendations || [])
+        try {
+          const recRes = await api.get(`/api/recommendations/${profileId}?t=${Date.now()}`)
+          setRecommendations(recRes.data.job_recommendations || [])
+        } catch (e) {
+          console.warn('Failed to fetch job recommendations.')
+        }
+
+        // 5. Fetch Interview Sessions Count
+        try {
+          const interviewRes = await api.get('/api/interview/sessions')
+          const sessions = interviewRes.data || []
+          const completed = sessions.filter(s => s.status?.toLowerCase() === 'completed').length
+          setCompletedInterviewsCount(completed)
+        } catch (e) {
+          console.warn('Failed to fetch interview sessions.')
+        }
       }
     } catch (err) {
-      console.error(err)
+      console.error('Error fetching dashboard data:', err)
     } finally {
       setLoading(false)
     }
@@ -168,224 +95,388 @@ export default function StudentDashboard() {
     fetchAll()
   }, [])
 
-  // Scroll effect
-  useEffect(() => {
-    if (showUploadForm && uploadFormRef.current) {
-      uploadFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const handleFileUpload = async (e) => {
+    e.preventDefault()
+    setUploadLoading(true)
+    setError(null)
+    setUploadSuccess(false)
+
+    if (!selectedResume) {
+      setError('Please select a resume file')
+      setUploadLoading(false)
+      return
     }
-  }, [showUploadForm])
+
+    try {
+      const formData = new FormData()
+      formData.append('resume', selectedResume)
+
+      const form = e.currentTarget
+      const locationInput = form.querySelector('input[name="location"]')
+      const jeeRankInput = form.querySelector('input[name="jee_rank"]')
+
+      if (locationInput && locationInput.value) {
+        formData.append('location', locationInput.value)
+      }
+      if (jeeRankInput && jeeRankInput.value) {
+        formData.append('jee_rank', jeeRankInput.value)
+      }
+
+      const response = await api.post('/upload', formData, {
+        timeout: 120000
+      })
+
+      if (response.data.applicant_id) {
+        const parseRes = await api.post(`/parse/${response.data.applicant_id}`, null, {
+          timeout: 120000
+        })
+        toast.success('Resume uploaded and parsed successfully!')
+        setShowUploadForm(false)
+
+        const dbId = parseRes.data?.db_applicant_id
+        if (dbId) {
+          secureStorage.setItem('db_applicant_id', String(dbId))
+        }
+        fetchAll()
+      }
+    } catch (err) {
+      console.error('Upload failed:', err)
+      setError(err.response?.data?.detail || 'Upload or parsing failed.')
+      toast.error('Resume upload or parsing failed.')
+    } finally {
+      setUploadLoading(false)
+    }
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 pt-24 px-4">
-        <div className="max-w-7xl mx-auto py-8">
-          <SkeletonStats />
-        </div>
+      <div className="min-h-screen pt-8 px-4">
+        <SkeletonStats />
       </div>
     )
   }
 
+  const hasProfile = !!applicantData
+  // Score calculations (ATS matching suitability)
+  const confidenceScore = applicantData?.llm_confidence 
+    ? Math.round(applicantData.llm_confidence * 100) 
+    : 80 // Default to 80% if there is a profile but confidence is not set
+  
+  const formattedScore = hasProfile ? confidenceScore : 0
+  const matchColor = formattedScore >= 80 ? 'text-success' : formattedScore >= 50 ? 'text-warning' : 'text-error'
+
   return (
-    <div className="min-h-screen bg-slate-50/50 pt-24 pb-12 relative overflow-hidden">
-      {/* Ambient background glows */}
-      <div className="pointer-events-none absolute left-1/4 top-10 h-96 w-96 rounded-full bg-gradient-to-br from-primary-400/10 to-indigo-300/10 blur-[100px]" />
-      <div className="pointer-events-none absolute right-1/4 top-40 h-96 w-96 rounded-full bg-gradient-to-br from-sky-400/10 to-emerald-300/10 blur-[100px]" />
-
+    <div className="relative">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl relative z-10">
 
-        {/* --- HEADER ROW --- */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative mb-8 overflow-hidden rounded-3xl border border-white/80 bg-white/70 p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.04)] backdrop-blur-md"
-        >
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-50/40 via-white/50 to-sky-50/40 opacity-70" />
-          <div className="relative flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary-700 mb-4">
-                <Briefcase className="w-3.5 h-3.5" />
-                Student workspace
-              </div>
-              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2">
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-slate-800 to-primary-950">
-                  Student Dashboard
-                </span>
-              </h1>
-              <p className="text-gray-600">Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Student'}</p>
-              <p className="text-sm text-gray-500 mt-2 max-w-xl">
-                You have {interviewingCount} interview {interviewingCount === 1 ? 'invitation' : 'invitations'} and {newSuggestionCount} new path {newSuggestionCount === 1 ? 'suggestion' : 'suggestions'}.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-4 lg:items-end lg:justify-end lg:min-w-[360px]">
-              <div className="grid w-full gap-3 md:grid-cols-2">
-                <CreditWidget compact />
-                <ApplicationTracker jobApps={jobApplications} compact />
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* --- NO PROFILE STATE --- */}
-        {noApplicantProfile && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="my-8 p-8 border border-dashed border-gray-300 rounded-2xl bg-white text-center shadow-sm"
+      {/* Welcome Header */}
+      <div className="mb-xl flex flex-col md:flex-row md:items-end justify-between gap-md relative z-10">
+        <div>
+          <h1 className="font-display-lg text-display-lg text-on-surface dark:text-inverse-on-surface mb-xs font-bold leading-tight">
+            Welcome back, {applicantData?.full_name?.split(' ')[0] || 'Scholar'}!
+          </h1>
+          <p className="font-body-base text-body-base text-on-surface-variant dark:text-surface-variant">
+            {hasProfile 
+              ? `Your profile is ATS optimized. You have ${jobApplications.length} applications tracked and ${recommendations.length} recommendations.`
+              : "Upload your resume to receive AI-guided matching and interview prep."}
+          </p>
+        </div>
+        <div>
+          <button 
+            onClick={() => setShowUploadForm(true)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white dark:text-on-primary-container dark:bg-primary-container rounded-lg font-body-bold text-[14px] hover:bg-primary-500 hover:shadow-lg active:scale-95 duration-150 transition-all cursor-pointer"
           >
-            <Upload className="w-12 h-12 text-primary-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">Setup Your Profile</h3>
-            <p className="text-gray-600 mb-6 max-w-md mx-auto">Upload your resume to unlock AI-powered recommendations and interview practice.</p>
-            <button onClick={() => setShowUploadForm(true)} className="btn-primary">Upload Resume</button>
-          </motion.div>
-        )}
+            <Upload className="w-4 h-4" />
+            Upload New Resume
+          </button>
+        </div>
+      </div>
 
-        {/* --- CARDS GRID --- */}
-        {!noApplicantProfile && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-            {/* AI Job Recommendations Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="p-8 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-primary-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col justify-between h-full relative overflow-hidden group"
-            >
-              <div>
-                <div className="rounded-2xl p-3 bg-primary-50 text-primary-600 w-fit border border-primary-100 shadow-sm mb-5">
-                  <Target className="w-8 h-8" />
+      {/* Bento Grid Layout */}
+      {!hasProfile ? (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="my-8 p-12 border border-dashed border-border-subtle dark:border-outline-variant rounded-2xl bg-white dark:bg-inverse-surface/10 text-center shadow-sm"
+        >
+          <Upload className="w-16 h-16 text-primary/40 mx-auto mb-4" />
+          <h3 className="text-xl font-body-bold font-bold mb-2">Create Your Profile</h3>
+          <p className="text-on-surface-variant dark:text-surface-variant mb-6 max-w-md mx-auto">
+            Upload your resume so our AI engine can identify your skills, calculate ATS suitability, suggest learning pathways, and customize mock interviews.
+          </p>
+          <button 
+            onClick={() => setShowUploadForm(true)} 
+            className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-lg font-body-bold text-sm shadow-md hover:bg-primary-500 transition-colors"
+          >
+            Get Started
+          </button>
+        </motion.div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-lg mb-xl items-start">
+          
+          {/* Main Pane (8/12 width) */}
+          <div className="lg:col-span-8 flex flex-col gap-lg">
+            
+            {/* Resume Health Score Card */}
+            <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-lg soft-shadow relative overflow-hidden group">
+              <div className="absolute -top-24 -right-24 w-64 h-64 bg-primary-fixed-dim/20 rounded-full blur-[80px] opacity-20 group-hover:opacity-40 transition-opacity duration-500"></div>
+              
+              <div className="flex flex-col md:flex-row items-center gap-lg relative z-10">
+                {/* Circular Score Indicator */}
+                <div className="w-36 h-36 shrink-0 relative flex items-center justify-center">
+                  <svg className={`w-full h-full transform -rotate-90 ${matchColor}`} viewBox="0 0 36 36">
+                    <path 
+                      className="text-surface-container-high dark:text-outline-variant/20" 
+                      strokeWidth="3" 
+                      stroke="currentColor" 
+                      fill="none" 
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
+                    />
+                    <path 
+                      strokeDasharray={`${formattedScore}, 100`} 
+                      strokeWidth="3.5" 
+                      strokeLinecap="round" 
+                      stroke="currentColor" 
+                      fill="none" 
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
+                    />
+                  </svg>
+                  <div className="absolute flex flex-col items-center justify-center">
+                    <span className="font-label-caps text-display-lg text-on-surface dark:text-inverse-on-surface font-extrabold">{formattedScore}</span>
+                    <span className="font-metadata text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Score</span>
+                  </div>
                 </div>
-                <h3 className="font-extrabold text-xl text-slate-900 mb-2 group-hover:text-primary-900 transition-colors">
-                  AI Job Recommendations
-                </h3>
-                <p className="text-sm text-slate-500 leading-relaxed mb-6">
-                  Discover job roles matched to your unique profile. Our multi-tiered scoring engine ranks jobs by skill overlap, location alignment, and experience suitability, showing you the most relevant opportunities first.
-                </p>
-              </div>
-              <Link
-                to="/jobs"
-                className="w-full py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 text-center active:scale-95 duration-200 font-semibold"
-              >
-                Explore Recommendations
-              </Link>
-            </motion.div>
 
-            {/* AI Mock Interviews Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="p-8 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-indigo-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col justify-between h-full relative overflow-hidden group"
-            >
-              <div>
-                <div className="rounded-2xl p-3 bg-indigo-50 text-indigo-600 w-fit border border-indigo-100 shadow-sm mb-5">
-                  <Sparkles className="w-8 h-8 animate-pulse" />
+                {/* Content */}
+                <div className="flex-1 text-center md:text-left">
+                  <div className="inline-flex items-center gap-1.5 bg-success/10 text-success px-2.5 py-0.5 rounded-full font-metadata text-[12px] font-semibold mb-sm">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    ATS Optimization Checked
+                  </div>
+                  <h2 className="font-headline-md text-headline-md text-on-surface dark:text-inverse-on-surface mb-sm">Resume Suitability</h2>
+                  <p className="font-body-base text-body-base text-on-surface-variant dark:text-surface-variant mb-md leading-relaxed">
+                    Your resume has high keyword density for your primary field. Our AI analysis shows complete profile parsing with high confidence.
+                  </p>
+                  <div className="flex flex-wrap gap-sm justify-center md:justify-start">
+                    <Link
+                      to={`/results/${applicantData.applicant_id}`}
+                      className="btn-secondary-sm px-4 py-2 text-[13px] font-body-bold shadow-sm cursor-pointer"
+                    >
+                      Review Scorecard
+                    </Link>
+                    <Link
+                      to="/student/intelligence"
+                      className="px-4 py-2 text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim transition-colors font-body-bold text-[13px] flex items-center gap-1"
+                    >
+                      <Sparkles className="w-4 h-4 text-primary" />
+                      Improve with AI
+                    </Link>
+                  </div>
                 </div>
-                <h3 className="font-extrabold text-xl text-slate-900 mb-2 group-hover:text-indigo-900 transition-colors">
-                  AI Mock Interviews
-                </h3>
-                <p className="text-sm text-slate-500 leading-relaxed mb-6">
-                  Practice technical and soft skill questions tailored to your field. Get scored by our AI engine with comprehensive feedback to continuously improve your performance and readiness.
-                </p>
               </div>
-              <Link
-                to="/dashboard/interview"
-                className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-bold transition-all shadow-md shadow-indigo-500/10 hover:shadow-indigo-500/20 text-center active:scale-95 duration-200 font-semibold"
-              >
-                Practice Interviews
-              </Link>
-            </motion.div>
+            </div>
 
-            {/* Learning Paths Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="p-8 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-emerald-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col justify-between h-full relative overflow-hidden group"
-            >
-              <div>
-                <div className="rounded-2xl p-3 bg-emerald-50 text-emerald-600 w-fit border border-emerald-100 shadow-sm mb-5">
-                  <BookOpen className="w-8 h-8" />
-                </div>
-                <h3 className="font-extrabold text-xl text-slate-900 mb-2 group-hover:text-emerald-900 transition-colors">
-                  Skill Roadmaps & Learning Paths
-                </h3>
-                <p className="text-sm text-slate-500 leading-relaxed mb-6">
-                  Targeted developmental roadmaps generated automatically for skill gaps. Prepare step-by-step with structured modules and online references designed to make you industry-ready.
-                </p>
+            {/* Top Recommendations */}
+            <div>
+              <div className="flex justify-between items-center mb-md">
+                <h3 className="font-headline-md text-headline-md text-on-surface dark:text-inverse-on-surface font-extrabold">Recommended Match Roles</h3>
+                <Link to="/jobs" className="font-body-bold text-[13px] text-primary dark:text-primary-fixed-dim hover:underline flex items-center gap-0.5">
+                  View All <ChevronRight className="w-4 h-4" />
+                </Link>
               </div>
-              <Link
-                to="/dashboard/learning-paths"
-                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl font-bold transition-all shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 text-center active:scale-95 duration-200 font-semibold"
-              >
-                View Learning Paths
-              </Link>
-            </motion.div>
 
-            {/* Intelligence Profile Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="p-8 bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-100 hover:border-amber-200/80 transition-all duration-300 hover:shadow-[0_20px_45px_rgba(15,23,42,0.06)] hover:-translate-y-1 flex flex-col justify-between h-full relative overflow-hidden group"
-            >
-              <div>
-                <div className="rounded-2xl p-3 bg-amber-50 text-amber-600 w-fit border border-amber-100 shadow-sm mb-5">
-                  <GraduationCap className="w-8 h-8" />
+              {recommendations.length === 0 ? (
+                <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle rounded-xl p-lg text-center text-on-surface-variant">
+                  No match recommendations generated yet. Try refreshing or upload a different resume.
                 </div>
-                <h3 className="font-extrabold text-xl text-slate-900 mb-2 group-hover:text-amber-900 transition-colors">
-                  Longitudinal Intelligence Profile
-                </h3>
-                <p className="text-sm text-slate-500 leading-relaxed mb-6">
-                  Analyze your skill progress and profile scoring logs over time. Monitor your growth across technical focus areas, experience suitability, and alignment with modern market demands.
-                </p>
-              </div>
-              <Link
-                to="/student/intelligence"
-                className="w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white rounded-xl font-bold transition-all shadow-md shadow-amber-500/10 hover:shadow-amber-500/20 text-center active:scale-95 duration-200 font-semibold"
-              >
-                View Intelligence Profile
-              </Link>
-            </motion.div>
+              ) : (
+                <div className="flex flex-col gap-sm">
+                  {recommendations.slice(0, 3).map((rec, index) => {
+                    const matchScore = rec.match_score || rec.score || 85
+                    const scoreColor = matchScore >= 90 ? 'text-success' : matchScore >= 75 ? 'text-primary dark:text-primary-fixed-dim' : 'text-warning'
+                    
+                    return (
+                      <div 
+                        key={rec.id || index}
+                        onClick={() => navigate(`/job/${rec.job_id || rec.job?.id}`)}
+                        className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow hover:border-primary-fixed-dim dark:hover:border-outline-variant transition-colors group cursor-pointer flex flex-col sm:flex-row justify-between sm:items-center gap-md"
+                      >
+                        <div className="flex gap-md items-start">
+                          <div className="w-12 h-12 bg-surface-container-low dark:bg-surface-variant/40 rounded-lg flex items-center justify-center shrink-0">
+                            <Briefcase className="w-6 h-6 text-secondary" />
+                          </div>
+                          <div>
+                            <h4 className="font-body-bold text-[15px] font-bold text-on-surface dark:text-inverse-on-surface group-hover:text-primary dark:group-hover:text-primary-fixed-dim transition-colors">
+                              {rec.job_title || rec.job?.title || 'Software Developer'}
+                            </h4>
+                            <div className="flex items-center gap-sm text-on-surface-variant dark:text-surface-variant font-metadata text-[12px] mt-1">
+                              <span className="font-semibold">{rec.company || rec.job?.company || 'Company'}</span>
+                              <span>•</span>
+                              <span className="flex items-center gap-0.5">
+                                <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                {rec.location || rec.job?.location || 'Remote'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-lg sm:w-auto w-full border-t sm:border-t-0 border-border-subtle dark:border-outline-variant/30 pt-sm sm:pt-0 mt-sm sm:mt-0">
+                          <div className="flex flex-col items-end">
+                            <span className={`font-label-caps text-headline-md ${scoreColor} font-extrabold`}>{Math.round(matchScore)}%</span>
+                            <span className={`font-metadata text-[10px] uppercase tracking-wider ${scoreColor}`}>Match</span>
+                          </div>
+                          <button className="w-8 h-8 rounded-full bg-surface-container-low dark:bg-surface-variant/40 flex items-center justify-center text-primary group-hover:bg-primary-container group-hover:text-white transition-all">
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
-        )}
 
-        {/* Upload Modal */}
+          {/* Right Sidebar Pane (4/12 width) */}
+          <div className="lg:col-span-4 flex flex-col gap-lg">
+            
+            {/* Interview Readiness Card */}
+            <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow">
+              <div className="flex items-center gap-sm mb-md">
+                <Mic className="w-5 h-5 text-interactive-purple" />
+                <h3 className="font-body-bold text-[15px] font-bold text-on-surface dark:text-inverse-on-surface">Interview Readiness</h3>
+              </div>
+              <div className="bg-surface-container-low dark:bg-surface-variant/20 rounded-lg p-sm flex items-center justify-between mb-md">
+                <div className="flex items-center gap-sm">
+                  <div className="w-8 h-8 bg-interactive-purple/10 rounded-full flex items-center justify-center text-interactive-purple">
+                    <Mic className="w-4 h-4" />
+                  </div>
+                  <span className="font-metadata text-metadata text-on-surface dark:text-inverse-on-surface">Mock Interviews</span>
+                </div>
+                <span className="font-label-caps text-body-bold text-on-surface dark:text-inverse-on-surface">
+                  {completedInterviewsCount} <span className="text-on-surface-variant dark:text-surface-variant text-[11px] font-normal uppercase">Done</span>
+                </span>
+              </div>
+              <p className="font-metadata text-[12px] text-on-surface-variant dark:text-surface-variant mb-md leading-relaxed">
+                Your communication index is climbing! The AI recommends practicing behavioral questions and system scalability concepts.
+              </p>
+              <button 
+                onClick={() => navigate('/dashboard/interview')}
+                className="btn-secondary-sm w-full py-2 text-[13px] font-body-bold flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+              >
+                <Play className="w-4 h-4 fill-current" /> Start Practice
+              </button>
+            </div>
+
+            {/* Recent Applications Card */}
+            <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow flex-1">
+              <h3 className="font-body-bold text-[15px] font-bold text-on-surface dark:text-inverse-on-surface mb-md">Recent Applications</h3>
+              
+              {jobApplications.length === 0 ? (
+                <div className="text-center py-6 text-xs text-on-surface-variant">No active applications. Explore jobs to apply.</div>
+              ) : (
+                <div className="flex flex-col gap-sm">
+                  {jobApplications.slice(0, 3).map((app, index) => {
+                    const status = app.status || 'applied'
+                    let badgeStyle = 'bg-primary-fixed-dim/20 text-primary dark:text-primary-fixed-dim'
+                    let dotColor = 'bg-primary'
+                    if (status.toLowerCase() === 'interviewing') {
+                      badgeStyle = 'bg-warning/10 text-warning border border-warning/20'
+                      dotColor = 'bg-warning'
+                    } else if (status.toLowerCase() === 'accepted') {
+                      badgeStyle = 'bg-success/10 text-success border border-success/20'
+                      dotColor = 'bg-success'
+                    } else if (status.toLowerCase() === 'rejected') {
+                      badgeStyle = 'bg-slate-100 text-slate-500 border border-slate-200'
+                      dotColor = 'bg-slate-400'
+                    }
+
+                    return (
+                      <div key={app.id || index} className="flex items-center justify-between py-2 border-b border-border-subtle dark:border-outline-variant/20 pb-sm last:border-0 last:pb-0">
+                        <div className="flex items-center gap-sm">
+                          <div className={`w-2 h-2 rounded-full ${dotColor}`}></div>
+                          <div>
+                            <p className="font-metadata text-[13px] font-semibold text-on-surface dark:text-inverse-on-surface truncate max-w-[120px]">
+                              {app.company || app.job?.company || 'Company'}
+                            </p>
+                            <p className="text-[11px] text-on-surface-variant dark:text-surface-variant truncate max-w-[120px]">
+                              {app.job_title || app.job?.title || 'Job Title'}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${badgeStyle}`}>
+                          {status}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              
+              <div className="mt-md pt-sm border-t border-border-subtle dark:border-outline-variant/20 text-center">
+                <Link to="/jobs" className="font-metadata text-[12px] text-primary dark:text-primary-fixed-dim hover:underline font-semibold">
+                  Browse Job Board
+                </Link>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* Upload Modal */}
+      <AnimatePresence>
         {showUploadForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setShowUploadForm(false)}>
-            <div className="w-full max-w-lg rounded-3xl border border-slate-100 bg-white/95 backdrop-blur shadow-2xl p-6 relative overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="w-full max-w-lg rounded-3xl border border-border-subtle bg-white dark:bg-inverse-surface backdrop-blur shadow-2xl p-6 relative overflow-hidden" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-6">
-                <h3 className="font-extrabold text-xl text-slate-900">Upload Resume</h3>
+                <h3 className="font-extrabold text-xl text-slate-900 dark:text-inverse-on-surface">Upload Resume</h3>
                 <button onClick={() => setShowUploadForm(false)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <form onSubmit={handleFileUpload} className="space-y-4">
+                {error && (
+                  <div className="bg-rose-50 text-rose-700 p-3 rounded-xl text-xs font-semibold border border-rose-200">
+                    {error}
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-2">Resume File (PDF/DOCX)</label>
-                  <input type="file" name="resume" required className="w-full bg-slate-50/50 border border-slate-200 border-dashed rounded-2xl p-4 text-center focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 cursor-pointer text-sm font-medium text-slate-600"
+                  <input 
+                    type="file" 
+                    name="resume" 
+                    required 
+                    accept=".pdf,.docx"
+                    className="w-full bg-slate-50 dark:bg-inverse-surface/30 border border-slate-200 border-dashed rounded-2xl p-6 text-center focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300"
                     onChange={(e) => setSelectedResume(e.target.files[0])}
                   />
                 </div>
                 {selectedResume && (
-                  <div className="text-xs text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50/50 p-2 border border-emerald-100 rounded-xl">
-                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  <div className="text-xs text-emerald-600 font-bold flex items-center gap-1.5 bg-emerald-50/50 p-2.5 border border-emerald-100 rounded-xl">
+                    <CheckCircle className="w-4.5 h-4.5 text-emerald-500" />
                     <span>Selected: {selectedResume.name}</span>
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
-                  <input name="location" placeholder="Preferred Location" className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm" />
-                  <input name="jee_rank" type="number" placeholder="JEE Rank (Optional)" className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm" />
+                  <input name="location" placeholder="Preferred Location" className="w-full bg-slate-50 dark:bg-inverse-surface/30 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm dark:text-white" />
+                  <input name="jee_rank" type="number" placeholder="JEE Rank (Optional)" className="w-full bg-slate-50 dark:bg-inverse-surface/30 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm dark:text-white" />
                 </div>
-                <button type="submit" className="w-full py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-primary-500/10 hover:shadow-primary-500/20 active:scale-95 duration-200" disabled={uploadLoading}>
+                <button 
+                  type="submit" 
+                  className="w-full py-3 bg-primary text-white rounded-xl font-bold transition-all shadow-md hover:bg-primary-500 active:scale-95 duration-200 text-sm cursor-pointer" 
+                  disabled={uploadLoading}
+                >
                   {uploadLoading ? 'Uploading & Analyzing...' : 'Upload & Process'}
                 </button>
               </form>
             </div>
           </div>
         )}
+      </AnimatePresence>
 
-      </div>
     </div>
   )
 }

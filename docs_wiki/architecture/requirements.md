@@ -1,0 +1,58 @@
+# Core FastAPI and Server
+fastapi>=0.122.0
+uvicorn[standard]>=0.38.0
+python-multipart>=0.0.20
+
+# Database
+sqlalchemy>=2.0.44
+psycopg2-binary>=2.9.11
+cryptography>=46.0.3
+
+# HTTP & API
+requests>=2.32.5
+httpx>=0.28.1
+
+# Configuration
+python-dotenv>=1.2.1
+pydantic>=2.12.4
+pydantic-settings>=2.12.0
+email-validator>=2.3.0
+
+# Authentication & Security
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+python-jose[cryptography]>=3.5.0
+
+# AI & LLM
+groq>=1.4.0
+google-genai>=1.72.0
+spacy>=3.7.0
+
+
+# Document Processing
+pytesseract>=0.3.13
+pdfminer.six>=20251107
+pdf2image>=1.17.0
+pdfplumber>=0.11.8
+Pillow>=12.0.0
+
+# RAG & Vector Search
+faiss-cpu>=1.13.0
+sentence-transformers>=5.2.0
+
+# Parse Pipeline Redesign v2.0
+pgvector>=0.4.2
+rapidfuzz>=3.14.5
+
+# File Monitoring & Watching
+watchdog>=4.0.0
+
+# Recommendation Redesign Tiers
+scikit-learn==1.4.0
+
+# Utilities
+jsonschema>=4.25.1
+
+# Testing
+pytest>=9.0.1
+pytest-asyncio>=1.3.0

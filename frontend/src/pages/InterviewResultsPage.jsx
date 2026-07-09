@@ -300,26 +300,26 @@ export default function InterviewResultsPage() {
   const style = getScoreStyle(results.overall_score)
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-24 pb-12 font-sans text-gray-900">
+    <div className="relative text-on-surface dark:text-inverse-on-surface">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-4xl">
+      <div className="max-w-container-max mx-auto">
         
         {/* Back Link */}
         <button 
           onClick={() => navigate('/dashboard/interview')}
-          className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-gray-900 transition-colors mb-6"
+          className="inline-flex items-center gap-1 text-[13px] font-semibold text-slate-500 hover:text-slate-900 transition-colors mb-6 cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Setup
         </button>
 
         {/* Header */}
-        <div className="mb-8">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary-700 mb-3">
+        <div className="mb-lg">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary mb-3">
             <Trophy className="w-3.5 h-3.5" />
             Performance Evaluation
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-950">
+          <h1 className="font-display-lg text-display-lg text-on-surface dark:text-inverse-on-surface font-extrabold mb-1">
             Mock Practice Scorecard
           </h1>
         </div>

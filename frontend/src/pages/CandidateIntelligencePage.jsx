@@ -64,26 +64,26 @@ export default function CandidateIntelligencePage() {
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative mb-8 overflow-hidden rounded-3xl border border-white bg-white/70 p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.02)] backdrop-blur-md"
+          className="relative mb-8 overflow-hidden rounded-3xl border border-white dark:border-[#1c252e] bg-white/70 dark:bg-[#161c24] p-6 md:p-8 shadow-[0_20px_50px_rgba(15,23,42,0.02)] backdrop-blur-md"
         >
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-50/20 via-white/50 to-fuchsia-50/20 opacity-70" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-50/20 dark:from-[#1e1b4b]/10 via-white/50 dark:via-[#0a0e14]/20 to-fuchsia-50/20 dark:to-[#4c0519]/10 opacity-70" />
           <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-indigo-700 mb-3 animate-pulse">
                 <BrainCircuit className="w-3.5 h-3.5" />
                 Longitudinal AI Insights
               </div>
-              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2 bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-indigo-950 to-fuchsia-950">
+              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2 bg-clip-text text-transparent bg-gradient-to-r from-slate-900 dark:from-white via-indigo-950 dark:via-indigo-200 to-fuchsia-950 dark:to-fuchsia-200">
                 AI Living Candidate Model
               </h1>
-              <p className="text-gray-600 max-w-2xl">
+              <p className="text-gray-600 dark:text-slate-400 max-w-2xl">
                 A dynamic, self-evolving behavioral model of your actual mock interview performance. 
                 Instead of just tracking scores, it analyzes patterns in your technical depth and habits over time.
               </p>
             </div>
 
-            {profile && (
-              <div className="flex items-center gap-3 bg-white/95 border border-slate-100 rounded-2xl p-4 shadow-sm">
+             {profile && (
+              <div className="flex items-center gap-3 bg-white/95 dark:bg-[#0a0e14] border border-slate-100 dark:border-[#1c252e] rounded-2xl p-4 shadow-sm">
                 <div className="h-12 w-12 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600">
                   <Award className="w-6 h-6" />
                 </div>
@@ -101,12 +101,12 @@ export default function CandidateIntelligencePage() {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="p-12 border border-dashed border-slate-200 rounded-3xl bg-white/80 backdrop-blur-sm text-center shadow-sm max-w-2xl mx-auto my-8 relative overflow-hidden group"
+            className="p-12 border border-dashed border-slate-200 dark:border-[#1c252e] rounded-3xl bg-white/80 dark:bg-[#161c24] backdrop-blur-sm text-center shadow-sm max-w-2xl mx-auto my-8 relative overflow-hidden group"
           >
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary-400 to-indigo-500" />
             <BrainCircuit className="w-16 h-16 text-indigo-400 mx-auto mb-4 group-hover:scale-110 transition-transform duration-300" />
             <h3 className="text-2xl font-extrabold mb-3 text-slate-900">Unlock Your AI Living Model</h3>
-            <p className="text-gray-600 mb-8 max-w-md mx-auto leading-relaxed">
+            <p className="text-gray-600 dark:text-slate-400 mb-8 max-w-md mx-auto leading-relaxed">
               Complete mock interview sessions to initiate candidate pattern intelligence. The system will automatically build a deep, multidimensional analysis of your technical vocabulary, context habits, and pressure responses.
             </p>
             <button
@@ -128,14 +128,14 @@ export default function CandidateIntelligencePage() {
               <motion.div
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="relative overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/10 p-6 md:p-8 shadow-sm group"
+                className="relative overflow-hidden rounded-3xl border border-indigo-100 dark:border-[#1c252e] bg-gradient-to-br from-white dark:from-[#161c24] to-indigo-50/10 dark:to-[#0a0e14] p-6 md:p-8 shadow-sm group"
               >
                 <div className="absolute -right-16 -top-16 w-32 h-32 rounded-full bg-indigo-500/5 group-hover:scale-150 transition-transform duration-500" />
                 <h2 className="text-xl font-extrabold text-slate-900 mb-4 flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-indigo-500" />
                   AI Living Persona Analysis
                 </h2>
-                <div className="text-slate-700 text-lg leading-relaxed font-medium bg-white/70 border border-indigo-50 p-5 rounded-2xl shadow-inner">
+                <div className="text-slate-700 dark:text-slate-200 text-lg leading-relaxed font-medium bg-white/70 dark:bg-[#161c24] border border-indigo-50 dark:border-[#1c252e] p-5 rounded-2xl shadow-inner">
                   "{profile.summary}"
                 </div>
                 
@@ -162,7 +162,7 @@ export default function CandidateIntelligencePage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   
                   {/* Pattern 1: Explanation Depth */}
-                  <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                  <div className="p-5 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
                     <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="font-extrabold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wide">
@@ -179,7 +179,7 @@ export default function CandidateIntelligencePage() {
                   </div>
 
                   {/* Pattern 2: Example Coverage */}
-                  <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                  <div className="p-5 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
                     <div className="absolute top-0 left-0 w-1 h-full bg-amber-500" />
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="font-extrabold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wide">
@@ -196,7 +196,7 @@ export default function CandidateIntelligencePage() {
                   </div>
 
                   {/* Pattern 3: Time & Pressure */}
-                  <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                  <div className="p-5 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
                     <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="font-extrabold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wide">
@@ -213,7 +213,7 @@ export default function CandidateIntelligencePage() {
                   </div>
 
                   {/* Pattern 4: Context Assumption */}
-                  <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                  <div className="p-5 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
                     <div className="absolute top-0 left-0 w-1 h-full bg-fuchsia-500" />
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="font-extrabold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wide">
@@ -235,7 +235,7 @@ export default function CandidateIntelligencePage() {
               {/* Strengths & Weaknesses Bullet Lists */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
-                <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-3">
+                <div className="p-6 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-3xl shadow-sm space-y-3">
                   <h3 className="font-extrabold text-slate-950 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-emerald-700">
                     <CheckCircle className="w-4 h-4 text-emerald-500" />
                     Technical Core Strengths
@@ -250,7 +250,7 @@ export default function CandidateIntelligencePage() {
                   </ul>
                 </div>
 
-                <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-3">
+                <div className="p-6 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-3xl shadow-sm space-y-3">
                   <h3 className="font-extrabold text-slate-950 flex items-center gap-2 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-amber-700">
                     <AlertTriangle className="w-4 h-4 text-amber-500" />
                     Key Improvement Areas
@@ -277,7 +277,7 @@ export default function CandidateIntelligencePage() {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.15 }}
-                className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-5"
+                className="p-6 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-3xl shadow-sm space-y-5"
               >
                 <h2 className="text-lg font-black text-slate-950 flex items-center gap-2 pb-3 border-b border-slate-100">
                   <TrendingUp className="w-5 h-5 text-indigo-500 animate-pulse" />
@@ -340,7 +340,7 @@ export default function CandidateIntelligencePage() {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2 }}
-                className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-4"
+                className="p-6 bg-white dark:bg-[#161c24] border border-slate-100 dark:border-[#1c252e] rounded-3xl shadow-sm space-y-4"
               >
                 <h2 className="text-lg font-black text-slate-950 flex items-center gap-2 pb-3 border-b border-slate-100">
                   <BookOpen className="w-5 h-5 text-fuchsia-500" />

@@ -1,85 +1,76 @@
 import React from 'react'
-import { GraduationCap, Mail, MapPin, Github, Linkedin } from 'lucide-react'
+import { Mail, Globe, Github, Linkedin } from 'lucide-react'
 
 export default function Footer() {
   return (
-    <footer id="about" className="bg-gray-100 border-t border-gray-200 py-12">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+    <footer id="about" className="bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-850 py-16 transition-colors font-sans">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-6xl">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-10 mb-12">
           {/* Brand */}
-          <div className="col-span-1 md:col-span-2">
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="bg-primary-500 p-2 rounded-lg">
-                <GraduationCap className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold text-gray-900">
-                Career AI
+          <div className="col-span-1 md:col-span-2 space-y-4">
+            <div className="flex items-center space-x-2.5">
+              <img src="/logo.png" alt="CareerSync Logo" className="w-8 h-8 object-contain" />
+              <span className="text-xl font-bold text-slate-900 dark:text-white">
+                CareerSync AI
               </span>
             </div>
-            <p className="text-gray-600 mb-4 max-w-md">
-              Empowering students and professionals with AI-driven career guidance. 
-              Make informed decisions about your educational and career path.
+            <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm leading-relaxed max-w-md font-medium">
+              Empowering academic and professional transitions through advanced AI intelligence.
             </p>
-            <div className="flex space-x-4">
-              <a href="#" className="text-gray-600 hover:text-primary-500 transition-colors duration-200">
-                <Github className="w-5 h-5" />
+            <div className="flex space-x-3.5 pt-2">
+              <a href="#" className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 text-slate-500 hover:text-primary-600 dark:text-slate-400 dark:hover:text-primary-400 transition-colors shadow-sm">
+                <Globe className="w-4 h-4" />
               </a>
-              <a href="#" className="text-gray-600 hover:text-primary-500 transition-colors duration-200">
-                <Linkedin className="w-5 h-5" />
+              <a href="#" className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 text-slate-500 hover:text-primary-600 dark:text-slate-400 dark:hover:text-primary-400 transition-colors shadow-sm">
+                <Github className="w-4 h-4" />
+              </a>
+              <a href="#" className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-150 dark:border-slate-800 text-slate-500 hover:text-primary-600 dark:text-slate-400 dark:hover:text-primary-400 transition-colors shadow-sm">
+                <Linkedin className="w-4 h-4" />
               </a>
             </div>
           </div>
 
-          {/* Quick Links */}
+          {/* Platform */}
           <div>
-            <h3 className="text-gray-900 font-semibold mb-4">Quick Links</h3>
-            <ul className="space-y-2">
-              <li>
-                <a href="#features" className="text-gray-600 hover:text-primary-500 transition-colors duration-200">
-                  Features
-                </a>
-              </li>
-              <li>
-                <a href="#upload" className="text-gray-600 hover:text-primary-500 transition-colors duration-200">
-                  Upload Resume
-                </a>
-              </li>
-              <li>
-                <a href="#about" className="text-gray-600 hover:text-primary-500 transition-colors duration-200">
-                  About Us
-                </a>
-              </li>
+            <h3 className="text-slate-900 dark:text-slate-100 font-extrabold text-xs uppercase tracking-wider mb-4">Platform</h3>
+            <ul className="space-y-2.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Skill Mapping</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Interview Prep</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Job Discovery</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Enterprise</a></li>
             </ul>
           </div>
 
-          {/* Contact */}
+          {/* Resources */}
           <div>
-            <h3 className="text-gray-900 font-semibold mb-4">Contact</h3>
-            <ul className="space-y-2">
-              <li className="flex items-center space-x-2 text-gray-600">
-                <Mail className="w-4 h-4" />
-                <span>support@careerai.com</span>
-              </li>
-              <li className="flex items-center space-x-2 text-gray-600">
-                <MapPin className="w-4 h-4" />
-                <span>India</span>
-              </li>
+            <h3 className="text-slate-900 dark:text-slate-100 font-extrabold text-xs uppercase tracking-wider mb-4">Resources</h3>
+            <ul className="space-y-2.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Career Blog</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">API Docs</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Student Guides</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Market Trends</a></li>
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <h3 className="text-slate-900 dark:text-slate-100 font-extrabold text-xs uppercase tracking-wider mb-4">Legal</h3>
+            <ul className="space-y-2.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Privacy Policy</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Terms of Use</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Cookie Policy</a></li>
+              <li><a href="#" className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors">Security</a></li>
             </ul>
           </div>
         </div>
 
         {/* Bottom Bar */}
-        <div className="pt-8 border-t border-gray-300 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-          <p className="text-gray-600 text-sm">
-            © {new Date().getFullYear()} Career AI. All rights reserved.
-          </p>
-          <div className="flex space-x-6">
-            <a href="#" className="text-gray-600 hover:text-primary-500 text-sm transition-colors duration-200">
-              Privacy Policy
-            </a>
-            <a href="#" className="text-gray-600 hover:text-primary-500 text-sm transition-colors duration-200">
-              Terms of Service
-            </a>
+        <div className="pt-8 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <p>© {new Date().getFullYear()} CareerSync AI Inc. All rights reserved.</p>
+          
+          <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150 dark:border-emerald-900/30 px-3 py-1.5 rounded-full text-emerald-600 dark:text-emerald-400 select-none">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+            <span>Systems Operational</span>
           </div>
         </div>
       </div>

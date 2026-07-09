@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Application Review - Employer Portal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@100..900&family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-fixed-dim": "#b3c6f8",
+                        "success": "#10b981",
+                        "on-tertiary": "#ffffff",
+                        "tertiary-fixed": "#d8e2ff",
+                        "on-primary-fixed": "#001a41",
+                        "error": "#f43f5e",
+                        "on-background": "#181c20",
+                        "primary-fixed": "#d8e2ff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-container": "#bdd0ff",
+                        "on-surface-variant": "#434751",
+                        "outline-variant": "#c3c6d3",
+                        "border-subtle": "#e9ecef",
+                        "inverse-primary": "#adc6ff",
+                        "surface-muted": "#f8f9fa",
+                        "primary-container": "#2557a7",
+                        "inverse-surface": "#2d3135",
+                        "surface-variant": "#e0e3e8",
+                        "on-tertiary-fixed": "#001a42",
+                        "on-secondary": "#ffffff",
+                        "outline": "#737783",
+                        "surface-bright": "#f7f9ff",
+                        "secondary": "#4b5e8a",
+                        "background": "#f7f9ff",
+                        "on-secondary-fixed": "#021a43",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#d9e2ff",
+                        "on-surface": "#181c20",
+                        "warning": "#f59e0b",
+                        "surface-tint": "#2c5cad",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-secondary-fixed-variant": "#334670",
+                        "surface-container-highest": "#e0e3e8",
+                        "surface-container-low": "#f1f4f9",
+                        "on-primary-fixed-variant": "#024493",
+                        "on-error-container": "#93000a",
+                        "error-container": "#ffdad6",
+                        "on-secondary-container": "#425581",
+                        "tertiary-fixed-dim": "#adc6ff",
+                        "surface-dim": "#d7dadf",
+                        "on-tertiary-fixed-variant": "#004395",
+                        "tertiary": "#003f8b",
+                        "on-tertiary-container": "#bcd0ff",
+                        "primary": "#003f8b",
+                        "surface-container-high": "#e5e8ee",
+                        "inverse-on-surface": "#eef1f6",
+                        "surface": "#f7f9ff",
+                        "interactive-purple": "#a855f7",
+                        "secondary-container": "#b8cbfe",
+                        "tertiary-container": "#0055b8",
+                        "on-primary": "#ffffff",
+                        "surface-container": "#ebeef3"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "margin-mobile": "16px",
+                        "sm": "8px",
+                        "xs": "4px",
+                        "xl": "32px",
+                        "container-max": "1280px",
+                        "margin-desktop": "32px",
+                        "md": "16px",
+                        "lg": "24px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["JetBrains Mono"],
+                        "body-base": ["Inter"],
+                        "body-bold": ["Inter"],
+                        "display-lg-mobile": ["Hanken Grotesk"],
+                        "metadata": ["Inter"],
+                        "headline-md": ["Hanken Grotesk"],
+                        "display-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "body-base": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-bold": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "display-lg-mobile": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "metadata": ["13px", { "lineHeight": "18px", "fontWeight": "500" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.01em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9ff; }
+        .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(12px); border: 1px solid #e9ecef; }
+        .shadow-ambient { box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+        .shadow-hover:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+        .transition-all { transition: all 0.3s ease; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface flex h-screen overflow-hidden">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col border-r border-subtle bg-surface-container-low w-64 z-30 hidden md:flex">
+<div class="p-lg border-b border-subtle">
+<div class="flex items-center gap-md mb-md">
+<img class="w-10 h-10 rounded-lg object-cover" data-alt="A clean, minimalist corporate logo for TechCorp HR. The logo features a geometric sans-serif 'T' in deep primary blue (#2557a7) enclosed in a subtle silver ring. The background is pure white. High resolution, crisp vector style, representing a modern enterprise tech company." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJbUrestbrTir-opQhmM6lys2_eP0DiAzoaFqyWzAkw6pfuULGFA5qPUaeOn5rrcKvCUqanS8l8Gq2DiMv8dkRyiTrj95eKodrhJ9AGAtE3CeXsC-HzPKdIeQziu9h6yu69Ro4JGRpArL8_OUeJFr0uACa-KPSZpn9XG8n8YAuur6rJTwCAvjLbeVzD2JihOitU9hnweYPDWSMJm1Wso8oC7FawbIK83qMEcMjUsP4tJ9KvaCJkZlyoYTJksuz1oM9ZsX-uk6tUEk"/>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">TechCorp HR</h1>
+<p class="font-metadata text-metadata text-on-surface-variant">Enterprise Plan</p>
+</div>
+</div>
+<button class="w-full bg-primary-container text-on-primary py-sm rounded-lg font-body-bold hover:bg-tertiary-container transition-colors shadow-sm">
+                Post New Job
+            </button>
+</div>
+<nav class="flex-1 overflow-y-auto py-md flex flex-col gap-sm px-sm">
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all duration-200 ease-in-out rounded-lg font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center gap-md px-lg py-sm bg-secondary-container text-on-secondary-container rounded-lg font-label-caps text-label-caps transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">work</span>
+                Jobs
+            </a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all duration-200 ease-in-out rounded-lg font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">group</span>
+                Applicants
+            </a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all duration-200 ease-in-out rounded-lg font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">database</span>
+                Talent Pool
+            </a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all duration-200 ease-in-out rounded-lg font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">analytics</span>
+                Analytics
+            </a>
+</nav>
+<div class="mt-auto p-sm border-t border-subtle">
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all duration-200 ease-in-out rounded-lg font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">help</span>
+                Help Center
+            </a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-all duration-200 ease-in-out rounded-lg font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">logout</span>
+                Logout
+            </a>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 flex flex-col md:ml-64 w-full h-full overflow-hidden">
+<!-- TopNavBar -->
+<header class="sticky top-0 z-40 flex items-center justify-between px-lg w-full h-16 bg-surface border-b border-subtle">
+<div class="flex items-center gap-md md:hidden">
+<span class="material-symbols-outlined text-on-surface cursor-pointer">menu</span>
+<span class="font-headline-md text-headline-md text-primary font-bold">Employer Portal</span>
+</div>
+<div class="hidden md:flex items-center bg-surface-container-low rounded-full px-md py-xs border border-subtle focus-within:border-primary-container focus-within:ring-1 focus-within:ring-primary-container transition-all w-96">
+<span class="material-symbols-outlined text-outline mr-sm" style="font-variation-settings: 'FILL' 0;">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-body-base font-body-base w-full placeholder:text-outline-variant outline-none" placeholder="Search across portal..." type="text"/>
+</div>
+<div class="flex items-center gap-md">
+<button class="p-sm rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant relative cursor-pointer active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">notifications</span>
+<span class="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<button class="p-sm rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant cursor-pointer active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+</button>
+<img alt="Recruiter Profile" class="w-10 h-10 rounded-full object-cover border border-subtle cursor-pointer active:scale-95 ml-sm" data-alt="A professional headshot of a female HR recruiter in her 30s. She has a warm, confident smile, wearing a dark blue blazer. The background is a soft, blurred modern office environment with light entering from a window. High quality, corporate portrait photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCQbWOpElXYf-UjO_D07nM3SUvV-PkDwnaZVNH_XbHAiYLAzzB05JZar112HZb099G8bp8VxOHsrjE5zCv5elrkISuqOgisHSjNVY6dGlmqDu_XKOQo9jSu166S_-vRDCL-d-fprnfZY93u-CXdh3UiBxoG-LqgJmZ4JSANgzf6h1WsjuXypFAwrn1sRc5VNHPeXD_vCmHE1nhkdRxQNhrqtWBdpK-v_HnU--0ZrtDGvsd4wpon9cNc1JrVZS8Rm7ItrUC1pn2rtZo"/>
+</div>
+</header>
+<!-- Scrollable Canvas -->
+<main class="flex-1 overflow-y-auto p-lg md:p-xl bg-surface-muted">
+<div class="max-w-[1280px] mx-auto">
+<!-- Page Header -->
+<div class="mb-xl flex flex-col md:flex-row md:items-end justify-between gap-md">
+<div>
+<div class="flex items-center gap-sm text-on-surface-variant font-body-base text-body-base mb-sm">
+<a class="hover:text-primary transition-colors" href="#">Jobs</a>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<span>Application Review</span>
+</div>
+<h2 class="font-display-lg-mobile md:font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface">Senior Frontend Developer</h2>
+</div>
+<div class="flex items-center gap-sm">
+<button class="flex items-center gap-sm px-lg py-sm bg-surface-container-lowest border border-subtle rounded-lg font-body-bold text-body-bold text-on-surface hover:bg-surface-container-low transition-colors shadow-ambient">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 0;">edit</span>
+                            Edit Job
+                        </button>
+</div>
+</div>
+<!-- Stats Grid -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-lg mb-xl">
+<div class="glass-panel p-lg rounded-xl shadow-ambient shadow-hover transition-all border-t-4 border-t-primary-container">
+<p class="font-metadata text-metadata text-on-surface-variant uppercase tracking-wider mb-sm">Total Applicants</p>
+<div class="flex items-end justify-between">
+<span class="font-label-caps text-3xl font-bold text-on-surface">142</span>
+<span class="text-success font-metadata text-metadata flex items-center bg-success/10 px-xs rounded"><span class="material-symbols-outlined text-xs">arrow_upward</span> 12%</span>
+</div>
+</div>
+<div class="glass-panel p-lg rounded-xl shadow-ambient shadow-hover transition-all border-t-4 border-t-warning">
+<p class="font-metadata text-metadata text-on-surface-variant uppercase tracking-wider mb-sm">Pending Review</p>
+<div class="flex items-end justify-between">
+<span class="font-label-caps text-3xl font-bold text-on-surface">38</span>
+<span class="text-warning font-metadata text-metadata flex items-center bg-warning/10 px-xs rounded">Action Needed</span>
+</div>
+</div>
+<div class="glass-panel p-lg rounded-xl shadow-ambient shadow-hover transition-all border-t-4 border-t-interactive-purple">
+<p class="font-metadata text-metadata text-on-surface-variant uppercase tracking-wider mb-sm">Shortlisted</p>
+<div class="flex items-end justify-between">
+<span class="font-label-caps text-3xl font-bold text-on-surface">15</span>
+</div>
+</div>
+<div class="glass-panel p-lg rounded-xl shadow-ambient shadow-hover transition-all border-t-4 border-t-error">
+<p class="font-metadata text-metadata text-on-surface-variant uppercase tracking-wider mb-sm">Rejected</p>
+<div class="flex items-end justify-between">
+<span class="font-label-caps text-3xl font-bold text-on-surface">89</span>
+</div>
+</div>
+</div>
+<!-- Main Content Area: Filters + Table -->
+<div class="glass-panel rounded-xl shadow-ambient overflow-hidden flex flex-col h-[600px]">
+<!-- Toolbar -->
+<div class="p-md border-b border-subtle flex flex-col md:flex-row items-center justify-between gap-md bg-surface-container-lowest">
+<div class="flex-1 w-full relative">
+<span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-outline-variant">search</span>
+<input class="w-full pl-xl pr-md py-sm bg-surface-muted border border-subtle rounded-lg focus:ring-2 focus:ring-primary-container focus:border-primary-container outline-none font-body-base text-body-base" placeholder="Search candidates by name, skills..." type="text"/>
+</div>
+<div class="flex items-center gap-sm w-full md:w-auto">
+<div class="relative">
+<select class="appearance-none bg-surface-muted border border-subtle rounded-lg pl-md pr-xl py-sm font-body-base text-body-base text-on-surface focus:ring-2 focus:ring-primary-container outline-none min-w-[160px]">
+<option>Status: All</option>
+<option>Applied</option>
+<option>Under Review</option>
+<option>Shortlisted</option>
+<option>Interviewing</option>
+<option>Offered</option>
+</select>
+<span class="material-symbols-outlined absolute right-sm top-1/2 -translate-y-1/2 pointer-events-none text-outline">arrow_drop_down</span>
+</div>
+<div class="relative">
+<select class="appearance-none bg-surface-muted border border-subtle rounded-lg pl-md pr-xl py-sm font-body-base text-body-base text-on-surface focus:ring-2 focus:ring-primary-container outline-none min-w-[180px]">
+<option>Sort: Match Score</option>
+<option>Sort: Newest First</option>
+<option>Sort: Oldest First</option>
+</select>
+<span class="material-symbols-outlined absolute right-sm top-1/2 -translate-y-1/2 pointer-events-none text-outline">arrow_drop_down</span>
+</div>
+</div>
+</div>
+<!-- Table Container -->
+<div class="flex-1 overflow-auto bg-surface-container-lowest">
+<table class="w-full text-left border-collapse">
+<thead class="sticky top-0 bg-surface-container-low border-b border-subtle z-10">
+<tr>
+<th class="py-sm px-md font-metadata text-metadata text-on-surface-variant font-semibold">Candidate</th>
+<th class="py-sm px-md font-metadata text-metadata text-on-surface-variant font-semibold">Applied Date</th>
+<th class="py-sm px-md font-metadata text-metadata text-on-surface-variant font-semibold">Match Score</th>
+<th class="py-sm px-md font-metadata text-metadata text-on-surface-variant font-semibold">Status</th>
+<th class="py-sm px-md font-metadata text-metadata text-on-surface-variant font-semibold text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="font-body-base text-body-base">
+<!-- Row 1 -->
+<tr class="border-b border-subtle hover:bg-surface-muted transition-colors group">
+<td class="py-md px-md">
+<div class="flex items-center gap-md">
+<img class="w-10 h-10 rounded-full object-cover border border-subtle" data-alt="A small circular avatar portrait of a professional woman named Sarah Jenkins. She has curly brown hair, glasses, and a subtle smile. Wearing a light blue button-down shirt. Clean, bright corporate style lighting, isolated against a white background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBpEA0MK-1sx7_0aibL47Lr6XWvs1qPxNvHTAVyeMoSLkt4CoS9jxSM-WTYNbe0R1od-KsWbe452HWMNiRPy-qZFBPLl9X0EvnACwONdjrlI6objz3SeyZmCRi-utziLwNclUQ3cXgCApGzHvw2BI38lCWQCoBh4PdftNYVkO68pqPROAB2HFrKl0CisHWJufbKyCum_HK6MKlMmxzlHgTUON21tuQ1Vtj9n-e6PNPAyqqgP_Pj4AEETqETrz6EwQ0-T169Y_ST-HY"/>
+<div>
+<p class="font-body-bold text-on-surface">Sarah Jenkins</p>
+<p class="font-metadata text-metadata text-on-surface-variant">React, TypeScript, Node.js</p>
+</div>
+</div>
+</td>
+<td class="py-md px-md text-on-surface-variant">Oct 24, 2023</td>
+<td class="py-md px-md">
+<div class="flex items-center gap-sm">
+<span class="font-label-caps text-success text-lg">98%</span>
+<div class="w-16 h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-success w-[98%]"></div>
+</div>
+</div>
+</td>
+<td class="py-md px-md">
+<span class="inline-flex items-center gap-xs px-sm py-xs rounded-full bg-interactive-purple/10 text-interactive-purple font-metadata text-metadata font-semibold">
+<span class="material-symbols-outlined text-[14px]">star</span> Shortlisted
+                                        </span>
+</td>
+<td class="py-md px-md text-right">
+<div class="flex items-center justify-end gap-sm">
+<select class="text-sm border-subtle bg-transparent rounded focus:ring-primary-container p-1 cursor-pointer">
+<option>Change Status</option>
+<option value="under_review">Under Review</option>
+<option value="interviewing">Interviewing</option>
+<option value="offered">Offered</option>
+<option value="rejected">Rejected</option>
+</select>
+<button class="bg-primary-container text-on-primary px-md py-sm rounded-lg font-body-bold hover:bg-tertiary-container transition-colors text-sm shadow-sm">
+                                                Review
+                                            </button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="border-b border-subtle hover:bg-surface-muted transition-colors group">
+<td class="py-md px-md">
+<div class="flex items-center gap-md">
+<img class="w-10 h-10 rounded-full object-cover border border-subtle" data-alt="A small circular avatar portrait of a professional man named Marcus Chen. He has short black hair, clean-shaven, looking confident. Wearing a dark grey turtleneck. Modern, high-contrast studio lighting against a clean, light grey background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAH0e068pyzt6NoxIX-XFjqIoRapzNA3C1vJiK2_x6NFWQCnODTowIhAMugKh8XuvvxTrp91XcgUufQTSbDTSY1TkBcngIXPLNAjbPMnYBokin_PwkZof8mnFaqQq-AADJ1UjT56PjCTK1Vw0oB91z_l7DpQMz5nqX_SrPNG3RIsqkJG9IU37nID_vOknlOrx16DHtI8PCnOd7ddcMhLfwhPX2rlpdUj9Y5rSGo7gVCwHZ1WBiuOV67KA4aEpigKMW8iT4_QylLpC8"/>
+<div>
+<p class="font-body-bold text-on-surface">Marcus Chen</p>
+<p class="font-metadata text-metadata text-on-surface-variant">Vue, JavaScript, CSS</p>
+</div>
+</div>
+</td>
+<td class="py-md px-md text-on-surface-variant">Oct 23, 2023</td>
+<td class="py-md px-md">
+<div class="flex items-center gap-sm">
+<span class="font-label-caps text-success text-lg">95%</span>
+<div class="w-16 h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-success w-[95%]"></div>
+</div>
+</div>
+</td>
+<td class="py-md px-md">
+<span class="inline-flex items-center gap-xs px-sm py-xs rounded-full bg-primary/10 text-primary font-metadata text-metadata font-semibold">
+<span class="material-symbols-outlined text-[14px]">visibility</span> Under Review
+                                        </span>
+</td>
+<td class="py-md px-md text-right">
+<div class="flex items-center justify-end gap-sm">
+<select class="text-sm border-subtle bg-transparent rounded focus:ring-primary-container p-1 cursor-pointer">
+<option>Change Status</option>
+<option value="shortlisted">Shortlisted</option>
+<option value="interviewing">Interviewing</option>
+<option value="rejected">Rejected</option>
+</select>
+<button class="bg-primary-container text-on-primary px-md py-sm rounded-lg font-body-bold hover:bg-tertiary-container transition-colors text-sm shadow-sm">
+                                                Review
+                                            </button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="border-b border-subtle hover:bg-surface-muted transition-colors group">
+<td class="py-md px-md">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-surface-variant border border-subtle flex items-center justify-center font-body-bold text-on-surface-variant">EJ</div>
+<div>
+<p class="font-body-bold text-on-surface">Elena Rodriguez</p>
+<p class="font-metadata text-metadata text-on-surface-variant">Angular, Java, SQL</p>
+</div>
+</div>
+</td>
+<td class="py-md px-md text-on-surface-variant">Oct 25, 2023</td>
+<td class="py-md px-md">
+<div class="flex items-center gap-sm">
+<span class="font-label-caps text-warning text-lg">88%</span>
+<div class="w-16 h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-warning w-[88%]"></div>
+</div>
+</div>
+</td>
+<td class="py-md px-md">
+<span class="inline-flex items-center gap-xs px-sm py-xs rounded-full bg-surface-dim text-on-surface-variant font-metadata text-metadata font-semibold">
+<span class="material-symbols-outlined text-[14px]">inbox</span> Applied
+                                        </span>
+</td>
+<td class="py-md px-md text-right">
+<div class="flex items-center justify-end gap-sm">
+<select class="text-sm border-subtle bg-transparent rounded focus:ring-primary-container p-1 cursor-pointer">
+<option>Change Status</option>
+<option value="under_review">Under Review</option>
+<option value="rejected">Rejected</option>
+</select>
+<button class="bg-primary-container text-on-primary px-md py-sm rounded-lg font-body-bold hover:bg-tertiary-container transition-colors text-sm shadow-sm">
+                                                Review
+                                            </button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="border-b border-subtle hover:bg-surface-muted transition-colors group">
+<td class="py-md px-md">
+<div class="flex items-center gap-md">
+<img class="w-10 h-10 rounded-full object-cover border border-subtle" data-alt="A small circular avatar portrait of a young professional man named David Kim. He has neat black hair, glasses, and a serious expression. Wearing a white button-down shirt. Clean, bright corporate style lighting, isolated against a white background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBhjEiTK-mCQcxZlB-3IdlAdEhxPzcp4BGvb9sCtJOX1pHkQYTPTPmySyXMaLrYgXDFAxVYO_GbSt2X65AbhsPH55VHZ7svF-JXDNVeqsUTctlJXD7dweLmmYd2XNdk3BewdhrUkoYGkvkRhdQ98CypNk3Nm-nGCihEmBhv5CNRbgLZPAuk7ii3sJF21kQwNH9BzHXdBGMZnfzk2P-NUCIV0CenPoXGdkvoMRVOKVb8C-ZAZClcUFElDXHMXfZZKVSuLb72ie0ByTY"/>
+<div>
+<p class="font-body-bold text-on-surface">David Kim</p>
+<p class="font-metadata text-metadata text-on-surface-variant">React, Python</p>
+</div>
+</div>
+</td>
+<td class="py-md px-md text-on-surface-variant">Oct 21, 2023</td>
+<td class="py-md px-md">
+<div class="flex items-center gap-sm">
+<span class="font-label-caps text-error text-lg">75%</span>
+<div class="w-16 h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-error w-[75%]"></div>
+</div>
+</div>
+</td>
+<td class="py-md px-md">
+<span class="inline-flex items-center gap-xs px-sm py-xs rounded-full bg-surface-dim text-on-surface-variant font-metadata text-metadata font-semibold">
+<span class="material-symbols-outlined text-[14px]">inbox</span> Applied
+                                        </span>
+</td>
+<td class="py-md px-md text-right">
+<div class="flex items-center justify-end gap-sm">
+<select class="text-sm border-subtle bg-transparent rounded focus:ring-primary-container p-1 cursor-pointer">
+<option>Change Status</option>
+<option value="under_review">Under Review</option>
+<option value="rejected">Rejected</option>
+</select>
+<button class="bg-primary-container text-on-primary px-md py-sm rounded-lg font-body-bold hover:bg-tertiary-container transition-colors text-sm shadow-sm">
+                                                Review
+                                            </button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="p-md border-t border-subtle bg-surface-container-lowest flex items-center justify-between text-on-surface-variant font-metadata text-metadata">
+<span>Showing 1 to 4 of 142 applicants</span>
+<div class="flex items-center gap-sm">
+<button class="p-xs rounded hover:bg-surface-variant transition-colors disabled:opacity-50"><span class="material-symbols-outlined">chevron_left</span></button>
+<button class="w-8 h-8 rounded bg-primary-container text-on-primary flex items-center justify-center font-body-bold">1</button>
+<button class="w-8 h-8 rounded hover:bg-surface-variant transition-colors flex items-center justify-center">2</button>
+<button class="w-8 h-8 rounded hover:bg-surface-variant transition-colors flex items-center justify-center">3</button>
+<span>...</span>
+<button class="w-8 h-8 rounded hover:bg-surface-variant transition-colors flex items-center justify-center">15</button>
+<button class="p-xs rounded hover:bg-surface-variant transition-colors"><span class="material-symbols-outlined">chevron_right</span></button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>
