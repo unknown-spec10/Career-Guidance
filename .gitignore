@@ -64,3 +64,5 @@ htmlcov/
 
 # Interview Sub-Topic Taxonomy (Private)
 resume_pipeline/resume_pipeline/interview/subtopic_taxonomy.json
+# Codebase Indexer local index file
+.codebase_index.json

@@ -809,6 +809,131 @@ async def deactivate_account(
     return {"status": "success", "message": "Account deactivated successfully"}
 
 
+@app.post("/api/auth/profile/picture")
+async def upload_profile_picture(
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload a profile picture for the current user (S3 or Local)"""
+    from .core.storage import get_storage_client
+    from .db import User
+    
+    # 1. Validate file extension
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if file_ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid image format. Supported formats: JPG, JPEG, PNG, WEBP, GIF"
+        )
+        
+    # 2. Validate file size (max 2MB)
+    max_size_bytes = 2 * 1024 * 1024
+    content = await file.read()
+    if len(content) > max_size_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="File size exceeds maximum limit of 2MB"
+        )
+    await file.seek(0)
+    
+    # 3. Create path/key
+    res_name = sanitize_filename(file.filename or "avatar.png")
+    avatar_key = f"avatars/{current_user.id}/{res_name}"
+    
+    # 4. Upload file
+    storage_client = get_storage_client()
+    try:
+        user = db.query(User).filter(User.id == current_user.id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        old_avatar = getattr(user, "profile_picture_url", None)
+        if old_avatar:
+            old_key = None
+            if settings.STORAGE_BACKEND == "s3":
+                if f"avatars/{current_user.id}/" in old_avatar:
+                    parts = old_avatar.split(f"avatars/{current_user.id}/")
+                    if len(parts) > 1:
+                        old_key = f"avatars/{current_user.id}/{parts[-1]}"
+            else:
+                if f"avatars/{current_user.id}/" in old_avatar:
+                    parts = old_avatar.split("static/")
+                    if len(parts) > 1:
+                        old_key = parts[-1]
+            
+            if old_key and old_key != avatar_key:
+                try:
+                    storage_client.delete_file(old_key)
+                except Exception as del_err:
+                    logger.warning(f"Failed to delete old avatar file {old_key}: {del_err}")
+                    
+        storage_client.upload_fileobj(file.file, avatar_key, is_public=True)
+    except Exception as e:
+        logger.error(f"Failed to upload profile picture: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save profile picture"
+        )
+        
+    # 5. Save URL to database
+    if settings.STORAGE_BACKEND == "s3":
+        avatar_url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.S3_REGION or settings.AWS_REGION}.amazonaws.com/{avatar_key}"
+    else:
+        avatar_url = f"/static/{avatar_key}"
+        
+    setattr(user, "profile_picture_url", avatar_url)
+    db.commit()
+    
+    return {
+        "status": "success",
+        "profile_picture_url": avatar_url,
+        "message": "Profile picture updated successfully"
+    }
+
+
+@app.delete("/api/auth/profile/picture")
+async def delete_profile_picture(
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete the profile picture for the current user"""
+    from .core.storage import get_storage_client
+    from .db import User
+    
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    old_avatar = getattr(user, "profile_picture_url", None)
+    if not old_avatar:
+        return {"status": "success", "message": "No profile picture to delete"}
+        
+    storage_client = get_storage_client()
+    old_key = None
+    if settings.STORAGE_BACKEND == "s3":
+        if f"avatars/{current_user.id}/" in old_avatar:
+            parts = old_avatar.split(f"avatars/{current_user.id}/")
+            if len(parts) > 1:
+                old_key = f"avatars/{current_user.id}/{parts[-1]}"
+    else:
+        if f"avatars/{current_user.id}/" in old_avatar:
+            parts = old_avatar.split("static/")
+            if len(parts) > 1:
+                old_key = parts[-1]
+            
+    if old_key:
+        try:
+            storage_client.delete_file(old_key)
+        except Exception as e:
+            logger.warning(f"Failed to delete avatar file {old_key} from storage: {e}")
+            
+    setattr(user, "profile_picture_url", None)
+    db.commit()
+    
+    return {"status": "success", "message": "Profile picture deleted successfully"}
+
+
 @app.get("/api/student/profile")
 async def get_student_profile(
     current_user = Depends(get_current_user),
@@ -840,6 +965,11 @@ async def get_student_profile(
     
     # Get parsed resume data
     parsed = applicant.parsed_record
+    
+    from .db import Upload
+    upload = db.query(Upload).filter(Upload.applicant_id == applicant.id, Upload.file_type == 'resume').first()
+    resume_filename = upload.file_name if upload else None
+    
     if not parsed:
         return {
             "applicant_id": applicant.id,
@@ -848,7 +978,8 @@ async def get_student_profile(
             "experience": [],
             "projects": [],
             "certifications": [],
-            "jee_rank": None
+            "jee_rank": None,
+            "resume_filename": resume_filename
         }
     
     # Extract normalized data
@@ -910,6 +1041,7 @@ async def get_student_profile(
         "jee_rank": normalized.get("jee_rank"),
         "summary": summary,
         "personal_info": personal_info,
+        "resume_filename": resume_filename
     }
 
 
@@ -952,6 +1084,70 @@ async def get_student_resume_scorecard(
     result["job_id"] = job_id
     
     return result
+
+
+@app.get("/api/student/resume/preview")
+async def preview_resume(
+    token: Optional[str] = Query(None),
+    current_user = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """Get a preview of the student's uploaded resume (S3 redirect or local file response)"""
+    from fastapi.responses import RedirectResponse, FileResponse
+    from .db import Applicant, Upload, User
+    from .core.storage import get_storage_client
+    from .auth import decode_access_token
+    
+    # Authenticate: either via Bearer header or via query param token
+    user = current_user
+    if not user and token:
+        try:
+            payload = decode_access_token(token)
+            user_id_raw = payload.get("sub")
+            if user_id_raw:
+                user_id = int(user_id_raw)
+                user = db.query(User).filter(User.id == user_id).first()
+        except Exception:
+            pass
+            
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    applicant = db.query(Applicant).filter(Applicant.user_id == user.id).order_by(desc(Applicant.id)).first()
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Applicant profile not found")
+        
+    upload = db.query(Upload).filter(Upload.applicant_id == applicant.id, Upload.file_type == 'resume').first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="No resume uploaded yet")
+        
+    if settings.STORAGE_BACKEND == "s3":
+        storage_client = get_storage_client()
+        signed_url = storage_client.get_file_url(upload.storage_path, expires_in=900)
+        return RedirectResponse(url=signed_url)
+    else:
+        # Local path
+        local_path = Path(upload.storage_path)
+        if not local_path.exists():
+            # Fallback to check if it's relative to base path
+            local_path = Path(settings.FILE_STORAGE_PATH) / upload.storage_path
+            
+        if not local_path.exists():
+            raise HTTPException(status_code=404, detail="Resume file not found on server")
+            
+        # Determine media type/content type (PDF, docx, etc.)
+        suffix = local_path.suffix.lower()
+        media_type = "application/pdf"
+        if suffix == ".docx":
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif suffix == ".doc":
+            media_type = "application/msword"
+        elif suffix in [".png", ".jpg", ".jpeg"]:
+            media_type = f"image/{suffix[1:]}"
+        elif suffix == ".txt":
+            media_type = "text/plain"
+            
+        return FileResponse(path=str(local_path), media_type=media_type, headers={"Content-Disposition": "inline"})
 
 
 @app.put("/api/student/profile")
@@ -1240,17 +1436,26 @@ async def upload_resume(
     else:
         applicant_id = f"app_{uuid4().hex}"
     
-    applicant_dir = DATA_ROOT / applicant_id
-    
-    try:
-        applicant_dir.mkdir(parents=True, exist_ok=True)
+    from .core.storage import get_storage_client
+    import hashlib
+    import io
+    storage_client = get_storage_client()
 
-        res_name = resume.filename or "resume_upload"
-        resume_path = applicant_dir / res_name
-        # read and write
-        with open(resume_path, "wb") as f:
-            content = await resume.read()
-            f.write(content)
+    res_name = sanitize_filename(resume.filename or "resume_upload")
+    resume_key = f"resumes/{applicant_id}/{res_name}"
+    
+    if settings.STORAGE_BACKEND == "s3":
+        resume_storage_path = resume_key
+    else:
+        resume_storage_path = str(DATA_ROOT / "resumes" / applicant_id / res_name)
+
+    try:
+        resume_content = await resume.read()
+        await resume.seek(0)
+        resume_hash = hashlib.sha256(resume_content).hexdigest()
+        
+        # Upload resume using unified storage client
+        storage_client.upload_fileobj(resume.file, resume_key)
     except Exception as e:
         logger.error(f"Failed to save resume file: {e}")
         raise HTTPException(
@@ -1258,8 +1463,6 @@ async def upload_resume(
             detail="Failed to save uploaded file"
         )
 
-    resume_hash = sha256_file(str(resume_path))
-    
     # Check for duplicate resume by hash
     existing_upload = db.query(Upload).filter(Upload.file_hash == resume_hash).first()
     if existing_upload:
@@ -1294,16 +1497,19 @@ async def upload_resume(
     marks_paths = []
     if marksheets:
         for ms in marksheets:
-            ms_name = ms.filename or "marksheet_upload"
-            ms_path = applicant_dir / ms_name
-            with open(ms_path, "wb") as f:
-                f.write(await ms.read())
-            marks_paths.append(str(ms_path))
+            ms_name = sanitize_filename(ms.filename or "marksheet_upload")
+            ms_key = f"resumes/{applicant_id}/{ms_name}"
+            await ms.seek(0)
+            storage_client.upload_fileobj(ms.file, ms_key)
+            if settings.STORAGE_BACKEND == "s3":
+                marks_paths.append(ms_key)
+            else:
+                marks_paths.append(str(DATA_ROOT / "resumes" / applicant_id / ms_name))
 
     # store a minimal metadata JSON next to files
     meta = {
         "applicant_id": applicant_id,
-        "resume_file": str(resume_path),
+        "resume_file": resume_storage_path,
         "resume_hash": resume_hash,
         "marksheets": marks_paths,
         "jee_rank": jee_rank,
@@ -1311,8 +1517,10 @@ async def upload_resume(
         "location": location,
         "preferences": preferences,
     }
-    with open(applicant_dir / "metadata.json", "w", encoding="utf-8") as mf:
-        json.dump(meta, mf, indent=2)
+    
+    meta_json = json.dumps(meta, indent=2)
+    meta_key = f"resumes/{applicant_id}/metadata.json"
+    storage_client.upload_fileobj(io.BytesIO(meta_json.encode("utf-8")), meta_key)
     
     # Save to database
     try:
@@ -1390,7 +1598,8 @@ async def upload_resume(
             try:
                 from .embedding_tasks import parse_resume_task
 
-                background_tasks.add_task(parse_resume_task, applicant_id, str(applicant_dir))
+                applicant_dir_str = f"resumes/{applicant_id}" if settings.STORAGE_BACKEND == "s3" else str(DATA_ROOT / "resumes" / applicant_id)
+                background_tasks.add_task(parse_resume_task, applicant_id, applicant_dir_str)
                 parse_task_id = applicant_id
                 logger.info("Queued parse task via BackgroundTasks for applicant %s", applicant_id)
             except Exception as exc:
@@ -1430,10 +1639,23 @@ async def parse_applicant(
     db: Session = Depends(get_db)
 ):
     from .db import Applicant, LLMParsedRecord
+    from .core.storage import get_storage_client, get_local_directory
     
-    applicant_dir = DATA_ROOT / applicant_id
-    if not applicant_dir.exists():
-        raise HTTPException(status_code=404, detail="applicant_id not found")
+    if settings.STORAGE_BACKEND == "s3":
+        storage_client = get_storage_client()
+        files = storage_client.list_files(f"resumes/{applicant_id}/")
+        if not files:
+            raise HTTPException(status_code=404, detail="applicant_id not found")
+        applicant_dir_str = f"resumes/{applicant_id}"
+    else:
+        new_path = DATA_ROOT / "resumes" / applicant_id
+        legacy_path = DATA_ROOT / applicant_id
+        if new_path.exists():
+            applicant_dir_str = str(new_path)
+        elif legacy_path.exists():
+            applicant_dir_str = str(legacy_path)
+        else:
+            raise HTTPException(status_code=404, detail="applicant_id not found")
 
     # Async-first parsing: queue worker task and return immediately.
     # Use ?sync=true to force in-process parsing for debugging/rollback.
@@ -1441,7 +1663,7 @@ async def parse_applicant(
         try:
             from .embedding_tasks import parse_resume_task
 
-            background_tasks.add_task(parse_resume_task, applicant_id, str(applicant_dir))
+            background_tasks.add_task(parse_resume_task, applicant_id, applicant_dir_str)
             return JSONResponse({
                 "status": "queued",
                 "applicant_id": applicant_id,
@@ -1453,7 +1675,8 @@ async def parse_applicant(
             logger.warning("Falling back to sync parse for %s", applicant_id)
     
     # Run parsing (sync fallback — only used when ASYNC_PARSE_ENABLED=False or ?sync=true)
-    result = parser_service.run_parse(str(applicant_dir), applicant_id)
+    with get_local_directory(applicant_id) as local_dir:
+        result = parser_service.run_parse(local_dir, applicant_id)
     
     # Save to database
     try:
@@ -4990,6 +5213,24 @@ async def rag_rebuild_status(
         "file_hashes": file_hashes_summary,
         "rag_initialized": rag_service._is_initialized
     }
+
+
+@app.get("/static/{file_path:path}")
+async def serve_static_file(file_path: str):
+    """Serve public files from local storage (avatars, assets)"""
+    from fastapi.responses import RedirectResponse, FileResponse
+    if settings.STORAGE_BACKEND == "s3":
+        from .core.storage import get_storage_client
+        storage = get_storage_client()
+        return RedirectResponse(url=storage.get_file_url(file_path))
+    else:
+        local_path = Path(settings.FILE_STORAGE_PATH) / file_path
+        if not local_path.exists() or not local_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+            
+        import mimetypes
+        media_type, _ = mimetypes.guess_type(str(local_path))
+        return FileResponse(path=str(local_path), media_type=media_type or "application/octet-stream")
 
 
 # ============================================================

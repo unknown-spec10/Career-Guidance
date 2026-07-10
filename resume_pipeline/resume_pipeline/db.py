@@ -51,6 +51,7 @@ class User(Base):
     role = Column(Enum('student', 'employer', 'admin', name='user_role'), default='student')
     name = Column(String(200), nullable=True)
     phone = Column(String(20), nullable=True)
+    profile_picture_url = Column(String(512), nullable=True)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String(255), nullable=True, unique=True, index=True)

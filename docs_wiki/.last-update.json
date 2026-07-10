@@ -1,13 +1,13 @@
 {
-  "updatedAt": "2026-07-06T18:59:57.787276Z",
+  "updatedAt": "2026-07-09T21:16:50.214509Z",
   "files": {
     "AGENTS.md": {
-      "hash": "150eef0a28c3fa0d04af767e39eaaa4ea052bfe177382bd0a6e418b7ec917297",
-      "mtime": 1783364366.2581499
+      "hash": "8c8afa2b947449685dfa59251127de9d76f87fae4915a6ac0162453b67050d55",
+      "mtime": 1783364460.194817
     },
     "docker-compose.yml": {
-      "hash": "53218994c41dc489ca8a46fc3d40934fa52ce53aca1a7bf410ae5a5fb909a9a4",
-      "mtime": 1780610272.9651184
+      "hash": "d8fe3b4e3b4eaaac22b83de26d100941dc5dad8e2ade863738b2c98d87125c36",
+      "mtime": 1783622544.0516398
     },
     "ORIGINAL_REQUEST.md": {
       "hash": "44842d8d1e1454f79faa9dde61f4814ae1076a6e3b5bb8e8a648d2160415669c",
@@ -17,37 +17,9 @@
       "hash": "ad7c9ee1b87b797b725cfc5d4f9e76f74a7d793529fca02d3f5c8239b1c39cf1",
       "mtime": 1780302155.0730472
     },
-    ".agents\\BRIEFING.md": {
-      "hash": "e5988eec111a1333af32089976e24326ec3708e33e2b5d4af45957e2541309f9",
-      "mtime": 1782282447.7122989
-    },
-    ".agents\\handoff.md": {
-      "hash": "2ac18e85ff265ed474615cd271f815eccb9cfeced56932f331d851970d47ba7e",
-      "mtime": 1782233704.1649394
-    },
-    ".agents\\original_prompt.md": {
-      "hash": "42c71a1580f6e0afe84e849ae5f2fd16155c5bcf743b25cf176715b5bfde24d5",
-      "mtime": 1780545813.614597
-    },
-    ".agents\\auditor_m4_1\\audit_report.md": {
-      "hash": "69183e039d722e8ab1b787924bc808da67f76ae8d137016ca54d72168a1781bb",
-      "mtime": 1780547112.6545608
-    },
-    ".agents\\auditor_m4_1\\briefing.md": {
-      "hash": "47fbb7464ae8370100a5bd962c7e97e4a717a24ee3d7428cfd5d9269a9a649f8",
-      "mtime": 1780547120.1509209
-    },
-    ".agents\\auditor_m4_1\\handoff.md": {
-      "hash": "06d33dd03cc87ad6232941d039ec328358ca1ada9958cbdd6ddc69d427b1fb1b",
-      "mtime": 1780547443.6532373
-    },
     ".agents\\auditor_m4_1\\original_prompt.md": {
       "hash": "836d7c818cb70f7b60887d6737ee86552094fec5939be85b26c777d7d57045df",
       "mtime": 1780546929.9384608
-    },
-    ".agents\\auditor_m4_1\\progress.md": {
-      "hash": "13de8f1342866d48e34ff2219c3303a0c6c9de16a29b1ef9e76c78862526b7b8",
-      "mtime": 1780547100.0764582
     },
     ".agents\\auditor_m4_2\\audit_report.md": {
       "hash": "d9f7874617a8d498213854909eaa3075e8bb42d33036f0bdf984ed5868d9a51b",
@@ -57,10 +29,6 @@
       "hash": "11f10dda199874ef2a7b7df5bf32df656dc117749e26555477df75e62e64a584",
       "mtime": 1782282677.0167267
     },
-    ".agents\\auditor_m4_2\\handoff.md": {
-      "hash": "4e74f861ac17f9046965cb86dbd1478da220cc0e6000647779e04cb1460c6590",
-      "mtime": 1782282672.9309149
-    },
     ".agents\\auditor_m4_2\\ORIGINAL_REQUEST.md": {
       "hash": "f3a6eaf6867bb61deb4eb86f57fd5d69a9c1159d4c3645973fd5155a85244e16",
       "mtime": 1782282431.4451706
@@ -68,18 +36,6 @@
     ".agents\\auditor_m4_2\\progress.md": {
       "hash": "8d52917758e405dfe910ba8583a0106af2272edff1eeefc2840ffde2a07effae",
       "mtime": 1782282679.046664
-    },
-    ".agents\\auditor_m4_2\\temp_diff.txt": {
-      "hash": "6896a890dbcaa36cac8fb1267c0db2b882779997057852a722f71a9c880ad03f",
-      "mtime": 1782282461.5364637
-    },
-    ".agents\\explorer_audit_1\\analysis.md": {
-      "hash": "b1ab6566ad8897d3a8251d0341e8b7da540250347d49531735170a5ce8a739cc",
-      "mtime": 1782234148.615106
-    },
-    ".agents\\explorer_audit_1\\BRIEFING.md": {
-      "hash": "8f5469505b2bd15a66abcfaf056801024590a0c7606b198f4e1092fc2c2693bb",
-      "mtime": 1782234160.1023097
     },
     ".agents\\explorer_audit_1\\handoff.md": {
       "hash": "8c1246a8e6db3fde3ca9943d144e5c109602a9b7194da35f7f973bd075e4c33a",
@@ -101,14 +57,6 @@
       "hash": "6d574612d88a6d2faa4297952305b2e2a70209dd7bf25989848be85d31b58a79",
       "mtime": 1782233737.7241318
     },
-    ".agents\\explorer_audit_2\\progress.md": {
-      "hash": "d97b7e570e52884894d85cc46738c971cb13583eceeba38098fa845d17f93b56",
-      "mtime": 1782233743.170806
-    },
-    ".agents\\explorer_audit_2_gen1\\analysis.md": {
-      "hash": "5fde9c0b6362440416b0d595a4b33eaaef13b005f320835be7bec8876afdced6",
-      "mtime": 1782234282.7920136
-    },
     ".agents\\explorer_audit_2_gen1\\BRIEFING.md": {
       "hash": "d3818be66d71bea4dd41b6af44e7a0619dd84c2380b102e94723c0f044dbc797",
       "mtime": 1782234291.0234582
@@ -120,14 +68,6 @@
     ".agents\\explorer_audit_2_gen1\\ORIGINAL_REQUEST.md": {
       "hash": "57c2f742fe718baceaf523de3aefc7ab5d04c6dff3ce42fb316a3597eeb5930c",
       "mtime": 1782234155.2530394
-    },
-    ".agents\\explorer_audit_2_gen1\\progress.md": {
-      "hash": "de0dca11cc7117c577e6984159231f370a7f869c475c2ac9c786b6354015b15d",
-      "mtime": 1782234293.1178746
-    },
-    ".agents\\explorer_audit_3\\analysis.md": {
-      "hash": "a0ff27f1ecd25171304b1dbc1823959f8ac69bb079b54c97e9339f04435a3c68",
-      "mtime": 1782234293.6065583
     },
     ".agents\\explorer_audit_3\\BRIEFING.md": {
       "hash": "05968676869c976a41bad146a72f54c6829f1fc97ca5991e2a58e9ae1ab27170",
@@ -157,17 +97,9 @@
       "hash": "27aee5895830190b29d1648d34689c77c0446795efc9b1594af996734dd996ca",
       "mtime": 1780547436.5740058
     },
-    ".agents\\explorer_m1_1\\original_prompt.md": {
-      "hash": "7a5eee86e89d453c6a02f36b055e9adb63016e8662caef544d21b72f1045537d",
-      "mtime": 1780546094.6603575
-    },
     ".agents\\explorer_m1_1\\progress.md": {
       "hash": "8577618af67c09dde13fab2c343d32d167f0df74ef695f5e10a18a9f76d9b3a6",
       "mtime": 1780546505.6278286
-    },
-    ".agents\\orchestrator\\BRIEFING.md": {
-      "hash": "7cbdf40591d169cf523188ec2495d6804f783440e8e71a72fdd68a6b9bfbf6e7",
-      "mtime": 1782282427.2996156
     },
     ".agents\\orchestrator\\handoff.md": {
       "hash": "1e177e734a6cd78985b35d07888da550c70ffc2c9fde67ef8e5f035acbf9a4af",
@@ -176,10 +108,6 @@
     ".agents\\orchestrator\\ORIGINAL_REQUEST.md": {
       "hash": "bf2839074cec0522794db1f12c1b787661e362698636a2cd803d5a17acb18edc",
       "mtime": 1782233712.4774203
-    },
-    ".agents\\orchestrator\\plan.md": {
-      "hash": "2f1878edf9b8ac94b0607832f411572925f8f33f32274197f1d851cd456736b4",
-      "mtime": 1782282433.0857136
     },
     ".agents\\orchestrator\\progress.md": {
       "hash": "521c42f5de7a5adcbe16c276e3a1dfa2ca4fe7c3a08d869248eaf699a45dfed5",
@@ -193,25 +121,13 @@
       "hash": "071ac9c240ab43f7e879e39f4b37f6f428b8b3afa794104ca0e2ba2b865fd5b9",
       "mtime": 1780547106.290076
     },
-    ".agents\\reviewer_m4_1\\original_prompt.md": {
-      "hash": "092cfa9bd9506fd67b6c87a3650888fbc908ccf3c1ef6abfb3479055a6d71e0d",
-      "mtime": 1780546923.4007633
-    },
     ".agents\\reviewer_m4_1\\progress.md": {
       "hash": "b2e88a3e63571e2802901816a39e2c7ce39ad128b23d7bd8c00ee28aa16e7928",
       "mtime": 1780547101.2636096
     },
-    ".agents\\reviewer_m4_1\\review.md": {
-      "hash": "a2d0bb06ca38e0f815da132fed44d8c16c36c20ee8597422242e219f721703ec",
-      "mtime": 1780547098.6019588
-    },
     ".agents\\reviewer_m4_2_1\\BRIEFING.md": {
       "hash": "08d3b4f5ec67b658560f1cbae3b9071431186ba0967983f39d04fee87a5abdf5",
       "mtime": 1782282520.2262342
-    },
-    ".agents\\reviewer_m4_2_1\\handoff.md": {
-      "hash": "6ca08eb9fe3d16e0d2f379869ba05e561f490ee315956f60894065d0f374e5a8",
-      "mtime": 1782282516.3805356
     },
     ".agents\\reviewer_m4_2_1\\ORIGINAL_REQUEST.md": {
       "hash": "0685d19ebba49bda4e2dc602814b6d213520cee82916198cbed9eb79aa18e5de",
@@ -293,10 +209,6 @@
       "hash": "deed3937e489ca8a4e4fb341c610d5485a09576cd9b4013b63255a7ea9e55316",
       "mtime": 1782281296.2988324
     },
-    ".agents\\worker_m1_1\\bandit_log.txt": {
-      "hash": "18c79bac0c39b536fed1d3fe553740612a1f51c3e8c017f4e61f2952a2fabe8d",
-      "mtime": 1780546691.0549707
-    },
     ".agents\\worker_m1_1\\BRIEFING.md": {
       "hash": "4d6501093336578dd8414a23b7b40d75d48c4393b1299ef91f432015c79586df",
       "mtime": 1780546730.631469
@@ -305,10 +217,6 @@
       "hash": "bb45a5dc2c030dbd465fcf67a90ab78416e72a83b2c5b62f89f69f21fe6c1aed",
       "mtime": 1780546734.3759224
     },
-    ".agents\\worker_m1_1\\npm_audit_log.txt": {
-      "hash": "231228bf35e19932dcc2a35d65e43768d7e65fb74858da6bbbb4a9cf80e1fb2e",
-      "mtime": 1780546714.31511
-    },
     ".agents\\worker_m1_1\\original_prompt.md": {
       "hash": "13bc7e33803568ffe9d631af5cadb11f8e05e8e56706a0c11518045dc73df623",
       "mtime": 1780546611.1481192
@@ -316,10 +224,6 @@
     ".agents\\worker_m1_1\\progress.md": {
       "hash": "198ed2b35b70259eb0550b5f5724a6b2025ec6489139c41a55db0d5a105d8154",
       "mtime": 1780546736.9046793
-    },
-    ".agents\\worker_m1_1\\tool_run_report.md": {
-      "hash": "bcaac98d2c3fde0b0229ff96589c0d37e3dafc809b92d40e03ad59c4d1ad3554",
-      "mtime": 1780546727.0523052
     },
     ".agents\\worker_m3_1\\BRIEFING.md": {
       "hash": "b2fe41660f34f02a5d06e6f1b4d46ae1eafb82ca64fbff2cd89bb78e64af3c08",
@@ -337,13 +241,9 @@
       "hash": "328506d271084d4c3e07272f4fa4fc139ae5976d2a06024da22c4c0b4bf8d5aa",
       "mtime": 1780546902.857968
     },
-    ".github\\copilot-instructions.md": {
-      "hash": "1bd161f93ae3e83b75426467ff49c9b4c307fca61bb8265eea4190816392fc24",
-      "mtime": 1768659433.3553982
-    },
     ".github\\workflows\\ci-cd.yml": {
-      "hash": "d0404ce0c8f2bd34b976a9493cf2aaab7d4662a67657fb1eb6a531f77176d6b9",
-      "mtime": 1783360401.2840462
+      "hash": "db81f56d54bb0215993d0dbb7e67cefb0c55a0c9a15b85534ef7008cd11d9dc1",
+      "mtime": 1783622772.0218458
     },
     ".github\\workflows\\keep-supabase-alive.yml": {
       "hash": "4bdd82fd038a4daeed601d83317db3f45c17822aac7ffb1a5db1800d3e2f2ddf",
@@ -358,8 +258,8 @@
       "mtime": 1775042588.618412
     },
     "deploy\\aws\\ec2-user-data.sh": {
-      "hash": "002cfebd2962265c149063edb766a37b15908ddbd1304c615ecdec0dfbce10f1",
-      "mtime": 1780599958.773875
+      "hash": "67e217ced492571a3c756118c38e1b363ec90c0c0ae602cb0fefb91270e8a4c7",
+      "mtime": 1783622776.9400985
     },
     "deploy\\docker\\build-and-push.ps1": {
       "hash": "52f47156258f96ec3c2ad96d0b8b1ab493739967b0f9edda03f815bc992afaab",
@@ -370,8 +270,8 @@
       "mtime": 1780600076.0440674
     },
     "deploy\\docker\\docker-compose.prod.yml": {
-      "hash": "650adc4a162f290f1298f982be8283d49fae441a95f2cfc16e7f0f1fa5c59678",
-      "mtime": 1780644061.8868382
+      "hash": "6384f82420b8ac1472a665f67b121132047ed19c36129b06da852ff8671c2711",
+      "mtime": 1783622540.9537334
     },
     "deploy\\docker\\docker-help.bat": {
       "hash": "0bc34b5d1ed3eeb749b3b667f919200d9e8cc63680aa27b1e3b0a4feb5f965e9",
@@ -389,81 +289,9 @@
       "hash": "10146e1e9df2596a5733aa49dd635906abb96e8b50b496425cee7e293a60d312",
       "mtime": 1779121373.184204
     },
-    "docs\\ARCHITECTURE.md": {
-      "hash": "9413ee85ab7b76253c9a0f50889ec5cccb0f69052188be79aca24edf74a14b6b",
-      "mtime": 1773515721.2185574
-    },
-    "docs\\DATABASE.md": {
-      "hash": "d1f3b9738dcafc68aaa4a1d16de7186efe5ca3fe05631a7113856ab5088e2ea8",
-      "mtime": 1773515721.2185574
-    },
-    "docs\\DELIVERY_SUMMARY.md": {
-      "hash": "9b1d0b09dece3e16dfebf0674427949e1058fa24f1900c5df88695683c43aae2",
-      "mtime": 1773515721.2185574
-    },
-    "docs\\DEPLOYMENT.md": {
-      "hash": "8d61d1493f63dc1be3b1473223b6a3e38219514225c6232fc5c1748803e440ad",
-      "mtime": 1781429366.6957943
-    },
-    "docs\\DOCS_INDEX.md": {
-      "hash": "92acffc7abb0df3353fd91eea2c1b61107b11fdb8e934ed23cc3ee651c0192da",
-      "mtime": 1780343750.0750685
-    },
-    "docs\\IMPLEMENTATION_GUIDE.md": {
-      "hash": "7e8a411a5cdbc8acc664cedc74add7cf454a554b1bd8e01bfa48c157aa6a8dd2",
-      "mtime": 1773515721.2185574
-    },
-    "docs\\INTERVIEW_SYSTEM_ARCHITECTURE.md": {
-      "hash": "d56bb7db3440b84ed01ac912bf6c0b27360b3bb8518cdaff6caaac563572e5c2",
-      "mtime": 1781429372.7485223
-    },
-    "docs\\LEARNING_PATH_ARCHITECTURE.md": {
-      "hash": "7926d2fd7a67357f4401e03974c3fee9f52fe0ba66e10e3ba8f123415ddab9cf",
-      "mtime": 1780305772.5536144
-    },
-    "docs\\LIVE_INTERVIEW_ARCHITECTURE.md": {
-      "hash": "d2b9ba0cce614e15290d598cc52f5470d469e07b62d0f53c514433f163ba7990",
-      "mtime": 1775912401.9778812
-    },
-    "docs\\LIVE_INTERVIEW_ROADMAP.md": {
-      "hash": "78c011755500451cc1250d24a39d6d99d3a5a79e09cc8c0e1b6eb52e8792e098",
-      "mtime": 1775912401.9778812
-    },
-    "docs\\QUICK_REFERENCE.md": {
-      "hash": "41699e602b0c2ef9ee580e2118c19686ad9a8240374d75f8104bf0f202211321",
-      "mtime": 1773515721.2185574
-    },
-    "docs\\RECOMMENDATION_ENGINE_ARCHITECTURE.md": {
-      "hash": "d3c43aa72881b9f44138b57540c2a1724a348aa274d1420758ddbdab4a64a45f",
-      "mtime": 1780242572.7788734
-    },
-    "docs\\RESUME_PARSE_PIPELINE_REDESIGN.txt": {
-      "hash": "ed1eceb411f40ff945edd2be266dc2dc70607ba921cdc49aaac4d834183ffec7",
-      "mtime": 1780251643.1584284
-    },
-    "docs\\security_audit_report.md": {
-      "hash": "8411c3c57d528746ef6bf90689d8e0a271ec145f095968f1820fc52921110bce",
-      "mtime": 1781429380.4175494
-    },
-    "docs\\security_report_draft.md": {
-      "hash": "0cdcebd8563fe49622f66e302b9197226fb57c53865315334d86fe81240ce8f4",
-      "mtime": 1780546893.9534285
-    },
-    "docs\\telemetry.md": {
-      "hash": "eed025a42edec3311be7d18a876c03299a0fda02fe69fee0c1d9790c54473598",
-      "mtime": 1782402179.9331725
-    },
-    "docs\\VOICE_LAYER_DESIGN.md": {
-      "hash": "5d447482a1d77f9d4735d90018008750973937e19d6a514c728eb95e520dead6",
-      "mtime": 1780343778.39181
-    },
     "explorer_audit_1\\analysis.md": {
       "hash": "b1ab6566ad8897d3a8251d0341e8b7da540250347d49531735170a5ce8a739cc",
       "mtime": 1782234016.5110471
-    },
-    "frontend\\DESIGN.md": {
-      "hash": "67146900e58c1820d017cfb19a8a844d8b629f1ec8ccff7e984b7101acf62172",
-      "mtime": 1782234233.0720582
     },
     "frontend\\Dockerfile": {
       "hash": "1977ae6ada797546b0e76927ef05323b00969f32be25c5ef16a9d08b841a760b",
@@ -491,10 +319,6 @@
     },
     "frontend\\README.md": {
       "hash": "f35d645c6c6a42f7ddef02e0823a459fc3db708875fe497e77427b50c63a8751",
-      "mtime": 1764159290.1296
-    },
-    "frontend\\SETUP.md": {
-      "hash": "ae43395427b48ae1cf50cfda1b35398c20f60a799b6601b62fe70e2560e5444c",
       "mtime": 1764159290.1296
     },
     "frontend\\tailwind.config.js": {
@@ -1013,26 +837,6 @@
       "hash": "5571b4ceb41522f53a0fbb2d656c2416b8e571e9c4e4d439bee6f16e5b7d2e7f",
       "mtime": 1780496821.8165598
     },
-    "openwiki\\architecture.md": {
-      "hash": "f8fb35130e7738cc43f7eff470e5e8be7629adfb8037e96833e51161dee99346",
-      "mtime": 1783360536.6090293
-    },
-    "openwiki\\operations.md": {
-      "hash": "f4303760c54ab30a6d77cbc3907ab74676649bb1eafcbe35a1b39707522e2cc8",
-      "mtime": 1783360551.6724348
-    },
-    "openwiki\\quickstart.md": {
-      "hash": "f8f41ef3cd2333767c617fb42d11e2dabac128ecd970d828b755996c178f6190",
-      "mtime": 1783360528.607046
-    },
-    "openwiki\\testing.md": {
-      "hash": "c1d36b40096d97ae360f74759204f71799931f71a5eb9f5959c3f55b04ba8a59",
-      "mtime": 1783360273.0106537
-    },
-    "openwiki\\workflows.md": {
-      "hash": "cd45e0bfe27a2610fa7d7f17db7bde1695a5f2b8425906783ad5a93b1cae7b0f",
-      "mtime": 1783360547.1699097
-    },
     "resume_pipeline\\debug.py": {
       "hash": "3e873b492db571ed7c21209f07f62a1881b7de7127b17d57322b70e1911d5809",
       "mtime": 1782283140.4566846
@@ -1040,10 +844,6 @@
     "resume_pipeline\\Dockerfile": {
       "hash": "996d3b7cf83d1348591522d453c749c67940d631056d2a4c38df1b08ec953118",
       "mtime": 1780612490.0163412
-    },
-    "resume_pipeline\\extracted_text.txt": {
-      "hash": "871ba964cfcf27fd697092cf77cc8a324ccd13d82970c4118737923aad692747",
-      "mtime": 1780255933.3100593
     },
     "resume_pipeline\\pyrightconfig.json": {
       "hash": "7e31c7893554e758d265ae2e3b3068e3b72adaefa49baa48354d43fd5d8c293f",
@@ -1054,12 +854,8 @@
       "mtime": 1773580864.4069378
     },
     "resume_pipeline\\requirements.txt": {
-      "hash": "25913077f66d55a3468cf2a2bcaa79aa1215aee453cf5410df335702896a557b",
-      "mtime": 1780519039.4117382
-    },
-    "resume_pipeline\\runtime.txt": {
-      "hash": "a8e30b1cf504e0b6518ecf7500ae174e69ee2ad2fb17c90c4fca471e9b3cdcbc",
-      "mtime": 1774987874.0049849
+      "hash": "16e89c79c8f24c73bdfaff04dcc28657ec53abd119bd609343a7585bd883364b",
+      "mtime": 1783534242.6483004
     },
     "resume_pipeline\\schema.json": {
       "hash": "0e7bfb84d3cd3cc28608962c277618c89a362f59fd846ae6e3a9e7ea99ebb4bf",
@@ -1068,10 +864,6 @@
     "resume_pipeline\\.agents\\explorer_audit_3\\analysis.md": {
       "hash": "a0ff27f1ecd25171304b1dbc1823959f8ac69bb079b54c97e9339f04435a3c68",
       "mtime": 1782234287.113552
-    },
-    "resume_pipeline\\.rag_cache\\docs_hash.txt": {
-      "hash": "af39aa05005cc26ab0bb5b5120d4f54946019c981e7f08b5943f9590fb5ad2e5",
-      "mtime": 1782402181.4164934
     },
     "resume_pipeline\\.rag_cache\\file_hashes.json": {
       "hash": "f85b4053b1975f21cae42a075f63fe37dadfe4e7393156a5f32cae60ee53d298",
@@ -1124,10 +916,6 @@
     "resume_pipeline\\Data\\raw_files\\app_4e3b51fa18ed445fa627944ac7196a95\\Deep_Podder.pdf": {
       "hash": "a8b0c6d5ee1a3c81e0d5a8d7440919d1d327d019f16856e60c1f7ef3a9ebab87",
       "mtime": 1776630862.392283
-    },
-    "resume_pipeline\\Data\\raw_files\\app_83833fdca7254f5582c53b85fd882d92\\sample_resume_1.txt": {
-      "hash": "fc9f2e1f29c578b14dbff6fa5be779f83ae02c4b47a17afc258d571769111e53",
-      "mtime": 1765092506.7190573
     },
     "resume_pipeline\\Data\\raw_files\\app_865c045ce724432889b6439651b125cc\\Deep Podder.pdf": {
       "hash": "49b676f249c200a20ea11af8a5a1f7d60f5023c5681b8a0b4b97faa1c93bc860",
@@ -1433,10 +1221,6 @@
       "hash": "70fdb89f209741c51a15e60e678470fcba74f543d4f44c34dc308e49aa8c0be2",
       "mtime": 1780243729.6880963
     },
-    "resume_pipeline\\resume_pipeline\\resume\\TAXONOMY_README.md": {
-      "hash": "c2eaa2a5fa52fe45ace1b90418c055bd555d2ba6dc0c0d25afc55577efc49923",
-      "mtime": 1764155252.5308027
-    },
     "resume_pipeline\\resume_pipeline\\resume\\validators_numeric.py": {
       "hash": "2720d9a00b2bb830dc7e6ebafaadd5cbef081b40a34e66c09ce968e3de78a9fe",
       "mtime": 1764152295.9096053
@@ -1547,7 +1331,7 @@
     },
     "resume_pipeline\\tests\\sample_resume_2.txt": {
       "hash": "6c9e8ce2b931f902454f2cb10539a0f356ba0879df6d88b580c90eb7e8e14baa",
-      "mtime": 1764155252.4442973
+      "mtime": 1783534276.9729028
     },
     "resume_pipeline\\tests\\test_api.py": {
       "hash": "cb506b215a5a74a45742d58b3b70ac5cdc3d5f84c6588b265829f092ab3f2c38",

@@ -177,7 +177,27 @@ From `/opt/career-guidance` on the EC2 instance, use the following commands:
   docker compose -f deploy/docker/docker-compose.prod.yml exec backend python scripts/seed_database.py
   ```
 
-### 5. Automated Updates from Dev Machine
+### 6. Production Logging (AWS CloudWatch Integration)
+
+The production Docker Compose configuration routes container logs directly to Amazon CloudWatch Logs, so you do not need to SSH into the EC2 instance for troubleshooting.
+
+#### AWS Prerequisites:
+1. **IAM Role**: Create or update your EC2 instance's IAM role to include the AWS-managed **`CloudWatchAgentServerPolicy`** policy (this grants write access to CloudWatch Logs).
+2. **Assign Role**: Assign the role to your EC2 instance from the EC2 console under **Actions -> Security -> Modify IAM role**.
+
+#### Log Driver Details:
+* **Driver**: `awslogs`
+* **Log Group**: Defaults to `career-guidance-backend` (automatically created by the driver if it doesn't exist).
+* **Stream Prefix**: Dynamically tagged as `"backend"`.
+* **AWS Region**: Defaults to `ap-south-1`.
+
+If you need to customize the region or log group, you can define the following environment variables in your `.env.aws` file:
+```ini
+AWS_REGION=ap-south-1
+AWS_LOGS_GROUP=career-guidance-backend
+```
+
+### 7. Automated Updates from Dev Machine
 
 You can apply environment variable changes or force-recreate the remote backend container directly from your development machine using the provided PowerShell deploy script:
 
@@ -200,14 +220,14 @@ Ensure the curl command inside is set to ping your EC2 backend health check:
 
 ---
 
-### 7. GitHub Actions CI/CD Pipeline Automation
+### 8. GitHub Actions CI/CD Pipeline Automation
 We have established a fully automated CI/CD pipeline at `.github/workflows/ci-cd.yml` that handles testing, building, and automated deployments.
 
 #### Pipeline Flow:
 1. **Frontend CI (Lint & Build Check)**: Verifies frontend changes on all Pull Requests and Pushes targeting `main` by installing dependencies, checking for code quality (`eslint`), and verifying compilation (`vite build`).
 2. **Backend CI (Unit Tests)**: Sets up Python 3.11, caches packages, downloads CPU-optimized PyTorch, and runs the entire `pytest` unit test suite under mock LLM conditions (`GEMINI_MOCK_MODE=true`).
 3. **Docker Build & Push**: On merging/pushing to the `main` branch, it builds the backend Docker image and pushes it to Docker Hub under two tags: `:latest` and a unique commit SHA tag `:${{ github.sha }}`.
-4. **AWS EC2 SSH Deploy**: Connects securely to the EC2 instance, checks out the latest code to pull Docker Compose config changes, triggers a remote `docker compose pull`, and restarts the containers using the environment variables inside `.env.aws`. Finally, it executes `verify_data.py` on the active container to confirm database connectivity.
+4. **AWS EC2 SSH Deploy**: Connects securely to the EC2 instance, checks out the latest code to pull Docker Compose config changes, triggers a remote `docker compose pull`, and restarts the containers using the environment variables inside `.env.aws`. Finally, it waits 30 seconds for the backend service to fully initialize and executes `verify_data.py` as a non-fatal check to ensure database connectivity (preventing OOM errors on low-memory hosts from failing the deployment).
 
 #### Required GitHub Secrets:
 To activate this pipeline, navigate to your GitHub Repository -> **Settings -> Secrets and variables -> Actions** and create the following **Repository Secrets**:

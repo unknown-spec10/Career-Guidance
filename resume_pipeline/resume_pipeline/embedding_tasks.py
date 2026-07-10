@@ -24,12 +24,10 @@ def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
     from .resume.parse_service import ResumeParserService
     from .constants import PARSE_STATUS_ACCEPTED, PARSE_STATUS_PENDING_REVIEW
 
+    from .core.storage import get_local_directory
+
     db = SessionLocal()
     try:
-        p = Path(applicant_dir)
-        if not p.exists():
-            return {"ok": False, "reason": "applicant_dir_not_found", "applicant_id": applicant_id}
-
         applicant = db.query(Applicant).filter(Applicant.applicant_id == applicant_id).first()
         if not applicant:
             return {"ok": False, "reason": "applicant_not_found", "applicant_id": applicant_id}
@@ -57,10 +55,15 @@ def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
 
         parser = ResumeParserService()
 
-        # Run the new async pipeline in a fresh event loop (we're in a sync background thread)
-        parsed_result = asyncio.run(
-            parser.run_parse_async(str(p), applicant_id, db_session=db)
-        )
+        with get_local_directory(applicant_id) as local_dir:
+            p = Path(local_dir)
+            if not p.exists():
+                return {"ok": False, "reason": "applicant_dir_not_found", "applicant_id": applicant_id}
+
+            # Run the new async pipeline in a fresh event loop (we're in a sync background thread)
+            parsed_result = asyncio.run(
+                parser.run_parse_async(str(p), applicant_id, db_session=db)
+            )
 
         normalized = parsed_result.get("normalized", {})
         parse_status = parsed_result.get("parse_status", PARSE_STATUS_ACCEPTED)

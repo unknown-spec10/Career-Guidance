@@ -10,6 +10,8 @@ import {
   X,
   Edit2,
   Upload,
+  FileText,
+  Download,
   CheckCircle,
   AlertCircle,
   Eye,
@@ -24,6 +26,8 @@ import {
   AlertTriangle,
   Star,
   RefreshCcw,
+  Camera,
+  Trash2,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
@@ -46,6 +50,7 @@ export default function StudentProfile() {
     cgpa: null,
     location: '',
     skills: [],
+    profile_picture_url: '',
   })
   const [resumeData, setResumeData] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -55,6 +60,8 @@ export default function StudentProfile() {
   const [parsingResume, setParsingResume] = useState(false)
   const [resumeStatusMessage, setResumeStatusMessage] = useState('')
   const [resumeStatusType, setResumeStatusType] = useState('info')
+  const [showPreview, setShowPreview] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [newSkill, setNewSkill] = useState('')
   const [creditInfo, setCreditInfo] = useState(null)
   const [accountActive, setAccountActive] = useState(true)
@@ -93,6 +100,7 @@ export default function StudentProfile() {
           cgpa: response.data.cgpa || null,
           location: response.data.location || '',
           skills: response.data.skills || [],
+          profile_picture_url: response.data.profile_picture_url || '',
         })
         setAccountActive(response.data.is_active !== false)
       }
@@ -307,6 +315,51 @@ export default function StudentProfile() {
     }
   }
 
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    
+    setUploadingAvatar(true)
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    try {
+      const response = await api.post('/api/auth/profile/picture', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      if (response.data && response.data.profile_picture_url) {
+        setProfile((prev) => ({
+          ...prev,
+          profile_picture_url: response.data.profile_picture_url,
+        }))
+        toast.success('Profile picture updated successfully')
+      }
+    } catch (err) {
+      console.error('Error uploading profile picture:', err)
+      toast.error(err.response?.data?.detail || 'Failed to upload profile picture')
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
+  const handleAvatarDelete = async () => {
+    if (!window.confirm('Are you sure you want to remove your profile picture?')) return
+    
+    try {
+      await api.delete('/api/auth/profile/picture')
+      setProfile((prev) => ({
+        ...prev,
+        profile_picture_url: '',
+      }))
+      toast.success('Profile picture removed')
+    } catch (err) {
+      console.error('Error deleting profile picture:', err)
+      toast.error(err.response?.data?.detail || 'Failed to remove profile picture')
+    }
+  }
+
   const addSkill = () => {
     if (newSkill.trim() && !profile.skills.includes(newSkill.trim())) {
       setProfile({ ...profile, skills: [...profile.skills, newSkill.trim()] })
@@ -394,8 +447,47 @@ export default function StudentProfile() {
               <h2 className="text-4xl font-bold text-gray-900">My Profile</h2>
               <p className="text-gray-600 mt-2">Manage your academic and professional identity</p>
             </div>
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center">
-              <User className="w-8 h-8 text-white" />
+            <div className="relative group w-20 h-20 flex-shrink-0">
+              <div className="w-full h-full rounded-full overflow-hidden border-2 border-white shadow-lg bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center">
+                {profile.profile_picture_url ? (
+                  <img
+                    src={profile.profile_picture_url.startsWith("http") ? profile.profile_picture_url : `${api.defaults.baseURL || ""}${profile.profile_picture_url}`}
+                    alt="Profile Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="w-10 h-10 text-white" />
+                )}
+              </div>
+              
+              <div className="absolute inset-0 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2">
+                <label className="cursor-pointer p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition" title="Upload Photo">
+                  <Camera className="w-4 h-4" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    className="hidden"
+                    disabled={uploadingAvatar}
+                  />
+                </label>
+                {profile.profile_picture_url && (
+                  <button
+                    type="button"
+                    onClick={handleAvatarDelete}
+                    className="p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 transition"
+                    title="Remove Photo"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              
+              {uploadingAvatar && (
+                <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center">
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -805,6 +897,57 @@ export default function StudentProfile() {
                   <div>
                     <h4 className="font-bold text-gray-900 mb-3">Summary</h4>
                     <p className="text-gray-700">{resumeData.summary}</p>
+                  </div>
+
+                  {/* Resume File Info & Preview Toggle */}
+                  <div className="mt-6 pt-6 border-t border-gray-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-5 h-5 text-red-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-semibold text-gray-800 truncate max-w-[200px] sm:max-w-md">
+                            {resumeData?.resume_filename || "resume.pdf"}
+                          </h4>
+                          <p className="text-xs text-gray-500 font-medium">Uploaded Resume Document</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => setShowPreview(!showPreview)}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg font-semibold text-xs transition"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          {showPreview ? "Hide Preview" : "View Preview"}
+                        </button>
+                        <a
+                          href={`${api.defaults.baseURL || ""}/api/student/resume/preview?token=${encodeURIComponent(secureStorage.getItem("token") || "")}`}
+                          download
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-semibold text-xs transition"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download
+                        </a>
+                      </div>
+                    </div>
+
+                    {showPreview && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-4 border border-slate-200 rounded-xl overflow-hidden bg-slate-100 shadow-inner"
+                      >
+                        <iframe
+                          src={`${api.defaults.baseURL || ""}/api/student/resume/preview?token=${encodeURIComponent(secureStorage.getItem("token") || "")}`}
+                          className="w-full h-[600px] border-none bg-slate-100"
+                          title="Resume Preview"
+                        />
+                      </motion.div>
+                    )}
                   </div>
                 </div>
               ) : (

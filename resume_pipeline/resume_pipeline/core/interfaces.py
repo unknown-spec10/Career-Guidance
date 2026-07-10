@@ -53,3 +53,40 @@ class VectorStore(ABC):
 class ParserService(ABC):
     @abstractmethod
     def run_parse(self, applicant_root: str, applicant_id: str) -> dict: ...
+
+
+class FileStorage(ABC):
+    @abstractmethod
+    def upload_file(self, local_path: str, remote_path: str, is_public: bool = False) -> str:
+        """Upload a file from a local path to the storage backend.
+        Returns the remote path/key or public URL depending on the implementation.
+        """
+        ...
+
+    @abstractmethod
+    def upload_fileobj(self, fileobj, remote_path: str, is_public: bool = False) -> str:
+        """Upload a file-like object to the storage backend.
+        Returns the remote path/key or public URL depending on the implementation.
+        """
+        ...
+
+    @abstractmethod
+    def download_file(self, remote_path: str, local_path: str) -> None:
+        """Download a file from the storage backend to a local path."""
+        ...
+
+    @abstractmethod
+    def delete_file(self, remote_path: str) -> None:
+        """Delete a file from the storage backend."""
+        ...
+
+    @abstractmethod
+    def get_file_url(self, remote_path: str, expires_in: int = 900) -> str:
+        """Get a URL (public or temporary signed URL) to access the file."""
+        ...
+
+    @abstractmethod
+    def list_files(self, prefix: str) -> List[str]:
+        """List files with the given prefix in the storage backend."""
+        ...
+

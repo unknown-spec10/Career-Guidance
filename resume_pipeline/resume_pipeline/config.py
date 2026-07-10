@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     # Support for standard DATABASE_URL (Render/Supabase style)
     DATABASE_URL: str | None = None
     FILE_STORAGE_PATH: str = "./data/raw_files"
+    
+    # S3 Storage Integration
+    STORAGE_BACKEND: str = "local"  # "local" or "s3"
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "ap-south-1"
+    S3_BUCKET_NAME: str = "mine-career-guidance-bucket"
+    S3_REGION: str = "ap-south-1"
+    AWS_S3_ENDPOINT_URL: str | None = None
     GEMINI_API_KEY: str = ""
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_SMALL_MODEL: str = "gemini-3-flash-preview"

@@ -45,6 +45,7 @@ class UserResponse(BaseModel):
     email: str
     name: Optional[str]
     phone: Optional[str] = None
+    profile_picture_url: Optional[str] = None
     role: str
     is_active: bool
     is_verified: bool

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { User, Mail, Lock, Building2, MapPin, Phone, Globe, Calendar, Save, AlertTriangle, CheckCircle, Edit2, X, Briefcase, Eye, EyeOff } from 'lucide-react'
+import { User, Mail, Lock, Building2, MapPin, Phone, Globe, Calendar, Save, AlertTriangle, CheckCircle, Edit2, X, Briefcase, Eye, EyeOff, Camera, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
@@ -13,6 +13,7 @@ export default function EmployerProfile() {
   const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState(null)
   const [user, setUser] = useState(null)
@@ -76,6 +77,51 @@ export default function EmployerProfile() {
       toast.error('Failed to load profile')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    
+    setUploadingAvatar(true)
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    try {
+      const response = await api.post('/api/auth/profile/picture', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      if (response.data && response.data.profile_picture_url) {
+        setUser((prev) => ({
+          ...prev,
+          profile_picture_url: response.data.profile_picture_url,
+        }))
+        toast.success('Profile picture updated successfully')
+      }
+    } catch (err) {
+      console.error('Error uploading profile picture:', err)
+      toast.error(err.response?.data?.detail || 'Failed to upload profile picture')
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
+  const handleAvatarDelete = async () => {
+    if (!window.confirm('Are you sure you want to remove your profile picture?')) return
+    
+    try {
+      await api.delete('/api/auth/profile/picture')
+      setUser((prev) => ({
+        ...prev,
+        profile_picture_url: '',
+      }))
+      toast.success('Profile picture removed')
+    } catch (err) {
+      console.error('Error deleting profile picture:', err)
+      toast.error(err.response?.data?.detail || 'Failed to remove profile picture')
     }
   }
 
@@ -218,8 +264,47 @@ export default function EmployerProfile() {
           {/* Profile Header */}
           <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
             <div className="flex items-center space-x-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-emerald-400/20 to-teal-500/20 rounded-2xl flex items-center justify-center border border-emerald-500/10 shadow-inner">
-                <Building2 className="w-8 h-8 text-emerald-600" />
+              <div className="relative group w-20 h-20 flex-shrink-0">
+                <div className="w-full h-full rounded-2xl overflow-hidden border border-emerald-500/10 shadow-inner bg-gradient-to-br from-emerald-400/20 to-teal-500/20 flex items-center justify-center">
+                  {user?.profile_picture_url ? (
+                    <img
+                      src={user.profile_picture_url.startsWith("http") ? user.profile_picture_url : `${api.defaults.baseURL || ""}${user.profile_picture_url}`}
+                      alt="Profile Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Building2 className="w-8 h-8 text-emerald-600" />
+                  )}
+                </div>
+                
+                <div className="absolute inset-0 bg-black/60 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-1.5">
+                  <label className="cursor-pointer p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition" title="Upload Photo">
+                    <Camera className="w-3.5 h-3.5" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                      disabled={uploadingAvatar}
+                    />
+                  </label>
+                  {user?.profile_picture_url && (
+                    <button
+                      type="button"
+                      onClick={handleAvatarDelete}
+                      className="p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 transition"
+                      title="Remove Photo"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                
+                {uploadingAvatar && (
+                  <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                )}
               </div>
               <div>
                 <h2 className="text-xl font-bold text-slate-800">{employer?.company_name || 'Company Name'}</h2>
