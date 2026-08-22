@@ -36,6 +36,7 @@ export default function InterviewSessionPage() {
     submitAnswer,
     navigateToQuestion,
     finishSession,
+    quitSession,
   } = useInterviewSession()
 
   const {
@@ -191,9 +192,14 @@ export default function InterviewSessionPage() {
     }
   }
 
-  const handleConfirmExit = () => {
+  const handleConfirmExit = async () => {
     stopSpeech()
-    // Abandon will trigger on navigate or page close beacon
+    setShowExitModal(false)
+    // Explicitly abandon the session via authenticated API call, then navigate.
+    const result = await quitSession()
+    if (result?.error) {
+      toast.error(result.error)
+    }
     navigate('/dashboard/interview', { replace: true })
   }
 
@@ -572,7 +578,7 @@ export default function InterviewSessionPage() {
                 </div>
                 <h3 className="text-lg font-bold text-gray-950 mb-2">Leave practice session?</h3>
                 <p className="text-sm text-gray-500 mb-4 leading-relaxed">
-                  Quitting now will mark this session as abandoned. You can resume this session within 24 hours from the setup dashboard.
+                  Quitting now will end this session and mark it as <strong>abandoned</strong> — it cannot be resumed. Exiting more than twice a day triggers the suspension warning below.
                 </p>
                 <div className="bg-red-50 border border-red-100 text-red-800 rounded-2xl p-3.5 text-xs mb-6 text-left space-y-1">
                   <strong className="font-bold block text-red-950">⚠️ Practice Suspension Alert</strong>

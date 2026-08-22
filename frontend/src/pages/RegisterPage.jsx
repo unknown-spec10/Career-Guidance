@@ -86,7 +86,7 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
-      await api.post('/api/auth/resend-code', { email: formData.email })
+      await api.post('/api/auth/resend-verification', { email: formData.email })
       toast.success('Verification code resent! Check your email.')
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to resend code')

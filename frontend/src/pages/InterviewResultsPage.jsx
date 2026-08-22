@@ -10,7 +10,7 @@ import useResultsPolling from '../hooks/useResultsPolling'
 import useStreamingText from '../hooks/useStreamingText'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
-import api from '../config/api'
+import api, { apiUrl } from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import SkillGapModal from '../components/SkillGapModal'
 
@@ -126,7 +126,7 @@ function QuestionAccordion({ item }) {
     setFeedbackLoading(true)
     try {
       const token = secureStorage.getItem('token') || ''
-      const response = await fetch(`/api/interview/feedback/${item.question_id}`, {
+      const response = await fetch(apiUrl(`/api/interview/feedback/${item.question_id}`), {
         headers: { Authorization: `Bearer ${token}` },
       })
       const reader = response.body.getReader()

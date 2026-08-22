@@ -74,14 +74,14 @@ export default function StudentDashboard() {
           console.warn('Failed to fetch job recommendations.')
         }
 
-        // 5. Fetch Interview Sessions Count
+        // 5. Fetch Interview Sessions Count (history endpoint returns all sessions)
         try {
-          const interviewRes = await api.get('/api/interview/sessions')
+          const interviewRes = await api.get('/api/interview/history')
           const sessions = interviewRes.data || []
           const completed = sessions.filter(s => s.status?.toLowerCase() === 'completed').length
           setCompletedInterviewsCount(completed)
         } catch (e) {
-          console.warn('Failed to fetch interview sessions.')
+          console.warn('Failed to fetch interview history.')
         }
       }
     } catch (err) {

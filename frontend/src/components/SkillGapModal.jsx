@@ -5,7 +5,7 @@ import {
   Code, AlertCircle, Loader2, Youtube, Terminal, Award, 
   Activity, Check, ExternalLink, Zap, Lightbulb, Compass, Award as MedalIcon
 } from 'lucide-react'
-import api from '../config/api'
+import api, { apiUrl } from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
 
@@ -77,7 +77,7 @@ export default function SkillGapModal({
   const startGapAnalysisStream = async () => {
     try {
       const token = secureStorage.getItem('token') || ''
-      const response = await fetch(`/api/interview/skill-gap-analysis/${sessionId}`, {
+      const response = await fetch(apiUrl(`/api/interview/skill-gap-analysis/${sessionId}`), {
         headers: { Authorization: `Bearer ${token}` },
       })
       

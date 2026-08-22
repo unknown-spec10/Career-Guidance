@@ -3,7 +3,7 @@
  * Handles session start, answer submission, crash recovery, and session abandonment.
  */
 import { useState, useCallback, useEffect, useRef } from 'react'
-import api from '../config/api'
+import api, { apiUrl } from '../config/api'
 import secureStorage from '../utils/secureStorage'
 
 const INITIAL_STATE = {
@@ -25,6 +25,7 @@ const INITIAL_STATE = {
 export default function useInterviewSession() {
   const [state, setState] = useState(INITIAL_STATE)
   const hintReaderRef = useRef(null)
+  const abandonTokenRef = useRef(null)
 
   // Helper to fetch all questions for the session along with their answer states
   const fetchSessionQuestions = useCallback(async (sessionId, voiceMode = false, selectFirstUnanswered = true) => {
@@ -73,7 +74,8 @@ export default function useInterviewSession() {
     setState(prev => ({ ...prev, error: null }))
     try {
       const res = await api.post('/api/interview/start', config)
-      const { session_id } = res.data
+      const { session_id, abandon_token } = res.data
+      abandonTokenRef.current = abandon_token || null
       await fetchSessionQuestions(session_id, config.voice_mode || false, false)
       setState(prev => ({
         ...prev,
@@ -98,6 +100,7 @@ export default function useInterviewSession() {
         // Session is completed or abandoned — redirect to results
         return { success: false, redirect: data.status === 'completed' ? 'results' : 'setup' }
       }
+      abandonTokenRef.current = data.abandon_token || null
       await fetchSessionQuestions(sessionId, data.voice_mode || false, true)
       setState(prev => ({
         ...prev,
@@ -226,7 +229,7 @@ export default function useInterviewSession() {
 
     try {
       const token = secureStorage.getItem('token') || ''
-      const response = await fetch(`/api/interview/hint/${answerId}`, {
+      const response = await fetch(apiUrl(`/api/interview/hint/${answerId}`), {
         headers: { Authorization: `Bearer ${token}` },
       })
       const reader = response.body.getReader()
@@ -260,13 +263,31 @@ export default function useInterviewSession() {
   // -------------------------------------------------------------------------
   // Abandon session (called on page unload via sendBeacon)
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Abandon session — two paths:
+  //   quitSession():  explicit "Quit" button; normal Bearer auth via axios.
+  //   abandonSession(): best-effort sendBeacon on tab close; authenticated by
+  //     the single-purpose HMAC token issued at session start (beacons cannot
+  //     set Authorization headers).
+  // -------------------------------------------------------------------------
+  const quitSession = useCallback(async () => {
+    const { sessionId } = state
+    if (!sessionId) return { success: false }
+    try {
+      await api.post(`/api/interview/abandon/${sessionId}`)
+      setState(prev => ({ ...prev }))
+      return { success: true }
+    } catch (err) {
+      console.error('Failed to abandon session:', err)
+      return { success: false, error: err.response?.data?.detail || 'Failed to end session.' }
+    }
+  }, [state])
+
   const abandonSession = useCallback(() => {
     const { sessionId } = state
-    if (!sessionId) return
-    const token = secureStorage.getItem('token') || ''
+    if (!sessionId || !abandonTokenRef.current) return
     navigator.sendBeacon(
-      `/api/interview/abandon/${sessionId}`,
-      JSON.stringify({ Authorization: `Bearer ${token}` })
+      apiUrl(`/api/interview/abandon-beacon/${sessionId}?abandon_token=${encodeURIComponent(abandonTokenRef.current)}`)
     )
   }, [state])
 
@@ -294,6 +315,7 @@ export default function useInterviewSession() {
     finishSession,
     submitAnswer,
     streamHint,
+    quitSession,
     abandonSession,
   }
 }

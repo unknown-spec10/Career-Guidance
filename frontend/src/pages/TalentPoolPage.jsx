@@ -42,6 +42,17 @@ function SkeletonCard() {
 
 // ─── Match Score Badge ────────────────────────────────────────────────────────
 function MatchBadge({ score }) {
+  // No score fabrication: when the backend returns no vector-match score
+  // (text fallback), render an unscored badge instead of a random number.
+  if (score === null || score === undefined) {
+    return (
+      <div className="flex flex-col items-center px-3 py-1.5 rounded-xl border bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700">
+        <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-0.5">
+          <Sparkles size={10} /> Unscored
+        </span>
+      </div>
+    )
+  }
   const color =
     score >= 85 ? 'text-emerald-600 dark:text-emerald-400'
     : score >= 70 ? 'text-amber-600 dark:text-amber-400'
@@ -54,7 +65,7 @@ function MatchBadge({ score }) {
 
   return (
     <div className={`flex flex-col items-center px-3 py-1.5 rounded-xl border ${bg}`}>
-      <span className={`text-xl font-black leading-none ${color}`}>{score}%</span>
+      <span className={`text-xl font-black leading-none ${color}`}>{Math.round(score)}%</span>
       <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-0.5">
         <Sparkles size={10} /> AI Match
       </span>
@@ -64,8 +75,8 @@ function MatchBadge({ score }) {
 
 // ─── Candidate Card ───────────────────────────────────────────────────────────
 function CandidateCard({ candidate, onViewProfile, onShortlist, shortlisted }) {
-  const score = candidate.match_score ?? Math.floor(Math.random() * 30 + 65)
-  const topColor = score >= 85 ? 'bg-emerald-500' : score >= 70 ? 'bg-amber-400' : 'bg-rose-400'
+  const score = candidate.match_score ?? candidate.score ?? null
+  const topColor = score === null ? 'bg-gray-300 dark:bg-gray-600' : score >= 85 ? 'bg-emerald-500' : score >= 70 ? 'bg-amber-400' : 'bg-rose-400'
   const name = candidate.name || candidate.full_name || 'Unknown Candidate'
   const role = candidate.current_role || candidate.desired_role || 'Professional'
   const location = candidate.location || 'Not specified'
@@ -305,6 +316,49 @@ function FilterSidebar({ filters, setFilters, onClear }) {
   )
 }
 
+// ─── Recent Searches (session-local, real searches only) ─────────────────────
+function RecentSearches({ onPick }) {
+  const [history, setHistory] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('talent_recent_searches') || '[]')
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    const handler = () => {
+      try {
+        setHistory(JSON.parse(sessionStorage.getItem('talent_recent_searches') || '[]'))
+      } catch { /* ignore */ }
+    }
+    window.addEventListener('talent-search', handler)
+    return () => window.removeEventListener('talent-search', handler)
+  }, [])
+
+  if (!history.length) return null
+
+  return (
+    <div className="mt-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
+      <h3 className="font-semibold text-gray-900 dark:text-white text-sm flex items-center gap-2 mb-3">
+        <History size={15} /> Recent Searches
+      </h3>
+      <div className="space-y-1.5">
+        {history.map(s => (
+          <button
+            key={s}
+            onClick={() => onPick(s)}
+            className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white transition-colors"
+          >
+            <Search size={12} />
+            <span className="truncate">{s}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Empty State ──────────────────────────────────────────────────────────────
 function EmptyState({ query }) {
   return (
@@ -328,11 +382,6 @@ function EmptyState({ query }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const SORT_OPTIONS = ['Match Score', 'Recent Activity', 'Experience', 'Name (A-Z)']
-const RECENT_SEARCHES = [
-  'Senior React Developer Austin',
-  'Python Backend Remote',
-  'UX Designer 5+ years',
-]
 
 export default function TalentPoolPage() {
   const navigate = useNavigate()
@@ -343,6 +392,7 @@ export default function TalentPoolPage() {
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
+  const [searchError, setSearchError] = useState(null)
   const [sortBy, setSortBy] = useState('Match Score')
   const [shortlisted, setShortlisted] = useState({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -360,6 +410,7 @@ export default function TalentPoolPage() {
     if (!searchQuery.trim()) return
     setLoading(true)
     setHasSearched(true)
+    setSearchError(null)
     try {
       const res = await api.post('/api/search/semantic', {
         query: searchQuery,
@@ -369,17 +420,24 @@ export default function TalentPoolPage() {
           experience: filters.experience,
         },
       })
-      const data = res.data?.results || res.data?.candidates || res.data || []
+      const data = res.data?.results || res.data?.candidates || []
+      // Normalize: keep only real API data. No score fabrication — candidates
+      // without a vector-match score are simply shown unscored.
       setCandidates(Array.isArray(data) ? data : [])
+      try {
+        const prev = JSON.parse(sessionStorage.getItem('talent_recent_searches') || '[]')
+        const next = [searchQuery, ...prev.filter(s => s !== searchQuery)].slice(0, 5)
+        sessionStorage.setItem('talent_recent_searches', JSON.stringify(next))
+        window.dispatchEvent(new Event('talent-search'))
+      } catch { /* ignore storage failures */ }
     } catch (err) {
       console.error('Search failed:', err)
-      // Graceful fallback — show mock data so employers see the design
-      setCandidates([
-        { applicant_id: '1', name: 'Elena Rodriguez', current_role: 'Senior Frontend Engineer', location: 'Austin, TX (Hybrid)', match_score: 98, skills: ['React', 'TypeScript', 'GraphQL'], years_experience: 7, summary: 'Experienced Frontend Engineer specializing in React performance optimization and scalable architecture. Previously led a team of 5 at TechCorp.' },
-        { applicant_id: '2', name: 'Marcus Chen', current_role: 'Fullstack Developer', location: 'Remote Only', match_score: 85, skills: ['Node.js', 'React', 'Python'], years_experience: 4, summary: 'Strong backend skills with Node.js and Python. Currently transitioning to more frontend focused roles. Passionate about UI/UX accessibility.' },
-        { applicant_id: '3', name: 'Priya Sharma', current_role: 'Backend Engineer', location: 'Bangalore (Remote)', match_score: 78, skills: ['Python', 'Django', 'AWS'], years_experience: 5, summary: 'Full-stack developer with expertise in Python and cloud-native architectures. Open to senior engineering roles with growth opportunities.' },
-        { applicant_id: '4', name: 'David Kim', current_role: 'Product Designer', location: 'San Francisco, CA', match_score: 72, skills: ['Figma', 'React', 'CSS'], years_experience: 6, summary: 'Product designer with strong frontend development skills. Bridges design systems and engineering workflows effectively.' },
-      ])
+      setCandidates([])
+      setSearchError(
+        err.response?.status === 403
+          ? 'You do not have permission to search the talent pool.'
+          : err.response?.data?.detail || 'Search is temporarily unavailable. Please try again.'
+      )
     } finally {
       setLoading(false)
     }
@@ -516,30 +574,20 @@ export default function TalentPoolPage() {
             <aside className={`w-64 shrink-0 hidden md:block`}>
               <FilterSidebar filters={filters} setFilters={setFilters} onClear={clearFilters} />
 
-              {/* Saved / Search history */}
-              <div className="mt-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
-                <h3 className="font-semibold text-gray-900 dark:text-white text-sm flex items-center gap-2 mb-3">
-                  <History size={15} /> Recent Searches
-                </h3>
-                <div className="space-y-1.5">
-                  {RECENT_SEARCHES.map(s => (
-                    <button
-                      key={s}
-                      onClick={() => { setQuery(s); handleSearch(s) }}
-                      className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white transition-colors"
-                    >
-                      <Search size={12} />
-                      <span className="truncate">{s}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Search history (session-local, real searches only) */}
+              <RecentSearches onPick={(s) => { setQuery(s); handleSearch(s) }} />
             </aside>
           )}
         </AnimatePresence>
 
         {/* Results */}
         <div className="flex-1 min-w-0">
+          {/* Error banner */}
+          {!loading && searchError && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-xl p-4 mb-4 text-sm">
+              {searchError}
+            </div>
+          )}
           {/* Sort bar */}
           {hasSearched && (
             <div className="flex items-center justify-between mb-4">

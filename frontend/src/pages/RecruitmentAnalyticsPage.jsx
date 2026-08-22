@@ -233,35 +233,20 @@ export default function RecruitmentAnalyticsPage() {
   const [period, setPeriod] = useState('30d')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const { showToast, toasts, removeToast } = useToast()
-
-  const DEMO = {
-    overview: { total_applications: 142, active_jobs: 8, shortlisted: 23, hired: 5, avg_time_to_hire_days: 18 },
-    pipeline_funnel: [
-      { stage: 'Applied', count: 142 },
-      { stage: 'Reviewing', count: 89 },
-      { stage: 'Interview', count: 34 },
-      { stage: 'Offered', count: 12 },
-      { stage: 'Hired', count: 5 }
-    ],
-    source_breakdown: [
-      { source: 'Direct Apply', count: 78 },
-      { source: 'AI Referral', count: 42 },
-      { source: 'Agency', count: 15 },
-      { source: 'Other', count: 7 }
-    ],
-    top_jobs: [],
-    date_range: period
-  }
+  const [error, setError] = useState(null)
+  const toast = useToast()
 
   const fetchAnalytics = async (p) => {
     setLoading(true)
+    setError(null)
     try {
       const res = await api.get(`/api/employer/analytics?period=${p}`)
       setData(res.data)
-    } catch {
-      showToast('Using demo data — analytics API unavailable', 'warning')
-      setData({ ...DEMO, date_range: p })
+    } catch (err) {
+      // Honest failure state — no fabricated demo data.
+      console.error('Failed to load analytics:', err)
+      setData(null)
+      setError(err.response?.data?.detail || 'Failed to load analytics. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -270,9 +255,11 @@ export default function RecruitmentAnalyticsPage() {
   useEffect(() => { fetchAnalytics(period) }, [period])
 
   const ov = data?.overview || {}
-  const sourceTotal = (data?.source_breakdown || []).reduce((s, x) => s + x.count, 0)
+  const sourceBreakdown = data?.source_breakdown || null
+  const sourceTotal = (sourceBreakdown || []).reduce((s, x) => s + x.count, 0)
+  // Offer-acceptance is only shown when real data exists — no default fabrication.
   const offerAcceptPct = ov.hired && ov.shortlisted
-    ? Math.round((ov.hired / ov.shortlisted) * 100) : 84
+    ? Math.round((ov.hired / ov.shortlisted) * 100) : null
 
   const PERIODS = [
     { key: '30d', label: 'Last 30 Days' },
@@ -282,7 +269,17 @@ export default function RecruitmentAnalyticsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-8">
-      <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
+
+      {/* ── Error banner ── */}
+      {!loading && error && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl p-4 mb-6 text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => fetchAnalytics(period)} className="font-bold underline hover:text-red-200">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* ── Header ── */}
       <motion.div
@@ -331,13 +328,13 @@ export default function RecruitmentAnalyticsPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <MetricCard label="Total Applications" value={ov.total_applications?.toLocaleString() || '0'}
-            trend="up" trendLabel="+12.5% vs last period" icon={Users} accentColor="#6366f1" delay={0} />
+            icon={Users} accentColor="#6366f1" delay={0} />
           <MetricCard label="Hiring Velocity" value={ov.avg_time_to_hire_days || '0'} unit="days"
-            trend="up" trendLabel="Avg. time to hire" icon={Zap} accentColor="#06b6d4" delay={0.05} />
-          <MetricCard label="Offer Acceptance" value={`${offerAcceptPct}%`}
-            trend="neutral" trendLabel="No change vs prior" icon={Handshake} accentColor="#10b981" delay={0.10} />
+            trendLabel="Avg. time to hire" icon={Zap} accentColor="#06b6d4" delay={0.05} />
+          <MetricCard label="Offer Acceptance" value={offerAcceptPct !== null ? `${offerAcceptPct}%` : '—'}
+            trendLabel={offerAcceptPct !== null ? 'Hired ÷ shortlisted this period' : 'Insufficient data'} icon={Handshake} accentColor="#10b981" delay={0.10} />
           <MetricCard label="Active Jobs" value={ov.active_jobs || '0'}
-            trend="up" trendLabel={`${ov.hired || 0} hires this period`} icon={Briefcase} accentColor="#f59e0b" delay={0.15} />
+            trendLabel={`${ov.hired || 0} hires this period`} icon={Briefcase} accentColor="#f59e0b" delay={0.15} />
         </div>
       )}
 
@@ -358,8 +355,12 @@ export default function RecruitmentAnalyticsPage() {
             <div className="flex justify-center">
               <div className="w-36 h-36 rounded-full border-[22px] border-slate-700 animate-pulse" />
             </div>
+          ) : sourceBreakdown ? (
+            <DonutChart data={sourceBreakdown} total={sourceTotal} />
           ) : (
-            <DonutChart data={data?.source_breakdown || []} total={sourceTotal} />
+            <div className="text-center py-10 text-slate-500 text-xs">
+              Source tracking is not available yet.
+            </div>
           )}
         </motion.div>
 
@@ -375,10 +376,7 @@ export default function RecruitmentAnalyticsPage() {
               <Target size={15} className="text-cyan-400" />
               Hiring Pipeline Conversion
             </h2>
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[11px] text-slate-400 font-medium">Live</span>
-            </div>
+            <span className="text-[11px] text-slate-500 font-medium">{period === '30d' ? 'Last 30 days' : period === '90d' ? 'Quarter' : 'Year to date'}</span>
           </div>
           {loading ? (
             <div className="space-y-3 pt-2">

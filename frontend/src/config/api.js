@@ -7,6 +7,18 @@ import { makeRetryable } from '../utils/apiRetry'
 // In production: uses environment variable VITE_API_BASE_URL or VITE_API_URL
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ''
 
+// Resolve a backend API path against the configured base URL.
+// Use this for EVERY non-axios request (raw fetch, EventSource, sendBeacon):
+// axios calls already go through `baseURL`, but raw fetch() with a relative
+// path silently hits the frontend origin in production (where the SPA rewrite
+// serves index.html instead of proxying /api).
+export const apiUrl = (path) => {
+  if (!path) return path
+  if (/^https?:\/\//i.test(path)) return path // already absolute
+  const base = API_BASE_URL.replace(/\/+$/, '')
+  return `${base}${path.startsWith('/') ? '' : '/'}${path}`
+}
+
 // Create axios instance with base configuration
 export const api = axios.create({
   baseURL: API_BASE_URL,

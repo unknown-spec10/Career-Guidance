@@ -8,6 +8,7 @@
  */
 import { useState, useRef, useCallback } from 'react'
 import secureStorage from '../utils/secureStorage'
+import { apiUrl } from '../config/api'
 
 export default function useStreamingText() {
   const [text, setText] = useState('')
@@ -33,7 +34,7 @@ export default function useStreamingText() {
 
     try {
       const token = secureStorage.getItem('token') || ''
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl(url), {
         headers: { Authorization: `Bearer ${token}` },
       })
 

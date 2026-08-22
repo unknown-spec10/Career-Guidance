@@ -374,14 +374,6 @@ export default function JobsPage() {
   const hasMoreRef = useRef(hasMore)
   const loadingRef = useRef(loading)
 
-  const [learningPathState, setLearningPathState] = useState({
-    loadingId: null,
-    error: null,
-    success: null,
-    successJobId: null,
-    path: null,
-  })
-
   const [filters, setFilters] = useState({
     q: '',
     location: '',
@@ -658,39 +650,6 @@ export default function JobsPage() {
       setSelectedJob(job)
     }
   }, [setSelectedJob])
-
-  const handleGenerateLearningPath = async (job) => {
-    if (!job?.id) return
-
-    setLearningPathState({
-      loadingId: job.id,
-      error: null,
-      success: null,
-      successJobId: null,
-      path: null,
-    })
-
-    try {
-      const response = await api.post(`/api/jobs/${job.id}/learning-path`)
-      const alreadyExists = response?.data?.already_exists
-
-      setLearningPathState({
-        loadingId: null,
-        error: null,
-        success: alreadyExists ? 'Learning path already exists for this job' : 'Learning path generated successfully (2 credits used)',
-        successJobId: job.id,
-        path: response.data,
-      })
-    } catch (error) {
-      const detail = error?.response?.data?.detail || 'Failed to generate learning path'
-      const status = error?.response?.status
-      if (status === 402) {
-        setLearningPathState({ loadingId: null, error: 'Insufficient credits. ' + detail, success: null, successJobId: null, path: null })
-      } else {
-        setLearningPathState({ loadingId: null, error: detail, success: null, successJobId: null, path: null })
-      }
-    }
-  }
 
   const resetFilters = () => {
     setFilters({
@@ -1308,23 +1267,9 @@ export default function JobsPage() {
                 <div className="bg-white/90 border border-slate-200 rounded-2xl p-5 shadow-sm">
                   <h3 className="text-lg font-bold text-slate-900 mb-2">Useful next steps</h3>
                   <p className="text-sm text-slate-600 leading-relaxed">
-                    Open the job application, review the required skills, and generate a learning path if you want a gap-focused plan before applying.
+                    Open the job application and review the required skills. To build a gap-focused study plan, complete a mock interview from your dashboard — the skill-gap analysis will generate a personalized learning path for the areas you missed.
                   </p>
                 </div>
-
-                {learningPathState.success && learningPathState.successJobId === selectedJob.id && (
-                  <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 border border-green-200 px-4 py-3 rounded-xl shadow-sm mt-3 animate-fade-in">
-                    <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-                    <span className="font-semibold">{learningPathState.success}</span>
-                  </div>
-                )}
-
-                {learningPathState.error && learningPathState.successJobId === selectedJob.id && (
-                  <div className="flex items-center gap-2 text-red-700 text-sm bg-red-50 border border-red-200 px-4 py-3 rounded-xl shadow-sm mt-3 animate-fade-in">
-                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
-                    <span className="font-semibold">{learningPathState.error}</span>
-                  </div>
-                )}
               </div>
 
               <div className="sticky bottom-0 z-10 bg-white/95 backdrop-blur-md border-t border-slate-100 p-6 flex gap-3 shadow-[0_-8px_30px_rgba(15,23,42,0.06)]">
@@ -1349,27 +1294,6 @@ export default function JobsPage() {
                       </>
                     ) : (
                       'Apply Now'
-                    )}
-                  </button>
-                )}
-                {showApplicantFeatures && (
-                  <button
-                    onClick={() => {
-                      handleGenerateLearningPath(selectedJob)
-                    }}
-                    disabled={learningPathState.loadingId === selectedJob.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50 disabled:opacity-60 transition-colors shadow-sm"
-                  >
-                    {learningPathState.loadingId === selectedJob.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating Path...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4" />
-                        Generate Learning Path
-                      </>
                     )}
                   </button>
                 )}

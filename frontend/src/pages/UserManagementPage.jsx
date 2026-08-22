@@ -49,97 +49,6 @@ function formatDate(dateStr) {
   })
 }
 
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-
-const MOCK_STATS = { total: 12450, active: 11200, flagged: 45, suspended: 205 }
-
-const MOCK_USERS = [
-  {
-    id: 1,
-    name: 'Marcus Johnson',
-    email: 'mjohnson@university.edu',
-    role: 'student',
-    status: 'active',
-    joined_at: '2023-10-12',
-    last_activity_at: new Date(Date.now() - 7200000).toISOString(),
-    last_activity_desc: 'Updated resume',
-    credits_used: 150,
-    credits_max: 200,
-  },
-  {
-    id: 2,
-    name: 'Sarah Williams',
-    email: 'sarah@techcorp.com',
-    role: 'employer',
-    status: 'suspended',
-    joined_at: '2024-01-05',
-    last_activity_at: new Date(Date.now() - 259200000).toISOString(),
-    last_activity_desc: 'Failed login attempt',
-    credits_used: 50,
-    credits_max: 500,
-  },
-  {
-    id: 3,
-    name: 'David Rodriguez',
-    email: 'admin@careersync.ai',
-    role: 'admin',
-    status: 'active',
-    joined_at: '2022-08-01',
-    last_activity_at: new Date().toISOString(),
-    last_activity_desc: 'System settings update',
-    credits_used: null,
-    credits_max: null,
-  },
-  {
-    id: 4,
-    name: 'Priya Sharma',
-    email: 'priya.sharma@college.edu',
-    role: 'student',
-    status: 'active',
-    joined_at: '2024-03-15',
-    last_activity_at: new Date(Date.now() - 3600000).toISOString(),
-    last_activity_desc: 'Viewed job listings',
-    credits_used: 30,
-    credits_max: 200,
-  },
-  {
-    id: 5,
-    name: 'James Carter',
-    email: 'james@startupxyz.io',
-    role: 'employer',
-    status: 'active',
-    joined_at: '2023-11-20',
-    last_activity_at: new Date(Date.now() - 86400000).toISOString(),
-    last_activity_desc: 'Posted new job',
-    credits_used: 300,
-    credits_max: 500,
-  },
-  {
-    id: 6,
-    name: 'Emily Chen',
-    email: 'emily.chen@uni.edu',
-    role: 'student',
-    status: 'flagged',
-    joined_at: '2024-02-10',
-    last_activity_at: new Date(Date.now() - 43200000).toISOString(),
-    last_activity_desc: 'Multiple failed uploads',
-    credits_used: 5,
-    credits_max: 200,
-  },
-  {
-    id: 7,
-    name: 'Robert Kim',
-    email: 'rkim@megacorp.com',
-    role: 'employer',
-    status: 'active',
-    joined_at: '2023-07-22',
-    last_activity_at: new Date(Date.now() - 172800000).toISOString(),
-    last_activity_desc: 'Reviewed applicants',
-    credits_used: 420,
-    credits_max: 500,
-  },
-]
-
 // ─── Role Avatar Colors ───────────────────────────────────────────────────────
 
 const ROLE_AVATAR_BG = {
@@ -469,15 +378,12 @@ function ActivityModal({ user, onClose }) {
       .then((res) => {
         if (!cancelled) setLogs(res.data?.activities || res.data || [])
       })
-      .catch(() => {
+      .catch((err) => {
         if (!cancelled) {
-          // Fallback mock logs
-          setLogs([
-            { id: 1, action: user.last_activity_desc || 'Viewed dashboard', timestamp: user.last_activity_at, ip: '192.168.1.1' },
-            { id: 2, action: 'Logged in', timestamp: new Date(Date.now() - 86400000).toISOString(), ip: '192.168.1.1' },
-            { id: 3, action: 'Updated profile', timestamp: new Date(Date.now() - 172800000).toISOString(), ip: '10.0.0.5' },
-          ])
-          setError(null)
+          // Honest failure state — no fabricated activity entries.
+          console.error('Failed to load activity log:', err)
+          setLogs([])
+          setError('Failed to load activity log. Please try again.')
         }
       })
       .finally(() => {
@@ -567,11 +473,12 @@ const ROLE_TABS = ['all', 'student', 'employer', 'admin']
 const ROLE_TAB_LABELS = { all: 'All', student: 'Students', employer: 'Employers', admin: 'Admins' }
 
 export default function UserManagementPage() {
-  const { addToast } = useToast()
+  const toast = useToast()
+  const { addToast } = toast
 
   // Data state
   const [users, setUsers] = useState([])
-  const [stats, setStats] = useState(MOCK_STATS)
+  const [stats, setStats] = useState({ total: 0, active: 0, flagged: 0, suspended: 0 })
   const [totalUsers, setTotalUsers] = useState(0)
   const [usersLoading, setUsersLoading] = useState(true)
 
@@ -601,13 +508,14 @@ export default function UserManagementPage() {
       const res = await api.get('/api/admin/stats')
       const d = res.data
       setStats({
-        total: d.total_users ?? MOCK_STATS.total,
-        active: d.active_users ?? MOCK_STATS.active,
-        flagged: d.flagged_users ?? MOCK_STATS.flagged,
-        suspended: d.suspended_users ?? MOCK_STATS.suspended,
+        total: d.total_users ?? 0,
+        active: d.active_users ?? 0,
+        flagged: d.flagged_users ?? 0,
+        suspended: d.suspended_users ?? 0,
       })
     } catch {
-      setStats(MOCK_STATS)
+      // Honest failure state — never substitute fabricated numbers.
+      setStats({ total: 0, active: 0, flagged: 0, suspended: 0 })
     }
   }, [])
 
@@ -626,26 +534,12 @@ export default function UserManagementPage() {
         }
         const res = await api.get('/api/admin/users', { params })
         const data = res.data
-        if (data?.users?.length) {
-          setUsers(data.users)
-          setTotalUsers(data.total ?? data.users.length)
-        } else {
-          throw new Error('empty')
-        }
-      } catch {
-        // Apply client-side mock filtering
-        let filtered = [...MOCK_USERS]
-        if (roleFilter !== 'all') filtered = filtered.filter((u) => u.role === roleFilter)
-        if (statusFilter) filtered = filtered.filter((u) => u.status === statusFilter)
-        if (currentSearch) {
-          const q = currentSearch.toLowerCase()
-          filtered = filtered.filter(
-            (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-          )
-        }
-        setTotalUsers(filtered.length)
-        const start = (currentPage - 1) * LIMIT
-        setUsers(filtered.slice(start, start + LIMIT))
+        setUsers(data?.users || [])
+        setTotalUsers(data?.total ?? data?.users?.length ?? 0)
+      } catch (err) {
+        console.error('Failed to load users:', err)
+        setUsers([])
+        setTotalUsers(0)
       } finally {
         setUsersLoading(false)
       }
@@ -700,16 +594,13 @@ export default function UserManagementPage() {
 
     try {
       await api.post(`/api/admin/users/${user.id}/toggle-active`)
-      addToast({
-        type: 'success',
-        message: `${user.name} has been ${newStatus === 'active' ? 'activated' : 'suspended'}.`,
-      })
+      addToast(`${user.name} has been ${newStatus === 'active' ? 'activated' : 'suspended'}.`, 'success')
     } catch {
       // Revert
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
       )
-      addToast({ type: 'error', message: 'Failed to update user status. Please try again.' })
+      addToast('Failed to update user status. Please try again.', 'error')
     } finally {
       setToggleLoadingId(null)
     }
@@ -721,11 +612,11 @@ export default function UserManagementPage() {
     setCreditsLoading(true)
     try {
       await api.post('/api/admin/credits/adjust', { user_id, amount, reason })
-      addToast({ type: 'success', message: 'Credits adjusted successfully.' })
+      addToast('Credits adjusted successfully.', 'success')
       setCreditsModal(null)
       fetchUsers(page, search)
     } catch {
-      addToast({ type: 'error', message: 'Failed to adjust credits. Please try again.' })
+      addToast('Failed to adjust credits. Please try again.', 'error')
     } finally {
       setCreditsLoading(false)
     }
@@ -748,7 +639,7 @@ export default function UserManagementPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-6">
-      <ToastContainer />
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
 
       {/* ── Page Header ── */}
       <div className="mb-7">
@@ -762,8 +653,8 @@ export default function UserManagementPage() {
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
-        <KpiCard icon={Users} label="Total Users" value={stats.total} iconBg="bg-blue-500" trend="+3.2% this month" />
-        <KpiCard icon={UserCheck} label="Active Users" value={stats.active} iconBg="bg-emerald-500" trend="+1.8% this week" />
+        <KpiCard icon={Users} label="Total Users" value={stats.total} iconBg="bg-blue-500" />
+        <KpiCard icon={UserCheck} label="Active Users" value={stats.active} iconBg="bg-emerald-500" />
         <KpiCard icon={Flag} label="Flagged Accounts" value={stats.flagged} iconBg="bg-amber-500" />
         <KpiCard icon={Ban} label="Suspended" value={stats.suspended} iconBg="bg-red-500" />
       </div>

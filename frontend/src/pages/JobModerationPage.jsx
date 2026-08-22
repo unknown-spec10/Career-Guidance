@@ -95,17 +95,15 @@ export default function JobModerationPage() {
   }
 
   // Filter jobs based on search & tab
+  // NOTE: there is no backend "flagged" concept for jobs. The previous
+  // `job.id % 2` demo heuristic fabricated a moderation signal and was removed.
   const filteredJobs = jobs.filter(job => {
-    const matchesSearch = 
+    const matchesSearch =
       job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       String(job.id).includes(searchQuery)
-    
-    // Simple mock heuristic for flagging: odd IDs are flagged (demo purposes)
-    const isFlagged = job.id % 2 !== 0
-    const matchesTab = filterType === 'all' || (filterType === 'flagged' && isFlagged)
-    
-    return matchesSearch && matchesTab
+
+    return matchesSearch
   })
 
   return (
@@ -152,7 +150,6 @@ export default function JobModerationPage() {
                 onChange={(e) => setFilterType(e.target.value)}
               >
                 <option value="all">All Jobs</option>
-                <option value="flagged">Flagged</option>
               </select>
             </div>
 
@@ -203,11 +200,6 @@ export default function JobModerationPage() {
                           <span className="text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded border border-amber-500/20">
                             Pending
                           </span>
-                          {isFlagged && (
-                            <span className="text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded border border-rose-500/20 flex items-center gap-0.5">
-                              <AlertTriangle size={10} /> Flagged
-                            </span>
-                          )}
                         </div>
                       </div>
                     )

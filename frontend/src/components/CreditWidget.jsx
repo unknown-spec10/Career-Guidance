@@ -192,16 +192,16 @@ const CreditWidget = ({ compact = false }) => {
                   </div>
                 </div>
 
-                {/* Costs Grid */}
+                {/* Costs Grid — values from the API `costs` object (authoritative) */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4 text-center">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Mock Practice</div>
-                    <div className="text-lg font-extrabold text-slate-800">1 Credit / Q</div>
+                    <div className="text-lg font-extrabold text-slate-800">{costs?.micro_session ?? 1} Credit{(costs?.micro_session ?? 1) === 1 ? '' : 's'} / Q</div>
                     <div className="text-[9px] font-semibold text-slate-400 tracking-wide mt-1">Deducted per response</div>
                   </div>
                   <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4 text-center">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Learning Path</div>
-                    <div className="text-lg font-extrabold text-slate-800">2 Credits</div>
+                    <div className="text-lg font-extrabold text-slate-800">{costs?.learning_path ?? 10} Credits</div>
                     <div className="text-[9px] font-semibold text-slate-400 tracking-wide mt-1">Deducted per roadmap</div>
                   </div>
                 </div>
