@@ -53,3 +53,7 @@ How we test the code and secure user accounts:
 
 * **[Testing & Verification](operations/testing.md)**: Pytest suite parameters, mock testing, and ESLint rules.
 * **[Security Audit Report](operations/security_audit_report.md)**: Detailed dependency analysis, vulnerabilities, and remediation roadmaps.
+
+### 5. Implementation Status
+
+* **[Implementation Status Register](IMPLEMENTATION_STATUS.md)**: Honest per-feature completion state (complete / partial / broken / mocked / missing / deferred). Read this before claiming any feature works.

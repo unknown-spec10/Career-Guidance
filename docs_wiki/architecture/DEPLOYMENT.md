@@ -225,7 +225,7 @@ We have established a fully automated CI/CD pipeline at `.github/workflows/ci-cd
 
 #### Pipeline Flow:
 1. **Frontend CI (Lint & Build Check)**: Verifies frontend changes on all Pull Requests and Pushes targeting `main` by installing dependencies, checking for code quality (`eslint`), and verifying compilation (`vite build`).
-2. **Backend CI (Unit Tests)**: Sets up Python 3.11, caches packages, downloads CPU-optimized PyTorch, and runs the entire `pytest` unit test suite under mock LLM conditions (`GEMINI_MOCK_MODE=true`).
+2. **Backend CI (Unit Tests)**: Sets up Python 3.11, caches packages, downloads CPU-optimized PyTorch, and runs the pytest suite under mock LLM conditions (`GEMINI_MOCK_MODE=true`). **Note:** CI currently *excludes* five test modules via `--ignore` flags in `ci-cd.yml`: `test_api.py`, `test_interview.py`, `test_learning_path.py`, `test_recommendation_fallback.py`, and `test_recommendation_system.py`. The executed suite therefore does not cover the full codebase despite the step's name.
 3. **Docker Build & Push**: On merging/pushing to the `main` branch, it builds the backend Docker image and pushes it to Docker Hub under two tags: `:latest` and a unique commit SHA tag `:${{ github.sha }}`.
 4. **AWS EC2 SSH Deploy**: Connects securely to the EC2 instance, checks out the latest code to pull Docker Compose config changes, triggers a remote `docker compose pull`, and restarts the containers using the environment variables inside `.env.aws`. Finally, it waits 30 seconds for the backend service to fully initialize and executes `verify_data.py` as a non-fatal check to ensure database connectivity (preventing OOM errors on low-memory hosts from failing the deployment).
 

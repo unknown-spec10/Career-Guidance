@@ -45,18 +45,18 @@ Career Guidence/
 ├── resume_pipeline/       # FastAPI backend (Python 3.11)
 │   ├── resume_pipeline/   # Main package
 │   │   ├── app.py         # Entry point; all routes, CORS, startup
-│   │   ├── db.py          # SQLAlchemy models (18 tables)
+│   │   ├── db.py          # SQLAlchemy models (31 tables, 16 PG enums)
 │   │   ├── config.py      # Settings from .env via pydantic-settings
 │   │   ├── constants.py   # RECOMMENDATION_WEIGHTS, CREDIT_CONFIG, API_MESSAGES
 │   │   ├── schemas.py     # Pydantic v2 request/response models
 │   │   ├── auth.py        # JWT + bcrypt; require_role() guard
 │   │   ├── utils.py       # File save/hash, XSS sanitization
-│   │   ├── resume/        # Parsing: LLM, OCR, skill mapping
-│   │   ├── interview/     # Interview service (Gemini-based scoring)
+│   │   ├── resume/        # Parsing: Groq parallel extraction + Gemini vision OCR, skill mapping
+│   │   ├── interview/     # Interview service (Groq-based generation/scoring via llm_router)
 │   │   ├── core/          # CreditService, abstract interfaces
-│   │   ├── recommendation/# Scoring engine for colleges & jobs
-│   │   ├── rag/           # FAISS vector store, RAG Q&A pipeline
-│   │   └── repos/         # Repository pattern (PostgreSQL impl)
+│   │   ├── recommendation/# Scoring engine for jobs
+│   │   ├── rag/           # BM25 + TF-IDF hybrid retrieval over repo docs (no FAISS), Gemini RAG Q&A
+│   │   └── repos/         # Repository pattern (PostgreSQL impl) — currently orphaned/dead code
 │   ├── tests/             # pytest test suite
 │   └── scripts/           # DB init/seed/verify helpers
 ├── data/raw_files/        # Per-applicant file storage (app_<uuid>/)
@@ -81,8 +81,11 @@ pip install -r requirements.txt
 uvicorn resume_pipeline.app:app --reload --port 8000
 
 # Database management
-python scripts/init_db.py        # Drop & recreate all 18 tables
+python scripts/init_db.py        # DESTRUCTIVE: drops & recreates all tables (dev ONLY)
+alembic upgrade head             # Apply pending migrations (SAFE — use this for real DBs)
+alembic revision -m "..."        # Create a new incremental migration
 python scripts/seed_database.py  # Populate sample data
+python scripts/seed_canonical_skills.py  # Seed skill taxonomy + credit config keys
 python scripts/verify_data.py    # Verify data integrity
 ```
 
@@ -112,7 +115,6 @@ pytest tests/ -v           # Verbose
 
 ```powershell
 pytest tests/test_parsing.py -v        # Unit tests (no server needed)
-pytest tests/test_api.py -v            # Integration tests (auto-skip if server down)
 pytest tests/test_rag_concurrency.py -v
 ```
 
@@ -121,7 +123,6 @@ pytest tests/test_rag_concurrency.py -v
 ```powershell
 pytest tests/test_parsing.py::test_text_extraction -v
 pytest tests/test_parsing.py::test_skill_mapping -v
-pytest tests/test_api.py::test_upload_endpoint -v
 
 # Show print() output
 pytest tests/test_parsing.py::test_cgpa_normalization -v -s
@@ -130,8 +131,14 @@ pytest tests/test_parsing.py::test_cgpa_normalization -v -s
 ### Notes on tests
 
 - `test_parsing.py` — pure unit tests; no server required.
-- `test_api.py` — integration; auto-skips via `pytest.skip()` if `localhost:8000` is not running.
 - `test_rag_concurrency.py` — uses `unittest.mock` + `tempfile`; no external dependencies.
+- `test_security_perimeter.py`, `test_interview_abandon.py`, `test_credit_durability.py`,
+  `test_code_hardening.py`, `test_evaluation_recovery.py`, `test_env_validation.py`,
+  `test_migrations.py` — sqlite/TestClient regression suites added by the completion
+  cycle (auth perimeter, BOLA, credits atomicity/refunds, code lockouts, abandon
+  HMAC flow, evaluation retry, env validation, migration chain). No server or real
+  DB needed.
+- `test_api.py` — a single live-key Gemini connectivity smoke test only; it is NOT an integration suite and is excluded from CI (`ci-cd.yml` also ignores test_interview, test_learning_path, test_recommendation_fallback, test_recommendation_system).
 - Set `GEMINI_MOCK_MODE=true` in `.env` to stub LLM calls during testing.
 - No frontend test framework is configured (no Jest/Vitest).
 
@@ -307,7 +314,7 @@ import StatusBadge from '../components/StatusBadge'
 - **Session pooler host**: `aws-1-ap-south-1.pooler.supabase.com` (port `5432` or transaction pooler port `6543`).
 - **Username**: `postgres.taalckzdvzxaigpdseme` (standard Supabase pooler credentials format).
 - **Database**: `postgres`
-- Migration schemas define all 29 tables and 21 enums.
+- Migration strategy: **Alembic** (`alembic.ini` + `alembic/`), wired to the app's PG settings. Baseline migration `0001_baseline` is a non-destructive `create_all(checkfirst=True)`; all schema changes after it must be incremental revisions. Apply with `alembic upgrade head`. Legacy destructive scripts (`scripts/init_db.py`, drop/recreate migrators) are dev-only and must never run against real databases.
 
 ### Key Deployment Conventions
 

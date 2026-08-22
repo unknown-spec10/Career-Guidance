@@ -1,6 +1,8 @@
 # Career Guidance AI System (v0.5)
 
-An advanced, premium AI-powered career guidance platform designed to orchestrate intelligent resume parsing, semantic skill normalization, college suitability grading, job recommendation, and interactive mock interview practice with live AI feedback.
+An advanced, premium AI-powered career guidance platform designed to orchestrate intelligent resume parsing, semantic skill normalization, job recommendation, and interactive mock interview practice with live AI feedback.
+
+> **Note:** The college-suitability domain was removed from the codebase (see `resume_pipeline/scripts/drop_college_domain.py`); older documents referencing college grading are obsolete. Live/real-time WebSocket interviews remain a documented proposal (see `docs_wiki/architecture/LIVE_INTERVIEW_ARCHITECTURE.md`) and are **not implemented**.
 
 ---
 
@@ -44,8 +46,8 @@ Career Guidence/
 │       └── .env.aws.example
 ├── frontend/              # React 18 + Vite 5 + Tailwind CSS + Framer Motion (JavaScript/JSX)
 │   ├── src/
-│   │   ├── components/    # Reusable UI (CreditWidget, ApplicationTracker, etc. with Portals)
-│   │   ├── pages/         # Core views (StudentDashboard, LiveInterview, LearningPaths)
+   │   │   ├── components/    # Reusable UI (CreditWidget, ApplicationTracker, etc. with Portals)
+   │   │   ├── pages/         # Core views (StudentDashboard, LearningPaths, Interview flows)
 │   │   └── config/        # API and local state secure storage config
 ├── resume_pipeline/       # FastAPI backend (Python 3.11)
 │   ├── resume_pipeline/   # Main package
@@ -54,9 +56,9 @@ Career Guidence/
 │   │   ├── config.py      # Pydantic v2 settings (environment-injected)
 │   │   ├── constants.py   # CREDIT_CONFIG, API_MESSAGES, RECOMMENDATION_WEIGHTS
 │   │   ├── resume/        # Parsing: Groq extractor, Gemini Vision preprocessor, fuzzy skill taxomony
-│   │   ├── interview/     # Gemini audio interview session scoring engine
+│   │   ├── interview/     # Interview service (Groq-based generation/scoring via llm_router)
 │   │   ├── core/          # CreditService, abstract base interfaces
-│   │   ├── rag/           # FAISS vector store + Groq RAG Q&A pipeline
+│   │   ├── rag/           # BM25 + TF-IDF hybrid retrieval over repo docs, Gemini RAG Q&A
 │   │   └── repos/         # Repository pattern for database decoupling
 │   ├── tests/             # Pytest suite
 │   └── scripts/           # DB init, sample data seeding, and integrity verification
@@ -73,8 +75,8 @@ Career Guidence/
 - **Google Gemini API**: Scanned PDF OCR-Vision preprocessing + skill embedding generation
 - **SQLAlchemy 2.0**: Modern database mapper using the Repository Pattern
 - **psycopg2-binary**: PostgreSQL adapter
-- **PGVector**: Database vector columns for RAG and semantic searches
-- **Sentence-Transformers & FAISS**: Core RAG vector indexing and Q&A engine
+- **PGVector**: Database vector columns used as embedding caches for the recommendation pipeline (similarity is computed in application code, not via in-database ANN queries)
+- **BM25 + TF-IDF Hybrid Retrieval**: Custom in-memory retrieval engine powering the RAG Q&A assistant over project documentation (no external vector DB)
 - **Pydantic v2**: Structured runtime validation and settings management
 - **JWT + bcrypt**: Token-based authentication and secure password encryption
 - **smtplib**: Automated email verification with 6-digit verification code workflow
@@ -158,14 +160,16 @@ npm run dev
 
 ## 📊 Database Schema Summary
 
-The relational layout consists of **18 PostgreSQL tables** built using SQLAlchemy:
+The relational layout consists of **31 PostgreSQL tables** built using SQLAlchemy (16 native PG enums):
 
 *   **Core Accounts**: `users`, `applicants`, `uploads`, `llm_parsed_records`
-*   **Vector & Taxonomy**: `embeddings_index`, `canonical_skills`
-*   **College Portal**: `colleges`, `college_eligibility`, `college_programs`, `college_metadata`, `college_recommendations`, `college_applicability_logs`
-*   **Job Portal**: `employers`, `jobs`, `job_metadata`, `job_recommendations`
-*   **AI Quota Audit**: `credit_accounts`, `credit_transactions`, `credit_usage_stats`
-*   **Interview Engine**: `interview_sessions`, `interview_questions`, `interview_answers`, `learning_paths`
+*   **Vector & Taxonomy**: `embeddings_index`, `applicant_embeddings`, `job_embeddings`, `job_embeddings_cache`, `canonical_skills`
+*   **Job Portal**: `employers`, `jobs`, `job_metadata`, `job_recommendations`, `job_applications`
+*   **AI Quota Audit**: `credit_accounts`, `credit_transactions`, `credit_usage_stats`, `audit_logs`, `human_reviews`
+*   **Interview Engine**: `interview_sessions`, `interview_questions`, `interview_answers`, `learning_paths`, `skill_assessments`, `system_configurations`
+*   **Networking**: `mentors`, `mentor_requests`, `interview_schedules`, `interview_feedbacks`
+
+> The former college-portal tables (`colleges`, `college_eligibility`, etc.) were removed; run `resume_pipeline/scripts/drop_college_domain.py` to purge them from pre-existing databases.
 
 ---
 
@@ -175,11 +179,11 @@ To ensure fair-use protection and safeguard against massive API cost overruns:
 
 *   **Base Allocation**: 60 credits allocated on user creation.
 *   **Automatic Refills**: Full credit reset every 7 days (caps at a 120-credit cumulative ceiling).
-*   **Execution Costs**:
+*   **Execution Costs** (authoritative source: `resume_pipeline/resume_pipeline/constants.py` `CREDIT_CONFIG`):
     *   *Full Mock Session*: 10 Credits
     *   *Micro Practice Answer*: 1 Credit
-    *   *Coding Challenge Generation*: 2 Credits
-    *   *Skill Roadmap Blueprint*: 2 Credits
+    *   *Coding Question*: 1 Credit *(priced/metered only — no coding-question endpoint exists yet)*
+    *   *Skill Roadmap Blueprint (Learning Path)*: 10 Credits
     *   *Recommendation Quota Bypass*: 5 Credits
 *   **The Recommendation Cooldown System**:
     *   Recommendations are locked for **24 hours** after generation.

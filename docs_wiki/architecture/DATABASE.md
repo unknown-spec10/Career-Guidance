@@ -14,33 +14,35 @@ Legacy college-domain tables and enum values should be removed from existing dat
 
 ## Core Tables
 
+The schema currently defines **31 tables / 16 native PG enums** (verify against `db.py`; earlier documents citing 18 or 29 tables are outdated). Verification/reset codes and password-reset codes are **columns on `users`**, not separate tables.
+
 ### Identity and Access
 
-- `users`
-- `email_verification_tokens`
-- `password_reset_codes`
+- `users` (incl. `verification_code`, `password_reset_token` columns)
 - `audit_logs`
+- `human_reviews`
 
 ### Student Profile and Parsing
 
 - `applicants`
 - `uploads`
 - `llm_parsed_records`
-- `embeddings`
+- `embeddings_index`, `applicant_embeddings`, `job_embeddings`, `job_embeddings_cache` (pgvector caches)
 
 ### Recruiter and Jobs
 
 - `employers`
-- `jobs`
+- `jobs`, `job_metadata`
 - `job_applications`
 - `job_recommendations`
 
-### Interview and Credits
+### Interview, Credits, and Networking
 
-- `interview_sessions`
-- `interview_questions`
-- `credit_accounts`
-- `credit_transactions`
+- `interview_sessions`, `interview_questions`, `interview_answers`
+- `learning_paths`, `skill_assessments` *(no writer endpoint yet)*
+- `credit_accounts`, `credit_transactions`, `credit_usage_stats`
+- `mentors`, `mentor_requests`, `interview_schedules`, `interview_feedbacks`
+- `canonical_skills`, `system_configurations`
 
 Exact table names and ORM definitions are in [resume_pipeline/resume_pipeline/db.py](../resume_pipeline/resume_pipeline/db.py).
 

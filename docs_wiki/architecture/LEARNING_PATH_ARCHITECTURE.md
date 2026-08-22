@@ -2,7 +2,7 @@
 
 **Project:** Career Guidance AI  
 **Scope:** Replace Gemini/Google Custom Search with a free, self-contained stack for YouTube resource discovery  
-**Status:** Design document — no existing backend routes or generation logic currently in place
+**Status:** Implemented — `resume_pipeline/resume_pipeline/interview/learning_path_generator.py` + `/api/learning-paths/*` routes (this document is the original design spec; where it conflicts with code, the code is authoritative, e.g. credit cost)
 
 ---
 
@@ -171,7 +171,7 @@ InterviewAnswer scores + missing_concepts populated by Groq evaluator
     skill_gaps, recommended_courses, recommended_projects, practice_problems,
     topics_outline, priority_skills, status)
   
-  Deduct LEARNING_PATH_GENERATION_COST (2 credits) from CreditAccount
+  Deduct LEARNING_PATH_GENERATION_COST (currently **10 credits** — see `constants.py`) from CreditAccount
          │
          ▼
 [Response to Frontend]
@@ -369,7 +369,7 @@ This protects against:
 
 ## 10. Credit Integration
 
-The credit system (`CreditAccount`, `CreditTransaction`) is already built. Learning path generation uses `LEARNING_PATH_GENERATION_COST = 2` credits, already defined in `constants.py`.
+The credit system (`CreditAccount`, `CreditTransaction`) is already built. Learning path generation uses `LEARNING_PATH_GENERATION_COST = 10` credits (current value in `constants.py`; it may also be overridden at runtime via the `learning_path_generation_cost` `SystemConfiguration` key). Earlier revisions of this document stated 2 credits — that no longer matches the code and has been corrected here.
 
 The flow mirrors what the interview session does:
 
