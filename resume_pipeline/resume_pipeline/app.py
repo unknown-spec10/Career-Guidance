@@ -59,6 +59,58 @@ from .repos.factory import DatabaseFactory
 # Rate limiting storage (in-memory, consider Redis for production)
 rate_limiting_storage = defaultdict(list)
 
+# Failed verification/reset-code attempt tracking.
+# BACKED BY THE security_attempts TABLE (migration 0007) so lockouts hold
+# across multiple workers/processes — unlike rate_limiting_storage above,
+# which remains per-process and is only a soft DoS guard.
+MAX_CODE_ATTEMPTS = 5            # failed tries before the code is invalidated
+CODE_ATTEMPT_WINDOW_SECONDS = 900  # 15 minutes
+
+
+def _prune_attempts(db: Session, key: str) -> None:
+    """Delete expired attempt rows for this key."""
+    from .db import SecurityAttempt
+    cutoff = dt.datetime.utcnow() - dt.timedelta(seconds=CODE_ATTEMPT_WINDOW_SECONDS)
+    db.query(SecurityAttempt).filter(
+        SecurityAttempt.attempt_key == key,
+        SecurityAttempt.created_at < cutoff,
+    ).delete(synchronize_session=False)
+
+
+def _count_attempts(db: Session, key: str) -> int:
+    from .db import SecurityAttempt
+    cutoff = dt.datetime.utcnow() - dt.timedelta(seconds=CODE_ATTEMPT_WINDOW_SECONDS)
+    return db.query(SecurityAttempt).filter(
+        SecurityAttempt.attempt_key == key,
+        SecurityAttempt.created_at >= cutoff,
+    ).count()
+
+
+def _record_failed_code_attempt(db: Session, key: str) -> int:
+    """Record a failed code attempt; returns the number of recent failures."""
+    from .db import SecurityAttempt
+    _prune_attempts(db, key)
+    db.add(SecurityAttempt(attempt_key=key))
+    db.commit()
+    return _count_attempts(db, key)
+
+
+def _clear_code_attempts(db: Session, key: str) -> None:
+    from .db import SecurityAttempt
+    db.query(SecurityAttempt).filter(
+        SecurityAttempt.attempt_key == key
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
+def _code_attempts_exceeded(db: Session, key: str) -> bool:
+    return _count_attempts(db, key) >= MAX_CODE_ATTEMPTS
+
+
+def _email_throttle_count(db: Session, key: str) -> int:
+    """Recent throttle-counter value for email-send caps (forgot/resend)."""
+    return _count_attempts(db, key)
+
 def _mask(val: Optional[str], keep: int = 4) -> str:
     if not val:
         return "<unset>"
@@ -92,11 +144,22 @@ def validate_env():
         errors.append("PG_DB is missing (or provide PG_DSN)")
 
     # Critical: JWT Secret Key
+    # A strong secret is mandatory in ANY production environment (APP_ENV=production
+    # or a managed PaaS such as Render/AWS). Local development may run with a weak
+    # key but receives a loud warning.
     secret = settings.SECRET_KEY or ""
+    is_production = (
+        os.environ.get("RENDER") is not None
+        or getattr(settings, "APP_ENV", "development").lower() == "production"
+    )
     if len(secret) < 32:
-        warnings.append("SECRET_KEY should be at least 32 characters long")
-    if os.environ.get("RENDER") and len(secret) < 32:
-        errors.append("SECRET_KEY is missing or too short for production")
+        if is_production:
+            errors.append(
+                "SECRET_KEY is missing or shorter than 32 characters "
+                "(required because APP_ENV=production or a production platform was detected)"
+            )
+        else:
+            warnings.append("SECRET_KEY should be at least 32 characters long")
 
     # Important: Gemini API (warn if not set, as it may use mock mode)
     if not settings.GEMINI_API_KEY:
@@ -180,6 +243,58 @@ def get_job_repo():
     session = SessionLocal()
     return PGJobRepository(session)
 
+
+def resolve_applicant(db: Session, applicant_id) -> Optional["Applicant"]:
+    """Resolve an applicant identifier (integer DB id or external ``app_<uuid>`` string)."""
+    try:
+        if str(applicant_id).isdigit():
+            found = db.query(Applicant).filter(Applicant.id == int(applicant_id)).first()
+            if found:
+                return found
+    except (TypeError, ValueError):
+        pass
+    return db.query(Applicant).filter(Applicant.applicant_id == str(applicant_id)).first()
+
+
+def authorize_applicant_access(db: Session, current_user, applicant, employer_scoped: bool = True):
+    """Raise HTTPException unless current_user may access this applicant.
+
+    Policy:
+      - admin: any applicant.
+      - student: only their own applicant profile.
+      - employer: only applicants with at least one application to one of the
+        employer's jobs (when employer_scoped=True).
+    """
+    role = getattr(current_user, "role", None)
+    if role == "admin":
+        return
+    if role == "student":
+        if getattr(applicant, "user_id", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You do not own this profile."
+            )
+        return
+    if employer_scoped and role == "employer":
+        from .db import Employer, JobApplication, Job
+        employer = db.query(Employer).filter(Employer.user_id == current_user.id).first()
+        if employer:
+            linked = (
+                db.query(JobApplication.id)
+                .join(Job, JobApplication.job_id == Job.id)
+                .filter(
+                    JobApplication.applicant_id == applicant.id,
+                    Job.employer_id == employer.id,
+                )
+                .first()
+            )
+            if linked:
+                return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access denied. You do not have permission to view this applicant."
+    )
+
 # File size validation
 async def validate_file_size(file: UploadFile, max_size_mb: int = MAX_FILE_SIZE_MB):
     """Validate uploaded file size"""
@@ -253,7 +368,9 @@ async def startup_event():
     try:
         # Validate environment variables first
         validate_env()
-        logger.info(f"DB DSN resolved to: {settings.PG_DSN}")
+        # Never log the full DSN — it contains the database password.
+        logger.info("DB DSN resolved (credentials masked): host=%s db=%s user=%s",
+                    _mask(settings.PG_HOST), _mask(settings.PG_DB), _mask(settings.PG_USER))
 
         if IS_SUPABASE:
             # Supabase: database is cloud-managed — skip CREATE DATABASE entirely
@@ -366,7 +483,18 @@ async def startup_event():
         except Exception as e:
             # Under SQLite or if already altered, we safely ignore
             pass
-        
+
+        # Job expiry sweep: transition approved jobs whose expires_at has
+        # passed out of the active set (public listings also filter by date,
+        # so this is a consistency measure, not a correctness dependency).
+        try:
+            from .background_tasks import cleanup_expired_jobs_async
+            expired_count = cleanup_expired_jobs_async()
+            if expired_count:
+                logger.info(f"✓ Startup job-expiry sweep marked {expired_count} job(s) as expired")
+        except Exception as e:
+            logger.warning(f"Startup job-expiry sweep failed: {e}")
+
         # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible)
         try:
             from .rag.rag_service import get_rag_service
@@ -569,7 +697,21 @@ async def login(
 @app.get("/api/auth/me", response_model=UserResponse)
 async def get_current_user_info(current_user = Depends(get_current_user)):
     """Get current user information"""
-    return current_user
+    logger.info(f"get_current_user_info called for user: {current_user.email} (id: {current_user.id})")
+    logger.info(f"current_user.profile_picture_url in DB: {current_user.profile_picture_url}")
+    user_response = UserResponse.model_validate(current_user)
+    if settings.STORAGE_BACKEND in ("s3", "gcs") and user_response.profile_picture_url:
+        url = user_response.profile_picture_url
+        if "avatars/" in url:
+            key = "avatars/" + url.split("avatars/")[-1]
+            from .core.storage import get_storage_client
+            try:
+                storage_client = get_storage_client()
+                user_response.profile_picture_url = storage_client.get_file_url(key, expires_in=3600)
+            except Exception as e:
+                logger.warning(f"Failed to generate presigned URL for avatar: {e}")
+    logger.info(f"user_response.profile_picture_url returned: {user_response.profile_picture_url}")
+    return user_response
 
 
 @app.get("/api/auth/google/login")
@@ -783,8 +925,10 @@ async def change_password(
     # Update password
     new_hash = get_password_hash(new_password)
     setattr(user, 'password_hash', new_hash)
+    # Revoke all existing JWTs for this account (tokens issued before now die).
+    setattr(user, 'password_changed_at', dt.datetime.utcnow())
     db.commit()
-    
+
     return {"status": "success", "message": "Password changed successfully"}
 
 
@@ -851,7 +995,7 @@ async def upload_profile_picture(
         old_avatar = getattr(user, "profile_picture_url", None)
         if old_avatar:
             old_key = None
-            if settings.STORAGE_BACKEND == "s3":
+            if settings.STORAGE_BACKEND in ("s3", "gcs"):
                 if f"avatars/{current_user.id}/" in old_avatar:
                     parts = old_avatar.split(f"avatars/{current_user.id}/")
                     if len(parts) > 1:
@@ -877,17 +1021,24 @@ async def upload_profile_picture(
         )
         
     # 5. Save URL to database
-    if settings.STORAGE_BACKEND == "s3":
-        avatar_url = f"https://{settings.S3_BUCKET_NAME}.s3.{settings.S3_REGION or settings.AWS_REGION}.amazonaws.com/{avatar_key}"
+    # 5. Save URL to database
+    if settings.STORAGE_BACKEND in ("s3", "gcs"):
+        try:
+            avatar_display_url = storage_client.get_file_url(avatar_key, expires_in=3600)
+            avatar_url = avatar_display_url
+        except Exception:
+            avatar_url = f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{avatar_key}" if settings.STORAGE_BACKEND == "gcs" else f"https://{settings.S3_BUCKET_NAME}.s3.{settings.S3_REGION or settings.AWS_REGION}.amazonaws.com/{avatar_key}"
+            avatar_display_url = avatar_url
     else:
         avatar_url = f"/static/{avatar_key}"
+        avatar_display_url = avatar_url
         
     setattr(user, "profile_picture_url", avatar_url)
     db.commit()
     
     return {
         "status": "success",
-        "profile_picture_url": avatar_url,
+        "profile_picture_url": avatar_display_url,
         "message": "Profile picture updated successfully"
     }
 
@@ -911,7 +1062,7 @@ async def delete_profile_picture(
         
     storage_client = get_storage_client()
     old_key = None
-    if settings.STORAGE_BACKEND == "s3":
+    if settings.STORAGE_BACKEND in ("s3", "gcs"):
         if f"avatars/{current_user.id}/" in old_avatar:
             parts = old_avatar.split(f"avatars/{current_user.id}/")
             if len(parts) > 1:
@@ -1030,6 +1181,18 @@ async def get_student_profile(
         else:
             summary = "Resume parsed successfully."
     
+    # Generate a presigned URL for the profile picture if stored in S3
+    profile_pic = getattr(current_user, "profile_picture_url", None)
+    if settings.STORAGE_BACKEND in ("s3", "gcs") and profile_pic:
+        if "avatars/" in profile_pic:
+            key = "avatars/" + profile_pic.split("avatars/")[-1]
+            from .core.storage import get_storage_client
+            try:
+                storage_client = get_storage_client()
+                profile_pic = storage_client.get_file_url(key, expires_in=3600)
+            except Exception as e:
+                logger.warning(f"Failed to generate presigned URL for avatar: {e}")
+
     return {
         "applicant_id": applicant.id,
         "display_name": applicant.display_name or current_user.name,
@@ -1041,7 +1204,8 @@ async def get_student_profile(
         "jee_rank": normalized.get("jee_rank"),
         "summary": summary,
         "personal_info": personal_info,
-        "resume_filename": resume_filename
+        "resume_filename": resume_filename,
+        "profile_picture_url": profile_pic
     }
 
 
@@ -1121,7 +1285,15 @@ async def preview_resume(
     if not upload:
         raise HTTPException(status_code=404, detail="No resume uploaded yet")
         
-    if settings.STORAGE_BACKEND == "s3":
+    # Check if the storage path is a local file path (from legacy database entries)
+    is_local_path = (
+        upload.storage_path.startswith("/") or 
+        "data/raw_files" in upload.storage_path or 
+        "data\\raw_files" in upload.storage_path or
+        ":" in upload.storage_path
+    )
+    
+    if settings.STORAGE_BACKEND in ("s3", "gcs") and not is_local_path:
         storage_client = get_storage_client()
         signed_url = storage_client.get_file_url(upload.storage_path, expires_in=900)
         return RedirectResponse(url=signed_url)
@@ -1133,6 +1305,13 @@ async def preview_resume(
             local_path = Path(settings.FILE_STORAGE_PATH) / upload.storage_path
             
         if not local_path.exists():
+            if settings.STORAGE_BACKEND in ("s3", "gcs"):
+                try:
+                    storage_client = get_storage_client()
+                    signed_url = storage_client.get_file_url(upload.storage_path, expires_in=900)
+                    return RedirectResponse(url=signed_url)
+                except Exception:
+                    pass
             raise HTTPException(status_code=404, detail="Resume file not found on server")
             
         # Determine media type/content type (PDF, docx, etc.)
@@ -1214,32 +1393,56 @@ async def verify_email_disabled(token: str = Body(..., embed=True)):
 
 
 @app.post("/api/auth/verify-code")
-async def verify_code(payload: VerifyCodeRequest, db: Session = Depends(get_db)):
-    """Verify user email using a short code sent via email."""
+async def verify_code(request: Request, payload: VerifyCodeRequest, db: Session = Depends(get_db)):
+    """Verify user email using a short code sent via email.
+
+    Brute-force protection: max 5 failed attempts per email per 15-minute
+    window; exceeding the limit invalidates the stored code (a resend is
+    required). Responses are uniform to avoid account enumeration.
+    """
     from .db import User
     from .email_verification import is_code_expired
 
+    try:
+        rate_limit(request, max_requests=10, window=60)
+    except HTTPException:
+        raise
+
+    generic_error = HTTPException(status_code=400, detail="Invalid or expired verification code")
+
     user = db.query(User).filter(User.email == payload.email).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise generic_error
 
     if user.is_verified:  # type: ignore
         return {"status": "success", "message": "Email already verified"}
+
+    if _code_attempts_exceeded(db, f"verify:{payload.email.lower()}"):
+        # Lockout window reached — invalidate the code so a fresh resend is required.
+        user.verification_token = None  # type: ignore
+        user.verification_token_created_at = None  # type: ignore
+        db.commit()
+        raise HTTPException(
+            status_code=429,
+            detail="Too many incorrect attempts. Request a new verification code."
+        )
 
     # Compare against stored verification_token (repurposed to store code)
     stored = getattr(user, 'verification_token', None)
     created_at = getattr(user, 'verification_token_created_at', None)
     if not stored or not created_at:
-        raise HTTPException(status_code=400, detail="No active verification code. Please resend.")
+        raise generic_error
 
     # Stored token is in format CODE-randomsuffix; compare only the CODE part
     stored_code = str(stored).split('-', 1)[0]
     if str(payload.code).strip() != stored_code.strip():
-        raise HTTPException(status_code=400, detail="Invalid verification code")
+        _record_failed_code_attempt(db, f"verify:{payload.email.lower()}")
+        raise generic_error
 
     if is_code_expired(created_at, settings.VERIFICATION_CODE_TTL_MINUTES or 30):
-        raise HTTPException(status_code=400, detail="Verification code has expired")
+        raise generic_error
 
+    _clear_code_attempts(db, f"verify:{payload.email.lower()}")
     user.is_verified = True  # type: ignore
     user.verification_token = None  # type: ignore
     user.verification_token_created_at = None  # type: ignore
@@ -1251,19 +1454,38 @@ async def verify_code(payload: VerifyCodeRequest, db: Session = Depends(get_db))
 
 @app.post("/api/auth/forgot-password")
 async def forgot_password(
+    request: Request,
     email: str = Body(..., embed=True),
     db: Session = Depends(get_db)
 ):
-    """Request password reset - sends reset code to email"""
+    """Request password reset - sends reset code to email.
+
+    Rate-limited per IP and per email to prevent SMTP abuse and code stuffing.
+    Responses are uniform regardless of account existence (anti-enumeration).
+    """
     
     from .db import User
     from .email_verification import generate_verification_code, send_password_reset_code_email
     
     try:
+        rate_limit(request, max_requests=5, window=300)
+    except HTTPException:
+        raise
+
+    generic_response = {"message": "If the email exists, a password reset code has been sent"}
+
+    # Per-email throttle: max 3 reset codes per hour.
+    email_key = f"forgot:{email.lower()}"
+    if _email_throttle_count(db, email_key) >= 3:
+        # Uniform response — do not reveal throttling state either.
+        return generic_response
+    _record_failed_code_attempt(db, email_key)
+
+    try:
         user = db.query(User).filter(User.email == email).first()
         if not user:
             # Don't reveal if email exists (security best practice)
-            return {"message": "If the email exists, a password reset code has been sent"}
+            return generic_response
         
         # Generate 6-digit reset code
         reset_code = generate_verification_code(length=6, digits_only=True)
@@ -1286,8 +1508,10 @@ async def forgot_password(
             # Still return success to not reveal if email exists
         else:
             logger.info(f"Password reset code sent to {email}")
+            # NOTE: the per-email counter is deliberately NOT cleared on success
+            # so the 3-codes-per-hour cap cannot be looped by mailbox owners.
         
-        return {"message": "If the email exists, a password reset code has been sent"}
+        return generic_response
     except Exception as e:
         logger.error(f"Password reset request failed: {e}")
         db.rollback()
@@ -1299,24 +1523,49 @@ async def forgot_password(
 
 @app.post("/api/auth/reset-password")
 async def reset_password(
+    request: Request,
     code: str = Body(...),
     new_password: str = Body(...),
     db: Session = Depends(get_db)
 ):
-    """Reset password using reset code"""
+    """Reset password using reset code.
+
+    Brute-force protection: max 5 failed attempts per IP per 15-minute window;
+    exceeding it invalidates the stored code.
+    """
     
     from .db import User
     
+    try:
+        rate_limit(request, max_requests=10, window=300)
+    except HTTPException:
+        raise
+
+    client_ip = request.client.host if request.client else "unknown"
+    attempt_key = f"reset:{client_ip}"
+
+    if _code_attempts_exceeded(db, attempt_key):
+        # Per-IP lockout. (The targeted account cannot be identified from an
+        # arbitrary wrong code, so no DB invalidation here; the code still
+        # expires on its own TTL.)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many incorrect attempts. Request a new reset code."
+        )
+
     try:
         # Find user by reset code
         user = db.query(User).filter(User.password_reset_token == code).first()
         
         if not user:
+            _record_failed_code_attempt(db, attempt_key)
             raise HTTPException(status_code=400, detail="Invalid or expired reset code")
         
         # Check code expiration (use getattr to avoid type checker issues)
         expires = getattr(user, 'password_reset_expires', None)
         if expires is None or expires < dt.datetime.utcnow():
+            # Expired-code guesses also count toward the per-IP lockout.
+            _record_failed_code_attempt(db, attempt_key)
             raise HTTPException(status_code=400, detail="Reset code has expired")
         
         # Validate password strength
@@ -1327,8 +1576,11 @@ async def reset_password(
         setattr(user, 'password_hash', get_password_hash(new_password))
         setattr(user, 'password_reset_token', None)
         setattr(user, 'password_reset_expires', None)
+        # Revoke all existing JWTs for this account (tokens issued before now die).
+        setattr(user, 'password_changed_at', dt.datetime.utcnow())
         db.commit()
-        
+        _clear_code_attempts(db, attempt_key)
+
         logger.info(f"Password reset successful for user {user.email}")
         return {"message": "Password reset successful"}
     except HTTPException:
@@ -1343,21 +1595,37 @@ async def reset_password(
 
 
 @app.post("/api/auth/resend-verification")
-async def resend_verification_email(email: str = Body(..., embed=True), db: Session = Depends(get_db)):
-    """Resend verification email"""
+async def resend_verification_email(request: Request, email: str = Body(..., embed=True), db: Session = Depends(get_db)):
+    """Resend verification email.
+
+    Rate-limited (per IP and per email) to prevent SMTP abuse. Responses are
+    uniform for unknown emails and already-verified accounts so this endpoint
+    cannot be used to enumerate registered users.
+    """
     from .db import User
     from .email_verification import (
         generate_verification_code,
         send_verification_code_email,
     )
     import datetime
-    
+
+    try:
+        rate_limit(request, max_requests=5, window=300)
+    except HTTPException:
+        raise
+
+    generic_response = {"status": "success", "message": "If the email exists and is unverified, a new code has been sent"}
+
+    # Per-email throttle: max 3 resends per hour.
+    email_key = f"resend:{email.lower()}"
+    if _email_throttle_count(db, email_key) >= 3:
+        return generic_response
+    _record_failed_code_attempt(db, email_key)
+
     user = db.query(User).filter(User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if user.is_verified:  # type: ignore
-        raise HTTPException(status_code=400, detail="Email already verified")
+    if not user or getattr(user, 'is_verified', False):
+        # Uniform response — no account-existence oracle.
+        return generic_response
     
     # Generate new token/code depending on mode
     base_code = generate_verification_code(settings.VERIFICATION_CODE_LENGTH or 6, digits_only=True)
@@ -1374,9 +1642,13 @@ async def resend_verification_email(email: str = Body(..., embed=True), db: Sess
     )
     
     if not email_sent:
-        raise HTTPException(status_code=500, detail="Failed to send verification email")
-    
-    return {"status": "success", "message": "Verification email sent"}
+        logger.warning(f"Verification email send failed for {email}")
+        # Uniform response even on failure (do not leak account state)
+        return generic_response
+
+    # NOTE: the per-email counter is deliberately NOT cleared on success so
+    # the 3-resends-per-hour cap cannot be looped.
+    return generic_response
 
 
 @app.post("/upload")
@@ -1403,6 +1675,16 @@ async def upload_resume(
         rate_limit(request, max_requests=5, window=300)
     except HTTPException:
         raise
+
+    # If the client PRESENTED credentials but they are invalid/expired/revoked,
+    # fail loudly rather than silently creating an anonymous applicant profile
+    # (which would split the user's data across a duplicate profile).
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer ") and current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Your session has expired. Please log in again before uploading.",
+        )
     
     from .db import Applicant, Upload
     
@@ -1444,7 +1726,7 @@ async def upload_resume(
     res_name = sanitize_filename(resume.filename or "resume_upload")
     resume_key = f"resumes/{applicant_id}/{res_name}"
     
-    if settings.STORAGE_BACKEND == "s3":
+    if settings.STORAGE_BACKEND in ("s3", "gcs"):
         resume_storage_path = resume_key
     else:
         resume_storage_path = str(DATA_ROOT / "resumes" / applicant_id / res_name)
@@ -1501,7 +1783,7 @@ async def upload_resume(
             ms_key = f"resumes/{applicant_id}/{ms_name}"
             await ms.seek(0)
             storage_client.upload_fileobj(ms.file, ms_key)
-            if settings.STORAGE_BACKEND == "s3":
+            if settings.STORAGE_BACKEND in ("s3", "gcs"):
                 marks_paths.append(ms_key)
             else:
                 marks_paths.append(str(DATA_ROOT / "resumes" / applicant_id / ms_name))
@@ -1568,16 +1850,21 @@ async def upload_resume(
             applicant_id=applicant.id,
             file_name=res_name,
             file_type='resume',
-            storage_path=str(resume_path),
+            storage_path=str(resume_storage_path),
             file_hash=resume_hash
         )
         db.add(upload)
-        
-        # Create credit account with default 60 credits if it does not exist
+
+        logger.info(f"✓ Saved applicant {applicant_id} to database (ID: {applicant.id})")
+
+        # Create credit account with default 60 credits if it does not exist.
+        # Anonymous uploads do NOT mint credit accounts — accounts are created
+        # lazily by CreditService when the (registered) owner first uses a
+        # premium feature, so anonymous applicants hold no spendable balance.
         from .db import CreditAccount
         import datetime
         existing_credits = db.query(CreditAccount).filter(CreditAccount.applicant_id == applicant.id).first()
-        if not existing_credits:
+        if current_user is not None and not existing_credits:
             credit_account = CreditAccount(
                 applicant_id=applicant.id,
                 current_credits=60,
@@ -1588,17 +1875,15 @@ async def upload_resume(
                 is_premium=False
             )
             db.add(credit_account)
+            logger.info(f"✓ Created credit account with 60 initial credits")
         db.commit()
-        
-        logger.info(f"✓ Saved applicant {applicant_id} to database (ID: {applicant.id})")
-        logger.info(f"✓ Created credit account with 60 initial credits")
 
         parse_task_id = None
         if settings.ASYNC_PARSE_ENABLED:
             try:
                 from .embedding_tasks import parse_resume_task
 
-                applicant_dir_str = f"resumes/{applicant_id}" if settings.STORAGE_BACKEND == "s3" else str(DATA_ROOT / "resumes" / applicant_id)
+                applicant_dir_str = f"resumes/{applicant_id}" if settings.STORAGE_BACKEND in ("s3", "gcs") else str(DATA_ROOT / "resumes" / applicant_id)
                 background_tasks.add_task(parse_resume_task, applicant_id, applicant_dir_str)
                 parse_task_id = applicant_id
                 logger.info("Queued parse task via BackgroundTasks for applicant %s", applicant_id)
@@ -1636,12 +1921,28 @@ async def parse_applicant(
     applicant_id: str,
     background_tasks: BackgroundTasks,
     sync: bool = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     from .db import Applicant, LLMParsedRecord
     from .core.storage import get_storage_client, get_local_directory
-    
-    if settings.STORAGE_BACKEND == "s3":
+
+    # Authorization: only the owning student (or an admin) may trigger paid
+    # LLM parsing for an applicant. Employers/anonymous callers are rejected.
+    if current_user.role == "student":
+        owner = db.query(Applicant).filter(Applicant.applicant_id == applicant_id).first()
+        if owner is None or getattr(owner, "user_id", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You can only parse your own resume."
+            )
+    elif current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Only the owning student or an admin can trigger parsing."
+        )
+
+    if settings.STORAGE_BACKEND in ("s3", "gcs"):
         storage_client = get_storage_client()
         files = storage_client.list_files(f"resumes/{applicant_id}/")
         if not files:
@@ -1782,6 +2083,19 @@ async def get_parse_status(
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found")
 
+    # Ownership: students may only poll their own parse status; admins may poll any.
+    if current_user.role == "student":
+        if getattr(applicant, "user_id", None) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You do not own this profile."
+            )
+    elif current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied."
+        )
+
     parsed = applicant.parsed_record
     if not parsed:
         # No parse record yet — directory exists but parse hasn't run
@@ -1856,9 +2170,10 @@ async def get_all_applicants(
     skip: int = 0, 
     limit: int = 50, 
     cursor: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("admin"))
 ):
-    """Get all applicants with pagination (supports cursor-based)"""
+    """Get all applicants with pagination (admin only; supports cursor-based)"""
     # Query applicants ordered by creation date
     query = db.query(Applicant).options(joinedload(Applicant.parsed_record)).order_by(desc(Applicant.created_at))
     
@@ -1896,27 +2211,29 @@ async def get_all_applicants(
 
 
 @app.get("/api/applicant/{applicant_id}")
-async def get_applicant_details(applicant_id: str, db: Session = Depends(get_db)):
+async def get_applicant_details(
+    applicant_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
     """Get detailed applicant information.
+
+    Access policy:
+      - admin: any applicant
+      - student: only their own profile
+      - employer: only applicants who applied to one of the employer's jobs
 
     This endpoint accepts either the numeric DB id (e.g. `1`) or the external applicant id
     string (e.g. `app_7488d09...`). It resolves the DB id and returns parsed records.
     """
     # Resolve applicant identifier to DB id
-    applicant = None
-    try:
-        # If caller passed numeric id string, try integer lookup
-        if str(applicant_id).isdigit():
-            applicant = db.query(Applicant).filter(Applicant.id == int(applicant_id)).first()
-    except Exception:
-        applicant = None
-
-    if not applicant:
-        # Fallback: treat as external applicant_id string
-        applicant = db.query(Applicant).filter(Applicant.applicant_id == applicant_id).first()
+    applicant = resolve_applicant(db, applicant_id)
 
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found")
+
+    # Authorization: prevent IDOR / BOLA on applicant résumé data
+    authorize_applicant_access(db, current_user, applicant)
 
     # Fetch parsed record using the resolved DB id
     llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant.id).first()
@@ -2122,12 +2439,10 @@ async def get_employer_analytics(
         {"stage": "Hired", "count": hired},
     ]
 
-    source_breakdown = [
-        {"source": "Direct Apply", "count": max(1, int(total_applications * 0.55))},
-        {"source": "AI Referral", "count": max(0, int(total_applications * 0.29))},
-        {"source": "Agency", "count": max(0, int(total_applications * 0.10))},
-        {"source": "Other", "count": max(0, int(total_applications * 0.06))},
-    ]
+    # Application-source tracking does not exist in the schema
+    # (JobApplication has no source column). The previously fabricated
+    # 55/29/10/6 split was removed; the field is reported honestly as None.
+    source_breakdown = None
 
     job_app_counts: Dict[int, int] = {}
     job_shortlist_counts: Dict[int, int] = {}
@@ -2882,6 +3197,19 @@ async def admin_enable_job(
     return {"status": "success", "job_status": job.status}
 
 
+@app.post("/api/admin/jobs/expire-sweep")
+async def admin_expire_sweep(
+    current_user = Depends(require_role("admin")),
+):
+    """Manually trigger the expired-jobs sweep (marks approved jobs whose
+    expires_at has passed as 'expired'). Also runs automatically at startup."""
+    import asyncio
+    from .background_tasks import cleanup_expired_jobs_async
+
+    expired_count = await asyncio.to_thread(cleanup_expired_jobs_async)
+    return {"status": "success", "expired_count": expired_count}
+
+
 @app.post("/api/admin/jobs/{job_id}/requeue")
 async def admin_requeue_job_for_review(
     job_id: int,
@@ -3150,8 +3478,11 @@ async def get_applicant_recommendations(
 
 
 @app.get("/api/stats")
-async def get_statistics(db: Session = Depends(get_db)):
-    """Get dashboard statistics"""
+async def get_statistics(
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("admin"))
+):
+    """Get dashboard statistics (admin only)"""
     stats = {
         "total_applicants": db.query(Applicant).count(),
         "total_jobs": db.query(Job).count(),
@@ -3253,17 +3584,37 @@ def update_job_recommendation_status(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Update the status of a job recommendation"""
-    from .db import JobRecommendation, AuditLog
+    """Update the status of a job recommendation.
+
+    Ownership: only the owning student (or an admin) may mutate a recommendation.
+    """
+    from .db import JobRecommendation, Applicant, AuditLog
     from .constants import API_MESSAGES
-    
+
     valid_statuses = ['recommended', 'applied', 'interviewing', 'offered', 'accepted', 'rejected', 'withdrawn']
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
-    
+
     rec = db.query(JobRecommendation).filter(JobRecommendation.id == rec_id).first()
     if not rec:
-        raise HTTPException(status_code=404, detail=API_MESSAGES["applicant_not_found"])
+        # NOTE: key must match constants.API_MESSAGES ('APPLICANT_NOT_FOUND');
+        # a lowercase lookup previously raised KeyError and turned the 404 into a 500.
+        raise HTTPException(status_code=404, detail=API_MESSAGES['APPLICANT_NOT_FOUND'])
+
+    # BOLA / IDOR ownership validation:
+    # Students may only update their own recommendations; admins may moderate any.
+    if current_user.role != "admin":
+        applicant = db.query(Applicant).filter(Applicant.id == rec.applicant_id).first()
+        if (
+            current_user.role != "student"
+            or applicant is None
+            or getattr(applicant, "user_id", None) != current_user.id
+        ):
+            # NOTE: literal 403 — the `status` Body param shadows fastapi.status here.
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You do not own this recommendation."
+            )
     
     # Validate status transition
     current_status = str(rec.status) if rec.status is not None else 'recommended'
@@ -3328,8 +3679,8 @@ async def generate_recommendations_for_applicant(
     from sqlalchemy import func
     import datetime
     from .constants import CREDIT_CONFIG
-    from .core.credit_service import CreditService
-    
+    from .core.credit_service import CreditService, InsufficientCreditsError
+
     # Validate applicant and parsed data
     applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
     if not applicant:
@@ -3384,19 +3735,27 @@ async def generate_recommendations_for_applicant(
                 # Deduct 5 credits
                 credit_service = CreditService(db)
                 eligible, msg, context = credit_service.check_eligibility(
-                    applicant_id, 
-                    'recommendation_refresh', 
+                    applicant_id,
+                    'recommendation_refresh',
                     custom_cost=cost
                 )
                 if not eligible:
                     raise HTTPException(status_code=402, detail=msg)
-                
-                credit_service.spend_credits(
-                    applicant_id,
-                    activity_type='recommendation_refresh',
-                    cost=cost,
-                    description=f"Bypassed recommendations cooldown (charged {cost} credits)"
-                )
+
+                try:
+                    credit_service.spend_credits(
+                        applicant_id,
+                        activity_type='recommendation_refresh',
+                        cost=cost,
+                        description=f"Bypassed recommendations cooldown (charged {cost} credits)"
+                    )
+                except InsufficientCreditsError:
+                    # Race: balance dropped between eligibility check and the
+                    # atomic spend — respond with the proper 402, not a 500.
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Insufficient credits. Need {cost} credits to bypass the cooldown."
+                    )
                 credits_spent = cost
 
     # Clear existing recommendations
@@ -3409,29 +3768,40 @@ async def generate_recommendations_for_applicant(
         from .recommendation.recommendation_service import RecommendationService
         service = RecommendationService(db)
         result = await asyncio.to_thread(service.get_recommendations, applicant_id)
-        
-        job_count = len(result.get('job_recommendations', []))
-        
-        logger.info(f"✓ Generated {job_count} job recommendations for applicant {applicant_id}")
-        
-        # Get updated credits summary
-        credit_service = CreditService(db)
-        summary = credit_service.get_account_summary(applicant_id)
-        credits_left = summary.get('current_credits', 0)
-        
-        # Return success with metadata and updated balance
-        return {
-            "status": "success",
-            "message": "Recommendations generated successfully",
-            "job_recommendations_count": job_count,
-            "credits_spent": credits_spent,
-            "credits_left": credits_left,
-            "cooldown_active": in_cooldown,
-            "cooldown_expires_at": cooldown_expires_at.isoformat() if cooldown_expires_at else None
-        }
     except Exception as e:
         logger.error(f"Failed to generate recommendations via service: {e}", exc_info=True)
+        # Compensating refund: credits were deducted before regeneration started.
+        if credits_spent > 0:
+            try:
+                CreditService(db).refund_credits(
+                    applicant_id,
+                    credits_spent,
+                    reason="Recommendation generation failed after cooldown bypass",
+                )
+                logger.info(f"Refunded {credits_spent} bypass credits to applicant {applicant_id}")
+            except Exception as refund_err:
+                logger.error(f"CRITICAL: refund failed for applicant {applicant_id}: {refund_err}")
         raise HTTPException(status_code=500, detail="Failed to generate recommendations")
+
+    job_count = len(result.get('job_recommendations', []))
+
+    logger.info(f"✓ Generated {job_count} job recommendations for applicant {applicant_id}")
+
+    # Get updated credits summary
+    credit_service = CreditService(db)
+    summary = credit_service.get_account_summary(applicant_id)
+    credits_left = summary.get('current_credits', 0)
+
+    # Return success with metadata and updated balance
+    return {
+        "status": "success",
+        "message": "Recommendations generated successfully",
+        "job_recommendations_count": job_count,
+        "credits_spent": credits_spent,
+        "credits_left": credits_left,
+        "cooldown_active": in_cooldown,
+        "cooldown_expires_at": cooldown_expires_at.isoformat() if cooldown_expires_at else None
+    }
 
 
 from pydantic import BaseModel
@@ -3500,6 +3870,10 @@ async def schedule_interview_endpoint(
     applicant = db.query(Applicant).filter(Applicant.id == payload.applicant_id).first()
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found")
+
+    # Relationship enforcement: employers may only schedule interviews for
+    # applicants who applied to one of the employer's own jobs.
+    authorize_applicant_access(db, current_user, applicant)
 
     try:
         parsed_dt = dt.datetime.fromisoformat(payload.date_time)
@@ -3604,6 +3978,10 @@ async def submit_interview_feedback(
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant not found")
 
+    # Relationship enforcement: employers may only review applicants who
+    # applied to one of the employer's own jobs.
+    authorize_applicant_access(db, current_user, applicant)
+
     feedback = InterviewFeedback(
         applicant_id=applicant.id,
         employer_id=employer.id,
@@ -3622,44 +4000,16 @@ async def get_mentors_endpoint(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
+    """List mentors.
+
+    Returns only real mentor records. (This endpoint previously fabricated
+    three demo Mentor rows as a side effect of a GET when the table was
+    empty — that fabrication was removed in the completion cycle. The
+    frontend shows an explicit "mentor matching coming soon" empty state.)
+    """
     from .db import Mentor
-    
+
     mentors = db.query(Mentor).all()
-    
-    if not mentors:
-        default_mentors = [
-            Mentor(
-                bio="Sarah leads ML research at TechNova. She loves helping students bridge the gap between academic theory and industry engineering.",
-                company="TechNova",
-                role="Senior Data Scientist",
-                alumni_year="2015",
-                status="Available for Coffee Chats",
-                skills=["Machine Learning", "Python", "Career Transition"],
-                match_score=98
-            ),
-            Mentor(
-                bio="Marcus transitioned from software developer to PM. Can help with resume polishing, interview prep, and product design fundamentals.",
-                company="FinStream",
-                role="Product Manager",
-                alumni_year="2018",
-                status="Resume Reviews",
-                skills=["Product Strategy", "Agile Methodologies", "User Research"],
-                match_score=92
-            ),
-            Mentor(
-                bio="Passionate about human-centered design. Available for website critiques and design-career guidance.",
-                company="DesignStudio",
-                role="UX Architect",
-                alumni_year="2016",
-                status="Portfolio Review",
-                skills=["Figma", "UI/UX Design", "Design Systems"],
-                match_score=89
-            )
-        ]
-        for m in default_mentors:
-            db.add(m)
-        db.commit()
-        mentors = db.query(Mentor).all()
 
     return {
         "mentors": [
@@ -3879,101 +4229,15 @@ async def update_student_job_application_status(
 
 # ============================================================
 # VECTOR STORE & EMBEDDINGS ENDPOINTS
+#
+# NOTE: The former stub endpoints `POST /api/embeddings/generate/{id}`
+# (stored a fake MD5 "vector_store_id", produced no vectors) and
+# `GET /api/embeddings/task/{id}` (always returned hardcoded SUCCESS)
+# were removed in the completion cycle — they had no consumers and
+# served fabricated results. Real embedding generation lives in
+# `/api/embeddings/reindex/{jobs,applicants}` (queues genuine
+# embedding tasks) and `/api/embeddings/health` (real coverage).
 # ============================================================
-
-@app.post("/api/embeddings/generate/{applicant_id}")
-async def generate_embeddings(
-    applicant_id: int,
-    vector_type: str = "resume_summary",
-    force_regenerate: bool = False,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_role("admin"))
-):
-    """Generate vector embeddings for an applicant's resume.
-    
-    Note: This is a stub implementation. In production, integrate with:
-    - Pinecone, Qdrant, or FAISS for vector storage
-    - OpenAI, Google, or Cohere for embedding generation
-    """
-    from .db import EmbeddingsIndex
-    import hashlib
-    
-    applicant = db.query(Applicant).filter(Applicant.id == applicant_id).first()
-    if not applicant:
-        raise HTTPException(status_code=404, detail="Applicant not found")
-    
-    llm_record = db.query(LLMParsedRecord).filter(LLMParsedRecord.applicant_id == applicant_id).first()
-    if not llm_record:
-        raise HTTPException(status_code=400, detail="No parsed resume data found")
-    
-    # Check if embedding already exists
-    existing = db.query(EmbeddingsIndex).filter(
-        EmbeddingsIndex.applicant_id == applicant_id,
-        EmbeddingsIndex.vector_type == vector_type
-    ).first()
-    
-    if existing and not force_regenerate:
-        return {
-            "status": "exists",
-            "message": "Embedding already exists",
-            "embedding_id": existing.id,
-            "vector_store_id": existing.vector_store_id
-        }
-    
-    # Generate embedding (stub - replace with actual vector store integration)
-    normalized = llm_record.normalized
-    
-    # Create text representation based on vector_type
-    if vector_type == "resume_summary":
-        text_parts = []
-        education = normalized.get('education', [])
-        if education:
-            text_parts.append(f"Education: {education[0].get('degree', '')} from {education[0].get('institution', '')}")
-        skills = normalized.get('skills', [])
-        if skills:
-            skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills[:10]]
-            text_parts.append(f"Skills: {', '.join(skill_names)}")
-        text_to_embed = " ".join(text_parts)
-    elif vector_type == "skills":
-        skills = normalized.get('skills', [])
-        skill_names = [s.get('name', '') if isinstance(s, dict) else str(s) for s in skills]
-        text_to_embed = ", ".join(skill_names)
-    else:  # full_resume
-        import json
-        text_to_embed = json.dumps(normalized)
-    
-    # Generate a mock vector store ID (in production, call actual vector store API)
-    vector_store_id = f"vec_{hashlib.md5(text_to_embed.encode()).hexdigest()[:16]}"
-    
-    logger.info(f"Generated embedding for applicant {applicant_id} (type: {vector_type}, length: {len(text_to_embed)} chars)")
-    
-    if existing:
-        # Update existing
-        existing.vector_store_id = vector_store_id  # type: ignore
-        db.commit()
-        return {
-            "status": "updated",
-            "message": "Embedding regenerated",
-            "embedding_id": existing.id,
-            "vector_store_id": vector_store_id
-        }
-    else:
-        # Create new
-        embedding = EmbeddingsIndex(
-            applicant_id=applicant_id,
-            vector_store_id=vector_store_id,
-            vector_type=vector_type
-        )
-        db.add(embedding)
-        db.commit()
-        db.refresh(embedding)
-        
-        return {
-            "status": "created",
-            "message": "Embedding generated successfully",
-            "embedding_id": embedding.id,
-            "vector_store_id": vector_store_id
-        }
 
 
 @app.post("/api/embeddings/reindex/jobs")
@@ -4066,21 +4330,6 @@ async def embedding_health(
     }
 
 
-@app.get("/api/embeddings/task/{task_id}")
-async def embedding_task_status(
-    task_id: str,
-    current_user=Depends(require_role("admin")),
-):
-    """Check task state for embedding jobs."""
-    return {
-        "task_id": task_id,
-        "state": "SUCCESS",
-        "ready": True,
-        "successful": True,
-        "result": {"status": "completed"},
-    }
-
-
 @app.get("/api/applicant/{db_applicant_id}/pipeline-status")
 async def applicant_pipeline_status(
     db_applicant_id: int,
@@ -4167,60 +4416,155 @@ async def semantic_search(
     query: str = Body(...),
     entity_type: str = Body("job"),
     limit: int = Body(20),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("employer", "admin"))
 ):
-    """Perform semantic search across entities using embeddings.
-    
-    Note: This is a stub implementation. In production:
-    1. Generate query embedding
-    2. Search vector store for similar vectors
-    3. Return ranked results
+    """Semantic search across entities.
+
+    Primary path: embeds the query with the same model used for stored
+    embeddings and ranks by real cosine similarity against persisted vectors
+    (job_embeddings / applicant_embeddings).
+    Fallback path: plain text search — reported honestly with
+    ``method="text_fallback"`` and **no fabricated similarity score**.
     """
-    
     if entity_type not in ['job', 'applicant']:
         raise HTTPException(status_code=400, detail="entity_type must be 'job' or 'applicant'")
-    
+
     logger.info(f"Semantic search: query='{query}', type={entity_type}, limit={limit}")
-    
-    # Stub: Fall back to text-based search until vector store is integrated
+
+    # --- Try the genuine vector path -------------------------------------
+    query_vector = None
+    try:
+        from .recommendation.embedder import Embedder
+        embedder = Embedder(db)
+        query_vector = embedder.embed(query)
+    except Exception as e:
+        logger.warning(f"Semantic search: query embedding unavailable ({e}); using text fallback")
+
+    def _as_list(vec):
+        try:
+            return list(vec) if vec is not None else None
+        except TypeError:
+            return None
+
+    if query_vector:
+        from .recommendation.embedder import Embedder as _Emb
+
+        if entity_type == 'job':
+            from .db import JobEmbedding
+            rows = (
+                db.query(JobEmbedding)
+                .join(Job, JobEmbedding.job_id == Job.id)
+                .filter(
+                    Job.status == 'approved',
+                    JobEmbedding.embedding_model == settings.EMBEDDING_MODEL,
+                )
+                .all()
+            )
+            scored = []
+            qvec = _as_list(query_vector)
+            for row in rows:
+                vec = _as_list(row.embedding_vector)
+                if not vec:
+                    continue
+                scored.append((row.job_id, _Emb.cosine_similarity(qvec, vec)))
+            scored.sort(key=lambda t: t[1], reverse=True)
+            top_ids = [jid for jid, _ in scored[:limit]]
+            scores = dict(scored)
+            jobs = db.query(Job).filter(Job.id.in_(top_ids)).all() if top_ids else []
+            by_id = {j.id: j for j in jobs}
+            return {
+                "status": "success",
+                "method": "vector",
+                "message": None,
+                "results": [
+                    {
+                        "id": jid,
+                        "title": by_id[jid].title,
+                        "description": ((getattr(by_id[jid], 'description', '') or '')[:200] + "..."),
+                        "score": round(float(scores[jid]), 4),
+                    }
+                    for jid in top_ids if jid in by_id
+                ]
+            }
+        else:  # applicant
+            from .db import ApplicantEmbedding
+            rows = (
+                db.query(ApplicantEmbedding)
+                .join(Applicant, ApplicantEmbedding.applicant_id == Applicant.id)
+                .filter(ApplicantEmbedding.embedding_model == settings.EMBEDDING_MODEL)
+                .all()
+            )
+            scored = []
+            qvec = _as_list(query_vector)
+            for row in rows:
+                vec = _as_list(row.embedding_vector)
+                if not vec:
+                    continue
+                scored.append((row.applicant_id, _Emb.cosine_similarity(qvec, vec)))
+            scored.sort(key=lambda t: t[1], reverse=True)
+            top_ids = [aid for aid, _ in scored[:limit]]
+            scores = dict(scored)
+            applicants = db.query(Applicant).filter(Applicant.id.in_(top_ids)).all() if top_ids else []
+            by_id = {a.id: a for a in applicants}
+            return {
+                "status": "success",
+                "method": "vector",
+                "message": None,
+                "results": [
+                    {
+                        "id": aid,
+                        "name": by_id[aid].display_name,
+                        "location": getattr(by_id[aid], 'location_city'),
+                        "score": round(float(scores[aid]), 4),
+                    }
+                    for aid in top_ids if aid in by_id
+                ]
+            }
+
+    # --- Honest text fallback (no fabricated similarity scores) ----------
     if entity_type == 'job':
         results = db.query(Job).filter(
             Job.status == 'approved',
             (Job.title.ilike(f"%{query}%")) | (Job.description.ilike(f"%{query}%"))
         ).limit(limit).all()
-        
+
         return {
             "status": "success",
             "method": "text_fallback",
-            "message": "Using text search (vector store not configured)",
+            "message": "Vector embeddings unavailable — showing keyword matches without similarity scores.",
             "results": [
                 {
                     "id": job.id,
                     "title": getattr(job, 'title'),
-                    "description": getattr(job, 'description', '')[:200] + "...",
-                    "score": 0.85  # Mock similarity score
+                    "description": ((getattr(job, 'description', '') or '')[:200] + "..."),
+                    "score": None
                 } for job in results
             ]
         }
-    else:  # applicant
-        # Search in parsed records
-        applicants = db.query(Applicant).join(
-            LLMParsedRecord, Applicant.id == LLMParsedRecord.applicant_id
-        ).limit(limit).all()
-        
-        return {
-            "status": "success",
-            "method": "text_fallback",
-            "message": "Using text search (vector store not configured)",
-            "results": [
-                {
-                    "id": applicant.id,
-                    "name": getattr(applicant, 'display_name'),
-                    "location": getattr(applicant, 'location_city'),
-                    "score": 0.80
-                } for applicant in applicants
-            ]
-        }
+
+    # applicant text fallback: search parsed resume text via ILIKE on names only.
+    applicants = (
+        db.query(Applicant)
+        .outerjoin(LLMParsedRecord, Applicant.id == LLMParsedRecord.applicant_id)
+        .filter(Applicant.display_name.ilike(f"%{query}%"))
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "status": "success",
+        "method": "text_fallback",
+        "message": "Vector embeddings unavailable — showing name matches without similarity scores.",
+        "results": [
+            {
+                "id": applicant.id,
+                "name": getattr(applicant, 'display_name'),
+                "location": getattr(applicant, 'location_city'),
+                "score": None
+            } for applicant in applicants
+        ]
+    }
 
 
 # ============================================================
@@ -4263,7 +4607,10 @@ async def advanced_search(
             if 'work_type' in filters:
                 base_query = base_query.filter(Job.work_type == filters['work_type'])
             if 'min_experience' in filters:
-                min_exp = float(filters['min_experience'])
+                try:
+                    min_exp = float(filters['min_experience'])
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="filters.min_experience must be a number")
                 base_query = base_query.filter(Job.min_experience_years <= min_exp)
             if 'skills' in filters and isinstance(filters['skills'], list):
                 # Filter jobs that have at least one of the specified skills
@@ -4721,6 +5068,45 @@ async def toggle_user_active(
     }
 
 
+@app.get("/api/admin/stats")
+async def get_admin_stats(
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role("admin"))
+):
+    """User-management KPI stats for the admin center.
+
+    flagged_users = users linked to applicants with an unresolved human review
+    (corrected_value is NULL — the only real "flagged" signal in the system).
+    """
+    from .db import User, Applicant, HumanReview
+
+    total_users = db.query(User).count()
+    active_users = db.query(User).filter(User.is_active == True).count()  # noqa: E712
+    suspended_users = total_users - active_users
+
+    unresolved_review_applicant_ids = set(
+        row[0] for row in db.query(HumanReview.applicant_id)
+        .filter(HumanReview.corrected_value.is_(None))
+        .all()
+    )
+    flagged_users = 0
+    if unresolved_review_applicant_ids:
+        flagged_users = (
+            db.query(User.id)
+            .join(Applicant, Applicant.user_id == User.id)
+            .filter(Applicant.id.in_(unresolved_review_applicant_ids))
+            .distinct()
+            .count()
+        )
+
+    return {
+        "total_users": total_users,
+        "active_users": active_users,
+        "flagged_users": flagged_users,
+        "suspended_users": suspended_users,
+    }
+
+
 @app.get("/api/admin/users")
 async def get_admin_users(
     role: Optional[str] = None,
@@ -4837,28 +5223,63 @@ def award_learning_bonus(
     
     applicant_id_val = getattr(applicant, 'id', 0)
     credit_service = CreditService(db)
-    
+
     # Check recent improvements
-    interview_service = InterviewService(db)
     sessions = db.query(InterviewSession).filter(
         InterviewSession.applicant_id == applicant_id_val,
         InterviewSession.status == 'completed'
     ).order_by(desc(InterviewSession.completed_at)).limit(2).all()
-    
+
     if len(sessions) >= 2:
         latest_score = getattr(sessions[0], 'overall_score', 0) or 0
         previous_score = getattr(sessions[1], 'overall_score', 0) or 0
         improvement = latest_score - previous_score
-        
+
         if improvement >= 20:  # 20% improvement
+            latest_session_id = str(sessions[0].id)
+
+            # Anti-farming guard: a bonus may only be claimed ONCE per
+            # improvement (deduplicated by the newest session in the pair).
+            #
+            # TOCTOU protection: the credit-account row is locked with
+            # SELECT ... FOR UPDATE before the dedup check and held until the
+            # award commits, so two concurrent claims serialize — the loser
+            # observes the winner's transaction row and gets "already claimed".
+            # (SQLite ignores FOR UPDATE but serializes writers anyway, so the
+            # guarantee holds on both backends.)
+            from .db import CreditAccount, CreditTransaction
+            acct = (
+                db.query(CreditAccount)
+                .filter_by(applicant_id=applicant_id_val)
+                .with_for_update()
+                .first()
+            )
+            if acct:
+                # endswith (not contains) so "session:2" cannot match "session:21".
+                marker = f"[session:{latest_session_id}]"
+                already_awarded = db.query(CreditTransaction).filter(
+                    CreditTransaction.account_id == acct.id,
+                    CreditTransaction.amount > 0,
+                    CreditTransaction.description.endswith(marker),
+                ).first()
+                if already_awarded:
+                    db.rollback()  # release the lock without side effects
+                    return {
+                        "awarded": False,
+                        "reason": "Bonus for this improvement has already been claimed."
+                    }
+
             bonus_amount = 5  # Award 5 bonus credits
             transaction = credit_service.add_bonus_credits(
                 applicant_id=applicant_id_val,
                 amount=bonus_amount,
                 admin_email="system",
-                reason=f"Improvement bonus: +{improvement:.1f}% score increase"
+                reason=(
+                    f"Improvement bonus: +{improvement:.1f}% score increase "
+                    f"[session:{latest_session_id}]"
+                )
             )
-            
+
             return {
                 "awarded": True,
                 "amount": bonus_amount,
@@ -5219,7 +5640,7 @@ async def rag_rebuild_status(
 async def serve_static_file(file_path: str):
     """Serve public files from local storage (avatars, assets)"""
     from fastapi.responses import RedirectResponse, FileResponse
-    if settings.STORAGE_BACKEND == "s3":
+    if settings.STORAGE_BACKEND in ("s3", "gcs"):
         from .core.storage import get_storage_client
         storage = get_storage_client()
         return RedirectResponse(url=storage.get_file_url(file_path))

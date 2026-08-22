@@ -648,7 +648,7 @@ def generate_learning_path(session_id: str, db) -> Dict[str, Any]:
     new_lp = LearningPath(
         applicant_id=applicant.id,
         generated_from="interview",
-        source_session_id=None,
+        source_session_id=str(session_id),
         skill_gaps=learning_path_payload.get("skill_gaps"),
         recommended_courses=courses,
         recommended_projects=learning_path_payload.get("recommended_projects"),
@@ -666,14 +666,19 @@ def generate_learning_path(session_id: str, db) -> Dict[str, Any]:
     # 7. Deduct credits
     config_cost = db.query(SystemConfiguration).filter_by(key="learning_path_generation_cost").first()
     cost = int(config_cost.value) if config_cost else CREDIT_CONFIG.get('LEARNING_PATH_GENERATION_COST', 10)
-    
-    credit_service.spend_credits(
-        applicant_id=applicant.id,
-        activity_type="learning_path_generation",
-        cost=cost,
-        reference_id=new_lp.id,
-        description=f"Learning path from session {session_id[:8]}"
-    )
+
+    try:
+        credit_service.spend_credits(
+            applicant_id=applicant.id,
+            activity_type="learning_path_generation",
+            cost=cost,
+            reference_id=new_lp.id,
+            description=f"Learning path from session {session_id[:8]}"
+        )
+    except Exception as e:
+        # Path was already persisted & delivered; log the failed deduction
+        # rather than erroring out after the fact.
+        logger.warning("Credit deduction failed for learning path %s: %s", new_lp.id, e)
     
     logger.info("Successfully persisted new LearningPath record (id=%d)", new_lp.id)
     return RobustLearningPathResponse({

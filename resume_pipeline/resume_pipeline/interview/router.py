@@ -53,6 +53,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/interview", tags=["Interview v2"])
 
 
+def _make_abandon_token(session_id: str, applicant_id: int) -> str:
+    """Single-purpose HMAC token authorizing abandonment of ONE session.
+
+    navigator.sendBeacon cannot set Authorization headers, so the abandon
+    endpoint accepts this token instead. It grants no other capability and is
+    only derivable with the server-side SECRET_KEY.
+    """
+    import hmac
+    import hashlib
+    key = (settings.SECRET_KEY or "insecure-dev-secret").encode()
+    msg = f"abandon:{session_id}:{applicant_id}".encode()
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+
+def _abandon_token_is_valid(session, token: Optional[str]) -> bool:
+    if not token:
+        return False
+    import hmac
+    expected = _make_abandon_token(session.id, session.applicant_id)
+    return hmac.compare_digest(expected, str(token))
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -246,6 +268,7 @@ def start_interview(
     return StartInterviewResponse(
         session_id=session.id,
         first_question=_question_to_out(first_q, 1, non_reserve_total),
+        abandon_token=_make_abandon_token(session.id, applicant_id),
     )
 
 
@@ -413,6 +436,7 @@ def get_session_state(
         difficulty=session.difficulty,
         voice_mode=session.voice_mode or False,
         interviewer_persona=session.interviewer_persona or "Friendly Senior Engineer",
+        abandon_token=_make_abandon_token(session.id, applicant.id) if session.status == "active" else None,
     )
 
 
@@ -420,15 +444,24 @@ def get_session_state(
 # GET /api/interview/results/{session_id}
 # ---------------------------------------------------------------------------
 
+MAX_EVAL_RETRIES = 3  # total attempts per answer (initial + 2 retries)
+
+
 @router.get("/results/{session_id}")
 def get_results(
     session_id: str,
+    background_tasks: BackgroundTasks,
     db: DBSession = Depends(get_db),
     current_user=Depends(require_role("student")),
 ):
     """
     Poll for results. Returns {"status": "processing"} until all evaluations complete,
     then returns the full results payload.
+
+    Recovery: answers stuck in pending/failed states are re-scheduled for
+    evaluation on poll, up to MAX_EVAL_RETRIES attempts. Once retries are
+    exhausted, partial results are delivered instead of polling forever
+    (failed questions appear with status 'evaluation_failed' in the review).
     """
     applicant = _get_applicant(current_user, db)
 
@@ -439,16 +472,48 @@ def get_results(
         raise HTTPException(status_code=403, detail="Not your session.")
 
     answers = db.query(InterviewAnswer).filter_by(session_id=session_id).all()
-    pending = [a for a in answers if a.status == "pending_evaluation"]
 
-    if pending:
+    # Retry-on-poll recovery for lost/failed background evaluations.
+    retried = False
+    for a in answers:
+        needs_retry = (
+            a.status in ("pending_evaluation", "evaluation_failed")
+            and (a.evaluation_attempts or 0) < MAX_EVAL_RETRIES
+        )
+        if needs_retry:
+            a.evaluation_attempts = (a.evaluation_attempts or 0) + 1
+            answer_id, question_id = a.id, a.question_id
+            retried = True
+
+            def _eval_with_new_db(answer_id=answer_id, question_id=question_id, session_id=session_id):
+                bg_db = SessionLocal()
+                try:
+                    run_evaluation(session_id, question_id, answer_id, bg_db)
+                finally:
+                    bg_db.close()
+
+            background_tasks.add_task(_eval_with_new_db)
+
+    if retried:
+        db.commit()
+
+    # Return "processing" whenever a retry is in flight (scheduled this poll)
+    # or any answer can still be retried on a future poll. Only once every
+    # unevaluated answer has exhausted its attempts do we deliver honest
+    # partial results instead of polling forever.
+    retryable = [
+        a for a in answers
+        if a.status != "evaluated"
+        and (a.evaluation_attempts or 0) < MAX_EVAL_RETRIES
+    ]
+
+    if retried or retryable:
         return {
             "status": "processing",
-            "completed": len(answers) - len(pending),
+            "completed": len([a for a in answers if a.status == "evaluated"]),
             "total": len(answers),
         }
 
-    # All done — build full results
     return build_full_results(session, db)
 
 
@@ -676,14 +741,46 @@ async def stream_feedback_endpoint(
 @router.post("/abandon/{session_id}", status_code=204)
 def abandon_session(
     session_id: str,
+    abandon_token: Optional[str] = None,
     db: DBSession = Depends(get_db),
     current_user=Depends(require_role("student")),
 ):
-    """Mark a session as abandoned (called via navigator.sendBeacon on page unload)."""
+    """Mark a session as abandoned.
+
+    Two authentication paths:
+      1. Normal Bearer auth (explicit "Quit" button via axios).
+      2. `abandon_token` query param (HMAC issued at session start) — used by
+         navigator.sendBeacon on tab close, which cannot send headers.
+
+    Note: FastAPI resolves header-auth BEFORE this body runs; when only the
+    beacon token is available the frontend must call the public alias below.
+    """
     applicant = _get_applicant(current_user, db)
     session = db.query(InterviewSession).filter_by(id=session_id).first()
     if session and session.applicant_id == applicant.id:
         mark_session_abandoned(session_id, db)
+
+
+@router.post("/abandon-beacon/{session_id}", status_code=204)
+def abandon_session_beacon(
+    session_id: str,
+    abandon_token: Optional[str] = None,
+    db: DBSession = Depends(get_db),
+):
+    """sendBeacon-only abandon path: authenticated by the per-session HMAC token.
+
+    sendBeacon cannot set HTTP headers, so normal Bearer auth is impossible from
+    an unload handler. The HMAC token is single-purpose (this session only) and
+    server-verified against SECRET_KEY.
+    """
+    if not abandon_token:
+        raise HTTPException(status_code=401, detail="Missing abandon token.")
+    session = db.query(InterviewSession).filter_by(id=session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if not _abandon_token_is_valid(session, abandon_token):
+        raise HTTPException(status_code=403, detail="Invalid abandon token.")
+    mark_session_abandoned(session_id, db)
 
 
 # ---------------------------------------------------------------------------
@@ -1268,7 +1365,13 @@ def get_employer_candidate_intelligence(
     db: DBSession = Depends(get_db),
     current_user = Depends(require_role("employer", "admin"))
 ):
-    """Fetch an applicant's cumulative intelligence profile for employers or admins."""
+    """Fetch an applicant's cumulative intelligence profile for employers or admins.
+
+    Relationship enforcement: employers may only view profiles of applicants
+    who applied to one of the employer's own jobs; admins may view any.
+    """
+    from ..app import authorize_applicant_access
+
     # Resolve the applicant
     applicant = db.query(Applicant).filter_by(applicant_id=applicant_id).first()
     if not applicant:
@@ -1281,6 +1384,9 @@ def get_employer_candidate_intelligence(
 
     if not applicant:
         raise HTTPException(status_code=404, detail="Applicant profile not found.")
+
+    if getattr(current_user, "role", None) != "admin":
+        authorize_applicant_access(db, current_user, applicant)
 
     if not applicant.candidate_profile:
         return {

@@ -37,6 +37,9 @@ class StartInterviewRequest(BaseModel):
 class StartInterviewResponse(BaseModel):
     session_id: str
     first_question: QuestionOut
+    # Single-purpose HMAC token that authorizes exactly one action: marking THIS
+    # session abandoned via sendBeacon (which cannot send Authorization headers).
+    abandon_token: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +72,7 @@ class SessionStateResponse(BaseModel):
     difficulty: str
     voice_mode: bool = False
     interviewer_persona: Optional[str] = "Friendly Senior Engineer"
+    abandon_token: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

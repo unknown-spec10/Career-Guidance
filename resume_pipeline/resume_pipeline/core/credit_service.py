@@ -15,6 +15,23 @@ from ..db import CreditAccount, CreditTransaction, CreditUsageStats, Applicant, 
 from ..constants import CREDIT_CONFIG
 
 
+class InsufficientCreditsError(Exception):
+    """Raised when an atomic spend finds the balance too low.
+
+    This is raised AFTER a conditional row-level update matched zero rows,
+    which means another concurrent request already consumed the balance
+    (TOCTOU protection) or the balance was genuinely insufficient.
+    """
+    def __init__(self, applicant_id: int, cost: int, current_credits: int):
+        self.applicant_id = applicant_id
+        self.cost = cost
+        self.current_credits = current_credits
+        super().__init__(
+            f"Insufficient credits for applicant {applicant_id}: "
+            f"need {cost}, have {current_credits}"
+        )
+
+
 class CreditService:
     """
     Service for managing interview credits and usage quotas.
@@ -43,6 +60,7 @@ class CreditService:
                 weekly_credit_limit=CREDIT_CONFIG['DEFAULT_WEEKLY_CREDITS']
             )
             self.db.add(account)
+            self.db.flush()  # Populate account.id
             
             # Create usage stats
             stats = CreditUsageStats(account_id=account.id)
@@ -195,6 +213,8 @@ class CreditService:
         elif activity_type == 'learning_path_generation':
             config_cost = self.db.query(SystemConfiguration).filter_by(key="learning_path_generation_cost").first()
             cost = int(config_cost.value) if config_cost else CREDIT_CONFIG.get('LEARNING_PATH_GENERATION_COST', 10)
+        elif activity_type == 'recommendation_refresh':
+            cost = custom_cost if custom_cost is not None else CREDIT_CONFIG.get('RECOMMENDATION_REFRESH_COST', 5)
         else:
             cost = 1  # Default
         
@@ -244,23 +264,44 @@ class CreditService:
         description: Optional[str] = None
     ) -> CreditTransaction:
         """
-        Deduct credits and log transaction.
+        Atomically deduct credits and log a transaction.
+
+        Concurrency-safe: the balance is decremented with a single conditional
+        UPDATE that only matches when the row still holds >= cost credits, so
+        two concurrent requests can never both spend the same balance.
+        Raises InsufficientCreditsError when the deduction is not possible.
         """
         account = self.get_or_create_account(applicant_id)
         stats = self.db.query(CreditUsageStats).filter(
             CreditUsageStats.account_id == account.id
         ).first()
-        
-        # Deduct credits
-        current_credits = getattr(account, 'current_credits', 0)
-        account.current_credits = current_credits - cost
-        account.total_spent = getattr(account, 'total_spent', 0) + cost
-        
+
+        # Atomic conditional decrement (row-locked by the DB until commit).
+        updated = self.db.query(CreditAccount).filter(
+            CreditAccount.id == account.id,
+            CreditAccount.current_credits >= cost,
+        ).update(
+            {
+                "current_credits": CreditAccount.current_credits - cost,
+                "total_spent": func.coalesce(CreditAccount.total_spent, 0) + cost,
+            },
+            synchronize_session=False,
+        )
+        if not updated:
+            self.db.rollback()
+            current = self.db.query(CreditAccount.current_credits).filter(
+                CreditAccount.id == account.id
+            ).scalar() or 0
+            raise InsufficientCreditsError(applicant_id, cost, current)
+
+        # Re-read the authoritative post-update values.
+        self.db.refresh(account)
+
         # Update usage stats
         if stats:
             stats.credits_used_today = getattr(stats, 'credits_used_today', 0) + cost
             stats.credits_used_this_week = getattr(stats, 'credits_used_this_week', 0) + cost
-            
+
             if activity_type == 'full_interview':
                 stats.full_interviews_this_week = getattr(stats, 'full_interviews_this_week', 0) + 1
                 stats.last_full_interview_at = datetime.datetime.utcnow()
@@ -272,13 +313,13 @@ class CreditService:
                 stats.last_coding_question_at = datetime.datetime.utcnow()
             elif activity_type == 'project_idea':
                 stats.project_ideas_this_week = getattr(stats, 'project_ideas_this_week', 0) + 1
-        
+
         # Log transaction
         transaction = CreditTransaction(
             account_id=account.id,
             transaction_type='spend',
             amount=-cost,
-            balance_after=account.current_credits,
+            balance_after=getattr(account, 'current_credits', 0),
             activity_type=activity_type,
             reference_id=reference_id,
             reference_type=reference_type,
@@ -287,7 +328,7 @@ class CreditService:
         self.db.add(transaction)
         self.db.commit()
         self.db.refresh(transaction)
-        
+
         return transaction
     
     def add_bonus_credits(
@@ -299,34 +340,42 @@ class CreditService:
     ) -> CreditTransaction:
         """
         Admin function to add bonus credits.
+
+        Concurrency-safe: balance/earned counters are incremented with atomic
+        UPDATE expressions (no lost updates under concurrent spend/refund).
         """
         account = self.get_or_create_account(applicant_id)
         stats = self.db.query(CreditUsageStats).filter(
             CreditUsageStats.account_id == account.id
         ).first()
-        
-        account.current_credits = getattr(account, 'current_credits', 0) + amount
-        account.total_earned = getattr(account, 'total_earned', 0) + amount
-        account.admin_bonus_credits = getattr(account, 'admin_bonus_credits', 0) + amount
+
+        self.db.query(CreditAccount).filter(
+            CreditAccount.id == account.id
+        ).update({
+            "current_credits": func.coalesce(CreditAccount.current_credits, 0) + amount,
+            "total_earned": func.coalesce(CreditAccount.total_earned, 0) + amount,
+            "admin_bonus_credits": func.coalesce(CreditAccount.admin_bonus_credits, 0) + amount,
+        }, synchronize_session=False)
+        self.db.refresh(account)
 
         # Admin-added credits should be usable immediately. If daily credit usage cap is the
         # blocker, release equivalent headroom for the same day.
         if amount > 0 and stats:
             used_today = getattr(stats, 'credits_used_today', 0)
             stats.credits_used_today = max(0, used_today - amount)
-        
+
         transaction = CreditTransaction(
             account_id=account.id,
             transaction_type='bonus',
             amount=amount,
-            balance_after=account.current_credits,
+            balance_after=getattr(account, 'current_credits', 0),
             activity_type='admin_adjustment',
             description=f"Admin bonus by {admin_email}: {reason}"
         )
         self.db.add(transaction)
         self.db.commit()
         self.db.refresh(transaction)
-        
+
         return transaction
     
     def get_account_summary(self, applicant_id: int) -> Dict:
@@ -393,24 +442,38 @@ class CreditService:
         credits_required: int
     ) -> Tuple[bool, Optional[str]]:
         """
-        Check if user has enough credits and deduct them if available.
-        
+        Check if user has enough credits and atomically deduct them if available.
+
+        Concurrency-safe: uses the same conditional-update pattern as
+        spend_credits, so concurrent requests cannot both pass the balance
+        check (TOCTOU protection).
+
         Returns:
             (success: bool, error_message: Optional[str])
         """
         account = self.get_or_create_account(applicant_id)
         self.check_and_refill(account)
-        
-        current_credits = getattr(account, 'current_credits', 0)
-        if current_credits < credits_required:
+
+        updated = self.db.query(CreditAccount).filter(
+            CreditAccount.id == account.id,
+            CreditAccount.current_credits >= credits_required,
+        ).update(
+            {"current_credits": CreditAccount.current_credits - credits_required},
+            synchronize_session=False,
+        )
+        if not updated:
+            self.db.rollback()
+            current = self.db.query(CreditAccount.current_credits).filter(
+                CreditAccount.id == account.id
+            ).scalar() or 0
             next_refill = getattr(account, 'next_refill_at', datetime.datetime.utcnow())
             days_until = max(0, (next_refill - datetime.datetime.utcnow()).days)
-            return False, f"Insufficient credits. Need {credits_required}, have {current_credits}. Next refill in {days_until} days."
-        
-        # Deduct credits temporarily (will be recorded later with transaction)
-        account.current_credits = current_credits - credits_required
+            return False, (
+                f"Insufficient credits. Need {credits_required}, have {current}. "
+                f"Next refill in {days_until} days."
+            )
+
         self.db.commit()
-        
         return True, None
     
     def record_transaction(
@@ -456,21 +519,31 @@ class CreditService:
     ) -> CreditTransaction:
         """
         Refund credits to user (e.g., if operation fails).
+
+        Concurrency-safe: the increment is a single atomic UPDATE expression,
+        mirroring spend_credits, so concurrent refunds/spends cannot lose
+        updates via read-modify-write.
         """
         account = self.get_or_create_account(applicant_id)
-        
-        account.current_credits = getattr(account, 'current_credits', 0) + credits
-        
+
+        self.db.query(CreditAccount).filter(
+            CreditAccount.id == account.id
+        ).update(
+            {"current_credits": func.coalesce(CreditAccount.current_credits, 0) + credits},
+            synchronize_session=False,
+        )
+        self.db.refresh(account)
+
         transaction = CreditTransaction(
             account_id=account.id,
             transaction_type='refund',
             amount=credits,
-            balance_after=account.current_credits,
+            balance_after=getattr(account, 'current_credits', 0),
             activity_type='refund',
             description=f"Refund: {reason}"
         )
         self.db.add(transaction)
         self.db.commit()
         self.db.refresh(transaction)
-        
+
         return transaction

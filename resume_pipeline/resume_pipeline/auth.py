@@ -34,6 +34,8 @@ async def get_current_user_optional(creds: Optional[HTTPAuthorizationCredentials
             return None
         user_id = int(user_id_raw)
         user = db.query(User).filter(User.id == user_id).first()
+        if user is not None and _token_is_revoked(payload, user):
+            return None
         return user
     except Exception:
         return None
@@ -60,15 +62,42 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token"""
+    """Create a JWT access token (embeds issued-at for revocation checks)."""
     to_encode = data.copy()
+    now = datetime.utcnow()
+    to_encode.setdefault("iat", now)
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def _token_is_revoked(payload: dict, user) -> bool:
+    """True when the token predates the user's most recent password change.
+
+    - Tokens carrying an `iat` are revoked iff issued before the change.
+    - Legacy tokens WITHOUT an `iat` cannot prove they postdate the change,
+      so they fail closed (revoked) once any credential change exists.
+    - A malformed `iat` also fails closed.
+    """
+    changed_at = getattr(user, "password_changed_at", None)
+    if changed_at is None:
+        return False
+    iat = payload.get("iat")
+    if iat is None:
+        return True  # legacy token predates revocation support
+    try:
+        # iat is a Unix epoch — compare in UTC against the naive-UTC column.
+        # Truncating changed_at to whole seconds + `<=` closes the sub-second
+        # window (a token issued in the same wall-second as the change is
+        # revoked; the client simply logs in again).
+        issued = datetime.utcfromtimestamp(int(iat))
+    except (TypeError, ValueError, OSError):
+        return True  # malformed iat on a password-changed account → fail closed
+    return issued <= changed_at.replace(microsecond=0)
 
 
 def decode_access_token(token: str) -> dict:
@@ -85,11 +114,15 @@ def decode_access_token(token: str) -> dict:
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Get the current authenticated user"""
+    """Get the current authenticated user.
+
+    Revocation: tokens issued before the account's most recent password
+    change/reset are rejected, so a stolen token dies with the credential.
+    """
     from .db import User, SessionLocal
     db = SessionLocal()
     close_db = True
-    
+
     try:
         payload = decode_access_token(token)
         user_id_raw = payload.get("sub")
@@ -98,13 +131,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",
             )
-        
+
         user_id = int(user_id_raw)
         user = db.query(User).filter(User.id == user_id).first()
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found",
+            )
+        if _token_is_revoked(payload, user):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired due to a password change. Please log in again.",
             )
         return user
     finally:

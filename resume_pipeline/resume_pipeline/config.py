@@ -28,14 +28,19 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
     FILE_STORAGE_PATH: str = "./data/raw_files"
     
-    # S3 Storage Integration
-    STORAGE_BACKEND: str = "local"  # "local" or "s3"
+    # Storage Integration (local, s3, gcs)
+    STORAGE_BACKEND: str = "local"  # "local", "s3", or "gcs"
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "ap-south-1"
     S3_BUCKET_NAME: str = "mine-career-guidance-bucket"
     S3_REGION: str = "ap-south-1"
     AWS_S3_ENDPOINT_URL: str | None = None
+    
+    # GCP Storage Integration
+    GCS_BUCKET_NAME: str = "mine-career-guidance-bucket"
+    GCS_PROJECT_ID: str | None = None
+
     GEMINI_API_KEY: str = ""
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_SMALL_MODEL: str = "gemini-3-flash-preview"
@@ -73,6 +78,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+
+    # Runtime environment: "development" | "production".
+    # In production a strong SECRET_KEY (>= 32 chars) is REQUIRED at startup.
+    APP_ENV: str = "development"
     
     # Skill taxonomy JSON file paths
     # Default: written alongside skill_taxonomy_builder.py inside the resume sub-package

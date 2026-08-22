@@ -5,6 +5,13 @@ if str(p) not in sys.path:
 from resume_pipeline.db import init_db, engine
 
 if __name__ == "__main__":
+    print("=" * 70)
+    print("WARNING: DESTRUCTIVE SCRIPT — DEV/CI USE ONLY")
+    print("This script DROPS THE ENTIRE public schema (all data is lost).")
+    print("For real databases use the migration workflow instead:")
+    print("    alembic upgrade head      (from resume_pipeline/)")
+    print("=" * 70)
+
     # Mask password in DSN output if not already masked
     url_str = str(engine.url)
     safe_url = url_str

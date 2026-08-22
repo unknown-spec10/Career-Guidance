@@ -60,7 +60,7 @@ def main():
     if not settings.PG_DSN:
         raise RuntimeError("PG_DSN is not set")
     engine = create_engine(settings.PG_DSN)
-    print(f"Connecting to DB: {settings.PG_DSN}")
+    print("Connecting to DB (credentials masked)")
 
     with engine.begin() as conn:
         if column_exists(conn):

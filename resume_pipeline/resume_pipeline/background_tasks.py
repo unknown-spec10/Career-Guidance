@@ -277,31 +277,39 @@ def expand_unrecognized_skills_background(unrecognized: List[str]) -> None:
 
 def cleanup_expired_jobs_async():
     """
-    Background task to mark expired jobs as inactive.
-    Can be run on a schedule (e.g., daily via cron or scheduler).
+    Mark approved jobs whose expires_at has passed as 'expired'.
+
+    Public listings already filter on ``expires_at > now``, so this sweep is a
+    consistency measure: it transitions jobs out of the active set explicitly.
+    Safe to run repeatedly (idempotent). Triggered at app startup and via the
+    admin endpoint POST /api/admin/jobs/expire-sweep.
     """
     from .db import Job
-    
+    from sqlalchemy import update
+
     BackgroundTaskRunner.log_task_start("cleanup_expired_jobs")
-    
+
     db = SessionLocal()
     try:
         now = datetime.utcnow()
-        expired_jobs = db.query(Job).filter(
-            Job.status == 'approved',
-            Job.expires_at.isnot(None),
-            Job.expires_at <= now
-        ).all()
-        
-        for job in expired_jobs:
-            # Could add an 'expired' status or just leave as approved with past expires_at
-            # For now, just log them
-            pass
-        
-        BackgroundTaskRunner.log_task_complete("cleanup_expired_jobs", {"expired_count": len(expired_jobs)})
-        
+        result = db.execute(
+            update(Job)
+            .where(
+                Job.status == 'approved',
+                Job.expires_at.isnot(None),
+                Job.expires_at <= now,
+            )
+            .values(status='expired')
+        )
+        db.commit()
+        expired_count = result.rowcount or 0
+
+        BackgroundTaskRunner.log_task_complete("cleanup_expired_jobs", {"expired_count": expired_count})
+        return expired_count
+
     except Exception as e:
         BackgroundTaskRunner.log_task_error("cleanup_expired_jobs", e)
         db.rollback()
+        return 0
     finally:
         db.close()

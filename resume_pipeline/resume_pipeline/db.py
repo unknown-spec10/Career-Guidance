@@ -58,6 +58,10 @@ class User(Base):
     verification_token_created_at = Column(DateTime, nullable=True)
     password_reset_token = Column(String(255), nullable=True, unique=True, index=True)
     password_reset_expires = Column(DateTime, nullable=True)
+    # Set on password change/reset. JWTs issued before this instant are
+    # rejected (see auth.get_current_user) so stolen tokens die with the
+    # compromised credential.
+    password_changed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
@@ -239,7 +243,7 @@ class Job(Base):
     min_cgpa = Column(Float, nullable=True)
     required_skills = Column(JSON, nullable=True)  # Array of {"name", "level"}
     optional_skills = Column(JSON, nullable=True)
-    status = Column(Enum('pending', 'approved', 'rejected', name='job_status'), default='pending', index=True)
+    status = Column(Enum('pending', 'approved', 'rejected', 'expired', name='job_status'), default='pending', index=True)
     rejection_reason = Column(Text, nullable=True)
     reviewed_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
@@ -279,7 +283,14 @@ class JobRecommendation(Base):
     score = Column(Float)
     scoring_breakdown = Column(JSON, nullable=True)  # skill_score, acad_score, geo_score
     explain = Column(JSON, nullable=True)  # Structured explanation
-    status = Column(Enum('recommended', 'viewed', 'dismissed', name='job_rec_status'), default='recommended')
+    # Tracking pipeline vocabulary (aligned with VALID_JOB_STATUS_TRANSITIONS in app.py
+    # and the frontend ApplicationTracker board). Legacy DBs only defined the first three
+    # values; widening is handled by migration 0002.
+    status = Column(
+        Enum('recommended', 'viewed', 'dismissed', 'applied', 'interviewing',
+             'offered', 'accepted', 'rejected', 'withdrawn', name='job_rec_status'),
+        default='recommended'
+    )
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     score_breakdown = Column(JSON, nullable=True)
@@ -358,6 +369,25 @@ class CanonicalSkill(Base):
     # pgvector embedding for semantic skill normalization (Pass 2)
     # Populated once by seed_skill_embeddings.py, updated when new skills are added.
     embedding = _vector_column(768)
+
+
+class SecurityAttempt(Base):
+    """Failed security-code attempts (verification / reset lockouts).
+
+    DB-backed so brute-force lockouts hold across multiple workers/processes
+    (the previous in-memory defaultdict was per-process and dilutable).
+    Rows older than the attempt window are pruned on touch.
+    """
+    __tablename__ = 'security_attempts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Identity-scoped key: e.g. "verify:<email>", "reset:<ip>", "forgot:<email>"
+    attempt_key = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        Index('ix_security_attempts_key_time', 'attempt_key', 'created_at'),
+    )
 
 
 class AuditLog(Base):
@@ -486,6 +516,10 @@ class InterviewAnswer(Base):
         default='pending_evaluation',
         index=True,
     )
+    # Number of evaluation attempts made (retry-on-poll recovery, see
+    # interview/router.py get_results). After MAX_EVAL_RETRIES the answer is
+    # reported as a partial result instead of blocking results forever.
+    evaluation_attempts = Column(Integer, nullable=False, default=0)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     evaluated_at = Column(DateTime, nullable=True)
@@ -544,9 +578,9 @@ class LearningPath(Base):
     
     # Source of learning path
     generated_from = Column(Enum('interview', 'assessment', 'manual', 'job', name='path_source'), default='interview')
-    # source_session_id kept as nullable Integer for backward compatibility;
-    # new interview sessions use UUID strings so new learning paths set this to NULL.
-    source_session_id = Column(Integer, nullable=True)
+    # UUID string id of the interview session this path was generated from.
+    # (v2 sessions use UUIDs; widened from Integer via migration 0005.)
+    source_session_id = Column(String(36), nullable=True)
 
     # Path details
     skill_gaps = Column(JSON, nullable=False)  # {"python": "weak", "dsa": "moderate", "dbms": "weak"}
@@ -620,9 +654,10 @@ class CreditTransaction(Base):
     
     # Context
     activity_type = Column(Enum(
-        'full_interview', 'micro_session', 'coding_question', 
+        'full_interview', 'micro_session', 'coding_question',
         'project_idea', 'weekly_refill', 'admin_adjustment',
         'learning_path_generation', 'recommendation_refresh',
+        'refund', 'bonus_credits',
         name='activity_type'
     ), nullable=True, index=True)
     
