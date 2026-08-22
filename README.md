@@ -6,9 +6,22 @@ An advanced, premium AI-powered career guidance platform designed to orchestrate
 
 ---
 
-## 🌟 What's New in v0.5
+## 🌟 What's New
 
-The **v0.5 Release** focuses on high performance, cost optimization, rate-limit resilience, and flawless visual overlays:
+### Completion Cycle (August 2026) — Security, Reliability & Honesty Hardening
+
+A full implementation-gap audit and remediation cycle was completed. Highlights:
+
+1. **Enforced security perimeter**: every applicant-data endpoint now requires authentication with ownership/relationship scoping (students see only their own profile; employers only applicants in their pipeline; admins unrestricted). Recommendation-status BOLA fixed; brute-forceable verification codes replaced with DB-backed lockouts (`security_attempts` table); JWTs are revoked on password change/reset.
+2. **Real database migrations**: Alembic introduced (revisions 0001–0007, all additive/non-destructive). The legacy drop-and-recreate `init_db.py` is dev-only.
+3. **Durable credit economy**: atomic spends (concurrency-safe), refunds on failure, bonus-farming guards, no credit minting for anonymous uploads. Two latent production crashes found & fixed (missing enum values, undefined service reference).
+4. **Production integration fixes**: all frontend streaming/SSE/beacon calls route through the configured API base URL; four dead endpoint calls reconciled.
+5. **Honest surfaces**: all fabricated data removed (mock admin users/stats, fake talent-match verdicts, random match scores, invented mentor personas, hardcoded analytics splits, fake semantic-search scores). Real implementations added where feasible (vector-based candidate search), honest empty/error states elsewhere.
+6. **Reliability**: interview session abandon redesigned (explicit quit + single-purpose HMAC beacon token); failed interview evaluations retry automatically and then deliver honest partial results instead of polling forever.
+
+Full per-feature status, known limitations, and deferred backlog: **`docs_wiki/IMPLEMENTATION_STATUS.md`**.
+
+### v0.5 Release — Performance & Cost Optimization
 
 1. **Groq-Gemini Hybrid Parser Pipeline**:
    - **Groq Parallel Parser**: Swapped core extraction to Groq (`llama-3.3-70b-versatile`) running 6 concurrent parallel requests in an `asyncio.gather` pool. Highly robust, structured JSON extraction with zero Gemini rate-limiting overhead.
@@ -34,34 +47,35 @@ The **v0.5 Release** focuses on high performance, cost optimization, rate-limit 
 
 ```
 Career Guidence/
-├── deploy/                # Deployment & Docker orchestration
+├── deploy/                     # Deployment & Docker orchestration
 │   ├── docker/
-│   │   ├── docker-compose.yml       # Production/Local orchestrator with GROQ environment support
-│   │   ├── docker-help.sh
-│   │   └── docker-help.bat
-│   ├── scripts/
-│   │   ├── redeploy.ps1             # PowerShell automated redeployment
-│   │   └── setup_dual_db.sh
-│   └── aws/
-│       └── .env.aws.example
-├── frontend/              # React 18 + Vite 5 + Tailwind CSS + Framer Motion (JavaScript/JSX)
+│   │   ├── docker-compose.prod.yml   # Production orchestrator (pulls prebuilt image)
+│   │   ├── build-and-push.ps1/.sh    # Build & push the backend image
+│   │   └── docker-help.ps1/.bat
+│   ├── aws/                    # EC2 env template + provisioning helpers
+│   └── scripts/                # redeploy, dual-DB setup (legacy Cloud Run scripts included)
+├── docker-compose.yml          # Local dev compose (repo root)
+├── frontend/                   # React 18 + Vite 5 + Tailwind CSS + Framer Motion (JavaScript/JSX)
 │   ├── src/
-   │   │   ├── components/    # Reusable UI (CreditWidget, ApplicationTracker, etc. with Portals)
-   │   │   ├── pages/         # Core views (StudentDashboard, LearningPaths, Interview flows)
-│   │   └── config/        # API and local state secure storage config
-├── resume_pipeline/       # FastAPI backend (Python 3.11)
-│   ├── resume_pipeline/   # Main package
-│   │   ├── app.py         # Entry point; core API routes, CORS alignment, startup self-healing DDL
-│   │   ├── db.py          # SQLAlchemy models (18 relational tables)
-│   │   ├── config.py      # Pydantic v2 settings (environment-injected)
-│   │   ├── constants.py   # CREDIT_CONFIG, API_MESSAGES, RECOMMENDATION_WEIGHTS
-│   │   ├── resume/        # Parsing: Groq extractor, Gemini Vision preprocessor, fuzzy skill taxomony
-│   │   ├── interview/     # Interview service (Groq-based generation/scoring via llm_router)
-│   │   ├── core/          # CreditService, abstract base interfaces
-│   │   ├── rag/           # BM25 + TF-IDF hybrid retrieval over repo docs, Gemini RAG Q&A
-│   │   └── repos/         # Repository pattern for database decoupling
-│   ├── tests/             # Pytest suite
-│   └── scripts/           # DB init, sample data seeding, and integrity verification
+│   │   ├── components/         # Reusable UI (CreditWidget, ApplicationTracker, etc. with Portals)
+│   │   ├── pages/              # Core views (StudentDashboard, LearningPaths, Interview flows)
+│   │   ├── hooks/              # useAuth, useInterviewSession, useToast, SSE consumers
+│   │   └── config/             # API base URL / axios instance, constants
+├── resume_pipeline/            # FastAPI backend (Python 3.11)
+│   ├── alembic.ini + alembic/  # Migrations (0001–0007, additive/non-destructive)
+│   ├── resume_pipeline/        # Main package
+│   │   ├── app.py              # Entry point; API routes, CORS, startup validation & expiry sweep
+│   │   ├── db.py               # SQLAlchemy models (31 tables, 16 PG enums)
+│   │   ├── config.py           # Pydantic v2 settings (environment-injected; APP_ENV gate)
+│   │   ├── constants.py        # CREDIT_CONFIG, API_MESSAGES, RECOMMENDATION_WEIGHTS
+│   │   ├── auth.py             # JWT (+iat revocation), bcrypt, require_role guard
+│   │   ├── resume/             # Parsing: Groq extractor, Gemini Vision preprocessor, skill taxonomy
+│   │   ├── interview/          # Groq-based interview generation/scoring via llm_router
+│   │   ├── core/               # CreditService (atomic spend/refunds), storage, rate limiter
+│   │   ├── rag/                # BM25 + TF-IDF hybrid retrieval over repo docs, Gemini RAG Q&A
+│   │   └── repos/              # Legacy repository pattern — currently orphaned/dead code
+│   ├── tests/                  # Pytest suite incl. security/credits/interview regression tests
+│   └── scripts/                # Seeding, verification, legacy one-off migration scripts
 └── README.md
 ```
 
@@ -71,14 +85,15 @@ Career Guidence/
 
 ### Backend
 - **FastAPI**: Asynchronous high-performance web framework
-- **Groq API (`llama-3.3-70b-versatile`)**: High-speed, structured resume section JSON extraction
-- **Google Gemini API**: Scanned PDF OCR-Vision preprocessing + skill embedding generation
-- **SQLAlchemy 2.0**: Modern database mapper using the Repository Pattern
+- **Groq API (`llama-3.3-70b-versatile`)**: High-speed, structured resume section JSON extraction + interview generation/evaluation
+- **Google Gemini API**: Scanned PDF OCR-Vision preprocessing, skill embedding generation, RAG answers (via multi-provider `llm_router` with fallbacks)
+- **SQLAlchemy 2.0**: Modern database mapper
+- **Alembic**: Additive, non-destructive schema migrations (`alembic upgrade head`)
 - **psycopg2-binary**: PostgreSQL adapter
-- **PGVector**: Database vector columns used as embedding caches for the recommendation pipeline (similarity is computed in application code, not via in-database ANN queries)
+- **PGVector**: Database vector columns used as embedding caches for the recommendation pipeline and semantic candidate search (similarity is computed in application code, not via in-database ANN queries)
 - **BM25 + TF-IDF Hybrid Retrieval**: Custom in-memory retrieval engine powering the RAG Q&A assistant over project documentation (no external vector DB)
 - **Pydantic v2**: Structured runtime validation and settings management
-- **JWT + bcrypt**: Token-based authentication and secure password encryption
+- **JWT + bcrypt**: Token-based authentication; tokens embed `iat` and are revoked after password change/reset
 - **smtplib**: Automated email verification with 6-digit verification code workflow
 
 ### Frontend
@@ -94,7 +109,7 @@ Career Guidence/
 
 ## 🚦 Quick Start
 
-For a detailed multi-node deployment walkthrough, please review **`docs/DEPLOYMENT.md`**.
+For a detailed multi-node deployment walkthrough, please review **`docs_wiki/architecture/DEPLOYMENT.md`**.
 
 ### ⚡ 5-Minute Local Dev Setup
 
@@ -108,7 +123,7 @@ pip install -r requirements.txt
 ```
 
 #### 2. Configure Environment
-Copy `.env.example` to `.env` inside `resume_pipeline/` and fill in your API credentials:
+Copy the repo-root `.env.example` to `.env` **at the repository root** (the app loads it from there) and fill in your API credentials:
 ```env
 # Database Credentials
 PG_HOST=localhost
@@ -125,7 +140,7 @@ GROQ_API_KEY=your_groq_api_key
 GMAIL_USER=your-email@gmail.com
 GMAIL_APP_PASSWORD=your_16_char_app_password
 
-# Authentication Secret
+# Authentication Secret — REQUIRED, min 32 chars (hard requirement when APP_ENV=production)
 SECRET_KEY=your-super-secret-jwt-key-min-32-chars
 
 # App URLs
@@ -135,10 +150,13 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
 #### 3. Initialize & Seed PostgreSQL Database
 ```cmd
-python scripts/init_db.py
-python scripts/seed_database.py
-python scripts/verify_data.py
+alembic upgrade head                 :: create/evolve schema (SAFE — never drops data)
+python scripts/seed_database.py      :: sample users/jobs/applications
+python scripts/seed_canonical_skills.py  :: skill taxonomy + runtime config keys
+python scripts/verify_data.py        :: integrity check
 ```
+
+> `scripts/init_db.py` **drops and recreates the entire schema** — development only, never against a real database.
 
 #### 4. Run Development Server
 ```cmd
@@ -194,26 +212,32 @@ To ensure fair-use protection and safeguard against massive API cost overruns:
 
 ## 🧪 Testing Suite
 
-We provide a solid automated test suite. Always verify changes before pushing:
+A solid automated test suite covers parsing, security perimeter, credit concurrency, interview lifecycle, migrations, and more. Always verify changes before pushing:
 
 ```cmd
-# Run all tests (from resume_pipeline directory with venv active)
+:: Run all tests (from resume_pipeline directory with venv active)
 pytest tests/ -q
 
-# Run single unit or integration test
-pytest tests/test_parsing.py -v
-pytest tests/test_api.py -v
+:: Run a single suite
+pytest tests/test_security_perimeter.py -v      :: auth/ownership/BOLA regression
+pytest tests/test_credit_durability.py -v       :: atomic spend, refunds, race tests
+pytest tests/test_migrations.py -v              :: Alembic chain on throwaway DBs
 ```
+
+> Note: `tests/test_api.py` is a single live-key Gemini connectivity smoke test (excluded from CI), and CI also skips `test_interview`, `test_learning_path`, and the recommendation suites — see `docs_wiki/architecture/DEPLOYMENT.md` for details.
 
 ---
 
 ## 🔒 Security Features
-*   **JWT Tokens**: Secure bearer tokens with custom expiration.
+*   **JWT Tokens**: Secure bearer tokens with expiration; tokens carry an `iat` claim and are **revoked automatically after a password change/reset**.
 *   **bcrypt Password Hashing**: Adaptive work factors for robust storage protection.
-*   **Multi-Layer XSS Protection**: Strict sanitization of user strings (HTML escaping) on both client and server inputs.
-*   **Double-Verification Guard**: Accounts require 6-digit verification codes sent via secure SMTP to prevent bot registrations.
+*   **Ownership-Scoped Access Control**: Applicant résumés, recommendations, scheduling, feedback, and candidate intelligence are all relationship-scoped — no IDOR/BOLA paths.
+*   **Brute-Force Protection**: Verification/reset codes lock out after 5 failed attempts (DB-backed, multi-worker safe) with per-email resend caps; uniform responses prevent account enumeration.
+*   **Atomic Credit Ledger**: Conditional-update spends prevent concurrent double-spend; failures trigger automatic refunds.
+*   **XSS Mitigation**: Server-side sanitization of user-submitted job/listing fields plus React's default output escaping.
+*   **Double-Verification Guard**: Accounts require 6-digit verification codes sent via SMTP to prevent bot registrations.
 
 ---
 
-**Last Updated**: June 2026  
-**Application Version**: 0.5.0 (Groq Parallel Extraction, Hybrid OCR-Vision, Quota Bypass & Portals)
+**Last Updated**: August 2026  
+**Application Version**: 0.5.0 + Completion Cycle (security hardening, Alembic migrations, durable credits, honest surfaces)
