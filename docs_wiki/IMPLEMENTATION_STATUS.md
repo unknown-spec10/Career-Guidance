@@ -128,10 +128,40 @@ See **Deferred** below. Nothing documented as shipped is missing.
 | Coding challenges | Priced/metered in config but no judge exists; large feature |
 | Live/WebSocket interviews | Roadmap/proposal only (`LIVE_INTERVIEW_ARCHITECTURE.md`); requires product confirmation |
 | Notification backend | Product scope undefined |
-| Report export, Add Education/Experience buttons, misc dead handlers | Polish items behind core-workflow reliability |
-| Accessibility pass (focus traps, hover-only menus, ARIA) | Polish |
-| Frontend test framework + CI suite re-enablement (test_interview, test_learning_path, etc.) | Infrastructure work; suites exist and pass locally |
-| JWT revocation after password reset | Stateless tokens; needs token-versioning scheme decision |
+| Report export, Add Education/Experience editing (feature itself) | Buttons now honestly disabled with "coming soon" hints after the UI-consistency pass; the underlying features remain P3 |
+| Full accessibility audit beyond shipped basics | Shipped in the UI pass: global focus-visible rings, modal focus trap + focus restore + Escape + dialog ARIA (`Modal.jsx`), toast `aria-live`, icon-only button labels. Remaining: deep screen-reader audit |
+| ~~Native `confirm()` dialogs~~ | **Resolved**: all four sites (avatar removal ×2, account deactivation, learning-path delete) now use the shared `ConfirmDialog` built on `Modal` |
+
+## UI Consistency Pass (post testing/CI milestone)
+
+- **Dark-theme palette gaps closed** in the central override map (`index.css`): red,
+  green, and yellow families now mirror the existing emerald/rose/amber rules — fixes
+  near-white error banners and status badges in dark mode (ApplicationTracker,
+  StatusBadge solid variants, JobsPage/AdminDashboard banners, ErrorBoundary);
+  `text-primary-500` and `text-blue-600` remapped for dark-surface contrast.
+- **Global keyboard focus indicator**: `:focus-visible` outline for buttons/links/
+  role=button/tab elements (inputs already had focus rings).
+- **ResultsPage light-theme repair**: dark-designed page given paired light/dark
+  classes for metadata text, back-link hover, error state, and skill chips.
+- **Dead-UI honesty**: ResultsPage "Export Report" disabled with title/aria hint;
+  StudentProfile "Add Education"/"Add Experience" likewise (editing itself stays P3).
+- **SkillGapModal feedback fixed**: success/error toasts were bound to an isolated
+  toast instance nothing rendered (silent outcomes); modal now renders its own
+  ToastContainer using the standard string signature — covered by tests.
+- **Shared Modal parity**: Escape-to-close, dialog ARIA, **focus trap with focus
+  restore** — matching and exceeding the CreditWidget/ApplicationTracker/
+  UserManagement modals; covered by tests.
+- **Native `confirm()` dialogs replaced**: new shared `ConfirmDialog` component
+  (built on `Modal`) now backs all four destructive confirmations (profile-picture
+  removal on both portals, account deactivation, learning-path delete) with
+  consistent destructive styling, busy states, and keyboard behavior.
+- **Toast announcements**: toast container exposes `role="status"` +
+  `aria-live="polite"` so success/error feedback reaches screen readers.
+- **Icon-only controls labelled**: sidebar mobile-menu trigger, notification bell,
+  avatar-delete buttons, learning-path action buttons.
+- **CandidateIntelligencePage tokenized**: all raw hex utility classes replaced
+  with theme tokens (`inverse-surface`, `outline-variant`, Tailwind `indigo/rose-950`)
+  or dropped where global dark overrides already produce identical values.
 
 ## Known Limitations (documented residual risks)
 
