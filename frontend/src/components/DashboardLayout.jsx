@@ -69,9 +69,34 @@ export default function DashboardLayout({ children }) {
       }
     }
 
+    const refreshUserDetails = async () => {
+      try {
+        const response = await api.get('/api/auth/me')
+        if (response.data) {
+          secureStorage.setItem('user', response.data)
+          setUser(response.data)
+        }
+      } catch (err) {
+        console.warn('Failed to refresh user details from server:', err)
+      }
+    }
+
     fetchCredits()
+    refreshUserDetails()
     const interval = setInterval(fetchCredits, 30000)
-    return () => clearInterval(interval)
+
+    const handleProfileUpdate = () => {
+      const updatedUser = secureStorage.getItem('user')
+      if (updatedUser) {
+        setUser(updatedUser)
+      }
+    }
+    window.addEventListener('userProfileUpdated', handleProfileUpdate)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('userProfileUpdated', handleProfileUpdate)
+    }
   }, [navigate])
 
   // Generate dynamic notifications based on user data
@@ -241,9 +266,17 @@ export default function DashboardLayout({ children }) {
         {/* User Card */}
         {user && (
           <div className={`flex items-center mb-lg bg-surface-container-low dark:bg-inverse-surface/10 rounded-xl border border-border-subtle dark:border-outline-variant/30 transition-all duration-300 ${collapsed ? 'justify-center p-2' : 'p-sm'}`}>
-            <div className="w-10 h-10 rounded-lg bg-primary-container text-on-primary-container flex items-center justify-center font-bold font-display-lg uppercase shadow-sm shrink-0">
-              {user.name ? user.name[0] : (user.email ? user.email[0] : 'U')}
-            </div>
+            {user.profile_picture_url ? (
+              <img
+                src={user.profile_picture_url.startsWith("http") ? user.profile_picture_url : `${api.defaults.baseURL || ""}${user.profile_picture_url}`}
+                alt="User Avatar"
+                className="w-10 h-10 rounded-lg object-cover shadow-sm shrink-0"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-lg bg-primary-container text-on-primary-container flex items-center justify-center font-bold font-display-lg uppercase shadow-sm shrink-0">
+                {user.name ? user.name[0] : (user.email ? user.email[0] : 'U')}
+              </div>
+            )}
             <div className={`min-w-0 transition-all duration-300 overflow-hidden ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-sm'}`}>
               <p className="font-body-bold text-[14px] text-on-surface dark:text-inverse-on-surface truncate">{user.name || 'Alex Chen'}</p>
               <p className="font-metadata text-[11px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider truncate">{user.role}</p>
@@ -377,6 +410,7 @@ export default function DashboardLayout({ children }) {
             <div className="flex items-center gap-md">
               <button
                 onClick={() => setMobileMenuOpen(true)}
+                aria-label="Open navigation menu"
                 className="md:hidden p-sm hover:bg-surface-container dark:hover:bg-surface-variant/40 rounded-full active:scale-95 text-on-surface transition-transform"
               >
                 <Menu className="w-6 h-6" />
@@ -414,6 +448,8 @@ export default function DashboardLayout({ children }) {
                     setNotificationsOpen(!notificationsOpen)
                     setHasNewNotifications(false)
                   }}
+                  aria-label={`Notifications${hasNewNotifications ? ' (new)' : ''}`}
+                  aria-expanded={notificationsOpen}
                   className="p-sm text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim transition-colors rounded-full hover:bg-surface-container dark:hover:bg-surface-variant/30 active:scale-95 relative"
                 >
                   <Bell className="w-5 h-5" />
@@ -433,7 +469,16 @@ export default function DashboardLayout({ children }) {
                     >
                       <div className="px-sm py-xs border-b border-border-subtle dark:border-outline-variant/40 mb-xs flex justify-between items-center">
                         <span className="font-body-bold text-[13px] text-on-surface dark:text-inverse-on-surface">Notifications</span>
-                        <span className="text-[10px] text-primary dark:text-primary-fixed-dim cursor-pointer font-semibold hover:underline">Mark read</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotifications([])
+                            setHasNewNotifications(false)
+                          }}
+                          className="text-[10px] text-primary dark:text-primary-fixed-dim cursor-pointer font-semibold hover:underline bg-transparent border-0 p-0"
+                        >
+                          Mark read
+                        </button>
                       </div>
                       
                       {notifications.length === 0 ? (
@@ -467,9 +512,17 @@ export default function DashboardLayout({ children }) {
               {/* Profile Avatar Trigger */}
               {user && (
                 <div className="flex items-center gap-xs cursor-pointer select-none group" onClick={() => navigate(user.role === 'student' ? '/student/profile' : '/employer/profile')}>
-                  <div className="w-8 h-8 rounded-lg bg-secondary-container dark:bg-surface-variant text-on-secondary-container dark:text-surface-variant flex items-center justify-center font-bold text-xs uppercase shadow-sm group-hover:ring-2 group-hover:ring-primary/20 transition-all">
-                    {user.name ? user.name[0] : (user.email ? user.email[0] : 'U')}
-                  </div>
+                  {user.profile_picture_url ? (
+                    <img
+                      src={user.profile_picture_url.startsWith("http") ? user.profile_picture_url : `${api.defaults.baseURL || ""}${user.profile_picture_url}`}
+                      alt="User Avatar"
+                      className="w-8 h-8 rounded-lg object-cover shadow-sm group-hover:ring-2 group-hover:ring-primary/20 transition-all"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-lg bg-secondary-container dark:bg-surface-variant text-on-secondary-container dark:text-surface-variant flex items-center justify-center font-bold text-xs uppercase shadow-sm group-hover:ring-2 group-hover:ring-primary/20 transition-all">
+                      {user.name ? user.name[0] : (user.email ? user.email[0] : 'U')}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

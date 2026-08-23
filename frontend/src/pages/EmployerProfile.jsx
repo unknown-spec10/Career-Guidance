@@ -6,6 +6,7 @@ import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { sanitizeText } from '../utils/sanitize'
 
 export default function EmployerProfile() {
@@ -14,6 +15,8 @@ export default function EmployerProfile() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [avatarDeleteDialogOpen, setAvatarDeleteDialogOpen] = useState(false)
+  const [deletingAvatar, setDeletingAvatar] = useState(false)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState(null)
   const [user, setUser] = useState(null)
@@ -99,6 +102,15 @@ export default function EmployerProfile() {
           ...prev,
           profile_picture_url: response.data.profile_picture_url,
         }))
+        
+        // Update global secureStorage user info
+        const storedUser = secureStorage.getItem('user')
+        if (storedUser) {
+          storedUser.profile_picture_url = response.data.profile_picture_url
+          secureStorage.setItem('user', storedUser)
+          window.dispatchEvent(new Event('userProfileUpdated'))
+        }
+        
         toast.success('Profile picture updated successfully')
       }
     } catch (err) {
@@ -109,19 +121,32 @@ export default function EmployerProfile() {
     }
   }
 
-  const handleAvatarDelete = async () => {
-    if (!window.confirm('Are you sure you want to remove your profile picture?')) return
-    
+  const handleAvatarDelete = () => setAvatarDeleteDialogOpen(true)
+
+  const performAvatarDelete = async () => {
     try {
+      setDeletingAvatar(true)
       await api.delete('/api/auth/profile/picture')
       setUser((prev) => ({
         ...prev,
         profile_picture_url: '',
       }))
+
+      // Update global secureStorage user info
+      const storedUser = secureStorage.getItem('user')
+      if (storedUser) {
+        storedUser.profile_picture_url = ''
+        secureStorage.setItem('user', storedUser)
+        window.dispatchEvent(new Event('userProfileUpdated'))
+      }
+
       toast.success('Profile picture removed')
+      setAvatarDeleteDialogOpen(false)
     } catch (err) {
       console.error('Error deleting profile picture:', err)
       toast.error(err.response?.data?.detail || 'Failed to remove profile picture')
+    } finally {
+      setDeletingAvatar(false)
     }
   }
 
@@ -294,6 +319,7 @@ export default function EmployerProfile() {
                       onClick={handleAvatarDelete}
                       className="p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 transition"
                       title="Remove Photo"
+                      aria-label="Remove profile photo"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -559,6 +585,16 @@ export default function EmployerProfile() {
           </form>
         </motion.div>
       </div>
+      <ConfirmDialog
+        isOpen={avatarDeleteDialogOpen}
+        title="Remove profile picture?"
+        message="Your current profile picture will be removed and your initials avatar will be shown instead."
+        confirmLabel="Remove"
+        destructive
+        loading={deletingAvatar}
+        onConfirm={performAvatarDelete}
+        onClose={() => !deletingAvatar && setAvatarDeleteDialogOpen(false)}
+      />
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )

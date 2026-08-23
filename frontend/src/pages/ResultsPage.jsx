@@ -52,9 +52,9 @@ export default function ResultsPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="card max-w-md">
-          <div className="flex items-center space-x-3 text-red-400 mb-4">
+          <div className="flex items-center space-x-3 text-red-600 mb-4">
             <AlertTriangle className="w-8 h-8" />
-            <h2 className="text-xl font-semibold">Error Loading Results</h2>
+            <h2 className="text-xl font-semibold text-red-600">Error Loading Results</h2>
           </div>
           <p className="text-gray-600 mb-4">{error}</p>
           <button onClick={() => navigate('/')} className="btn-primary w-full">
@@ -89,14 +89,20 @@ export default function ResultsPage() {
         >
           <button
             onClick={() => navigate('/')}
-            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors duration-200 mb-4"
+            className="flex items-center space-x-2 text-gray-500 hover:text-primary-600 transition-colors duration-200 mb-4"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Back to Home</span>
           </button>
           <div className="flex items-center justify-between">
             <h1 className="text-3xl md:text-4xl font-bold">Resume Analysis Results</h1>
-            <button className="btn-secondary flex items-center space-x-2">
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              title="Report export is coming soon"
+              className="btn-secondary flex items-center space-x-2 opacity-60 cursor-not-allowed hover:bg-white hover:border-gray-300 hover:text-primary-500"
+            >
               <Download className="w-5 h-5" />
               <span>Export Report</span>
             </button>
@@ -116,14 +122,14 @@ export default function ResultsPage() {
                 <h3 className="font-semibold text-yellow-400 mb-2">Parse Issues Detected</h3>
                 <ul className="space-y-1">
                   {flags.map((flag, idx) => (
-                    <li key={idx} className="text-sm text-gray-400 flex items-start space-x-2">
+                    <li key={idx} className="text-sm text-gray-600 flex items-start space-x-2">
                       <span className="text-yellow-400 mt-0.5">•</span>
                       <span>{flag}</span>
                     </li>
                   ))}
                 </ul>
                 {needsReview && (
-                  <p className="text-sm text-gray-400 mt-3 italic">
+                  <p className="text-sm text-gray-600 mt-3 italic">
                     Manual review recommended for accuracy
                   </p>
                 )}
@@ -143,23 +149,23 @@ export default function ResultsPage() {
               className="card"
             >
               <div className="flex items-center space-x-2 mb-4">
-                <User className="w-5 h-5 text-primary-400" />
+                <User className="w-5 h-5 text-primary-600" />
                 <h2 className="text-xl font-semibold">Personal Information</h2>
               </div>
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm text-gray-400">Name</p>
+                  <p className="text-sm text-gray-600">Name</p>
                   <p className="font-medium">{personal.name || 'N/A'}</p>
                 </div>
                 {personal.email && (
                   <div className="flex items-center space-x-2">
-                    <Mail className="w-4 h-4 text-gray-400" />
+                    <Mail className="w-4 h-4 text-gray-500" />
                     <p className="text-sm">{personal.email}</p>
                   </div>
                 )}
                 {personal.phone && (
                   <div className="flex items-center space-x-2">
-                    <Phone className="w-4 h-4 text-gray-400" />
+                    <Phone className="w-4 h-4 text-gray-500" />
                     <p className="text-sm">{personal.phone}</p>
                   </div>
                 )}
@@ -175,7 +181,7 @@ export default function ResultsPage() {
                 className="card"
               >
                 <div className="flex items-center space-x-2 mb-4">
-                  <GraduationCap className="w-5 h-5 text-primary-400" />
+                  <GraduationCap className="w-5 h-5 text-primary-600" />
                   <h2 className="text-xl font-semibold">Education</h2>
                 </div>
                 <div className="space-y-4">
@@ -190,7 +196,7 @@ export default function ResultsPage() {
                         </div>
                       )}
                       {edu.year_start && (
-                        <p className="text-sm text-gray-400 mt-1">
+                        <p className="text-sm text-gray-600 mt-1">
                           {edu.year_start} - {edu.year_end || 'Present'}
                         </p>
                       )}
@@ -208,14 +214,14 @@ export default function ResultsPage() {
               className="card"
             >
               <div className="flex items-center space-x-2 mb-4">
-                <TrendingUp className="w-5 h-5 text-primary-400" />
+                <TrendingUp className="w-5 h-5 text-primary-600" />
                 <h2 className="text-xl font-semibold">Analysis Confidence</h2>
               </div>
               <div className="text-center">
                 <div className="text-4xl font-bold text-primary-400 mb-2">
                   {((llm_confidence || 0) * 100).toFixed(0)}%
                 </div>
-                <p className="text-sm text-gray-400">Overall Accuracy</p>
+                <p className="text-sm text-gray-600">Overall Accuracy</p>
               </div>
             </motion.div>
           </div>
@@ -231,14 +237,14 @@ export default function ResultsPage() {
                 className="card"
               >
                 <div className="flex items-center space-x-2 mb-4">
-                  <CheckCircle className="w-5 h-5 text-primary-400" />
+                  <CheckCircle className="w-5 h-5 text-primary-600" />
                   <h2 className="text-xl font-semibold">Skills</h2>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {skills.map((skill, idx) => (
                     <span
                       key={idx}
-                      className="px-3 py-1 bg-primary-900/30 border border-primary-500/30 rounded-full text-sm text-primary-300"
+                      className="px-3 py-1 bg-blue-50 dark:bg-primary-900/30 border border-blue-200 dark:border-primary-500/30 rounded-full text-sm text-primary-700 dark:text-primary-300"
                     >
                       {skill.name}
                     </span>
@@ -256,7 +262,7 @@ export default function ResultsPage() {
                 className="card"
               >
                 <div className="flex items-center space-x-2 mb-4">
-                  <Briefcase className="w-5 h-5 text-primary-400" />
+                  <Briefcase className="w-5 h-5 text-primary-600" />
                   <h2 className="text-xl font-semibold">Experience</h2>
                 </div>
                 <div className="space-y-4">
@@ -280,7 +286,7 @@ export default function ResultsPage() {
                 className="card"
               >
                 <div className="flex items-center space-x-2 mb-4">
-                  <Award className="w-5 h-5 text-primary-400" />
+                  <Award className="w-5 h-5 text-primary-600" />
                   <h2 className="text-xl font-semibold">Projects</h2>
                 </div>
                 <div className="space-y-4">

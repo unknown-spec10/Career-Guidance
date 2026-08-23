@@ -5,11 +5,14 @@ import secureStorage from '../utils/secureStorage'
 import { BookOpen, Calendar, ChevronRight, Target, Clock, Check, Trash2, RotateCcw } from 'lucide-react'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 const MyLearningPathsPage = () => {
     const navigate = useNavigate()
     const [paths, setPaths] = useState([])
     const [loading, setLoading] = useState(true)
+    const [deleteTarget, setDeleteTarget] = useState(null)
+    const [deleting, setDeleting] = useState(false)
     const toast = useToast()
 
     useEffect(() => {
@@ -58,17 +61,24 @@ const MyLearningPathsPage = () => {
         }
     }
 
-    const handleDeletePath = async (e, pathId) => {
+    const handleDeletePath = (e, pathId) => {
         e.stopPropagation()
-        const ok = window.confirm("Are you sure you want to delete this learning path? It will be permanently deleted from the database in 30 days. You can restore it from the Trash section at any time before then.")
-        if (!ok) return
+        setDeleteTarget(pathId)
+    }
+
+    const performDeletePath = async () => {
+        if (!deleteTarget) return
+        setDeleting(true)
         try {
-            await api.post(`/api/learning-paths/${pathId}/delete`)
+            await api.post(`/api/learning-paths/${deleteTarget}/delete`)
             toast.success('Learning path moved to Trash.')
             fetchPaths()
+            setDeleteTarget(null)
         } catch (err) {
             console.error(err)
             toast.error('Failed to delete path.')
+        } finally {
+            setDeleting(false)
         }
     }
 
@@ -180,6 +190,7 @@ const MyLearningPathsPage = () => {
                                             <button
                                                 onClick={(e) => handleMarkCompleted(e, path.id)}
                                                 title="Mark as completed"
+                                                aria-label="Mark learning path as completed"
                                                 className="p-1.5 rounded-lg bg-green-50 hover:bg-green-100 border border-green-150 text-green-600 hover:text-green-700 transition-colors"
                                             >
                                                 <Check className="w-4 h-4" />
@@ -188,6 +199,7 @@ const MyLearningPathsPage = () => {
                                         <button
                                             onClick={(e) => handleDeletePath(e, path.id)}
                                             title="Delete learning path"
+                                            aria-label="Delete learning path"
                                             className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 border border-red-150 text-red-550 hover:text-red-700 transition-colors"
                                         >
                                             <Trash2 className="w-4 h-4" />
@@ -247,6 +259,16 @@ const MyLearningPathsPage = () => {
                     </div>
                 </div>
             )}
+            <ConfirmDialog
+                isOpen={!!deleteTarget}
+                title="Delete this learning path?"
+                message="It will be permanently deleted in 30 days. You can restore it from the Trash section at any time before then."
+                confirmLabel="Delete"
+                destructive
+                loading={deleting}
+                onConfirm={performDeletePath}
+                onClose={() => !deleting && setDeleteTarget(null)}
+            />
             <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
         </div>
     )

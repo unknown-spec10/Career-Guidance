@@ -33,6 +33,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import secureStorage from '../utils/secureStorage'
 import { calculateProfileCompletion } from '../utils/profileCompletion'
 
@@ -62,6 +63,10 @@ export default function StudentProfile() {
   const [resumeStatusType, setResumeStatusType] = useState('info')
   const [showPreview, setShowPreview] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [avatarDeleteDialogOpen, setAvatarDeleteDialogOpen] = useState(false)
+  const [deletingAvatar, setDeletingAvatar] = useState(false)
+  const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false)
+  const [deactivating, setDeactivating] = useState(false)
   const [newSkill, setNewSkill] = useState('')
   const [creditInfo, setCreditInfo] = useState(null)
   const [accountActive, setAccountActive] = useState(true)
@@ -214,11 +219,11 @@ export default function StudentProfile() {
     }
   }
 
-  const handleDeactivateAccount = async () => {
-    const confirmed = window.confirm('Are you sure you want to deactivate your account?')
-    if (!confirmed) return
+  const handleDeactivateAccount = () => setDeactivateDialogOpen(true)
 
+  const performDeactivateAccount = async () => {
     try {
+      setDeactivating(true)
       await api.patch('/api/auth/deactivate')
       toast.success('Account deactivated successfully')
       secureStorage.clear()
@@ -226,6 +231,8 @@ export default function StudentProfile() {
     } catch (err) {
       console.error('Error deactivating account:', err)
       toast.error(err.response?.data?.detail || 'Failed to deactivate account')
+    } finally {
+      setDeactivating(false)
     }
   }
 
@@ -334,6 +341,15 @@ export default function StudentProfile() {
           ...prev,
           profile_picture_url: response.data.profile_picture_url,
         }))
+        
+        // Update global secureStorage user info
+        const storedUser = secureStorage.getItem('user')
+        if (storedUser) {
+          storedUser.profile_picture_url = response.data.profile_picture_url
+          secureStorage.setItem('user', storedUser)
+          window.dispatchEvent(new Event('userProfileUpdated'))
+        }
+        
         toast.success('Profile picture updated successfully')
       }
     } catch (err) {
@@ -344,19 +360,32 @@ export default function StudentProfile() {
     }
   }
 
-  const handleAvatarDelete = async () => {
-    if (!window.confirm('Are you sure you want to remove your profile picture?')) return
-    
+  const handleAvatarDelete = () => setAvatarDeleteDialogOpen(true)
+
+  const performAvatarDelete = async () => {
     try {
+      setDeletingAvatar(true)
       await api.delete('/api/auth/profile/picture')
       setProfile((prev) => ({
         ...prev,
         profile_picture_url: '',
       }))
+
+      // Update global secureStorage user info
+      const storedUser = secureStorage.getItem('user')
+      if (storedUser) {
+        storedUser.profile_picture_url = ''
+        secureStorage.setItem('user', storedUser)
+        window.dispatchEvent(new Event('userProfileUpdated'))
+      }
+
       toast.success('Profile picture removed')
+      setAvatarDeleteDialogOpen(false)
     } catch (err) {
       console.error('Error deleting profile picture:', err)
       toast.error(err.response?.data?.detail || 'Failed to remove profile picture')
+    } finally {
+      setDeletingAvatar(false)
     }
   }
 
@@ -652,7 +681,7 @@ export default function StudentProfile() {
                   <h3 className="text-2xl font-bold text-gray-900">Education</h3>
                 </div>
                 {editing && (
-                  <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                  <button type="button" disabled aria-disabled="true" title="Education editing is coming soon" className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg opacity-60 cursor-not-allowed hover:bg-green-700">
                     <Plus className="w-4 h-4" />
                     Add Education
                   </button>
@@ -684,7 +713,7 @@ export default function StudentProfile() {
                   <h3 className="text-2xl font-bold text-gray-900">Experience</h3>
                 </div>
                 {editing && (
-                  <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                  <button type="button" disabled aria-disabled="true" title="Experience editing is coming soon" className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg opacity-60 cursor-not-allowed hover:bg-blue-700">
                     <Plus className="w-4 h-4" />
                     Add Experience
                   </button>
@@ -1166,6 +1195,26 @@ export default function StudentProfile() {
           <p>© 2026 CareerSync AI. Empowering students with intelligent guidance.</p>
         </footer>
       </div>
+      <ConfirmDialog
+        isOpen={avatarDeleteDialogOpen}
+        title="Remove profile picture?"
+        message="Your current profile picture will be removed and your initials avatar will be shown instead."
+        confirmLabel="Remove"
+        destructive
+        loading={deletingAvatar}
+        onConfirm={performAvatarDelete}
+        onClose={() => !deletingAvatar && setAvatarDeleteDialogOpen(false)}
+      />
+      <ConfirmDialog
+        isOpen={deactivateDialogOpen}
+        title="Deactivate your account?"
+        message="Your account will be deactivated and you will be signed out. You will need to contact support to reactivate it."
+        confirmLabel="Deactivate Account"
+        destructive
+        loading={deactivating}
+        onConfirm={performDeactivateAccount}
+        onClose={() => !deactivating && setDeactivateDialogOpen(false)}
+      />
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
     </div>
   )
