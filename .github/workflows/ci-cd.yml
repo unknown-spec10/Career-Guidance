@@ -9,7 +9,7 @@ on:
 
 jobs:
   frontend-ci:
-    name: Frontend CI (Lint & Build Check)
+    name: Frontend CI (Tests, Lint & Build)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -26,6 +26,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Run Vitest Test Suite
+        working-directory: frontend
+        run: npm test
+
       - name: Run ESLint
         working-directory: frontend
         run: npm run lint
@@ -35,8 +39,27 @@ jobs:
         run: npm run build
 
   backend-ci:
-    name: Backend CI (Unit Tests)
+    name: Backend CI (Tests & Migrations)
     runs-on: ubuntu-latest
+
+    # Disposable PostgreSQL used to verify the Alembic chain (0001 -> head)
+    # against the real database engine, including PG enum/DDL behaviour that
+    # SQLite-based tests cannot exercise.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: career_guidance_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -62,6 +85,8 @@ jobs:
           pip install -r requirements.txt
           python -m spacy download en_core_web_sm
 
+      # Unit/regression suites run against an in-memory SQLite stub configured
+      # inside resume_pipeline/db.py (CI_SKIP_DB_VALIDATION=true).
       - name: Run Pytest Test Suite
         working-directory: resume_pipeline
         env:
@@ -70,12 +95,25 @@ jobs:
           CI_SKIP_DB_VALIDATION: "true"
           SECRET_KEY: "test_secret_key_at_least_32_characters_long_for_signing_jwt"
         run: |
-          python -m pytest tests/ -v \
-            --ignore=tests/test_api.py \
-            --ignore=tests/test_interview.py \
-            --ignore=tests/test_learning_path.py \
-            --ignore=tests/test_recommendation_fallback.py \
-            --ignore=tests/test_recommendation_system.py
+          python -m pytest tests/ -q \
+            --ignore=tests/test_api.py
+
+      # Migration verification: apply the full additive chain to a fresh
+      # PostgreSQL database. test_api.py stays excluded everywhere — it is a
+      # live Gemini API connectivity smoke test, not a deterministic suite.
+      - name: Verify Alembic Migrations (0001 -> head) on PostgreSQL
+        working-directory: resume_pipeline
+        env:
+          PYTHONPATH: .
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_USER: postgres
+          PG_PASSWORD: postgres
+          PG_DB: career_guidance_ci
+          SECRET_KEY: "test_secret_key_at_least_32_characters_long_for_signing_jwt"
+        run: |
+          python -m alembic upgrade head
+          python -m alembic upgrade head  # idempotency check
 
   docker-build-push:
     name: Docker Build & Push to Docker Hub

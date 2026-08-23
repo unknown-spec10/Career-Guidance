@@ -1,13 +1,40 @@
 # Implementation Status Register
 
 > **FINAL STATE — post completion-cycle (P0–P2 implemented; P3 deferred), plus a
-> scrutiny round that closed the residual security items.**
+> scrutiny round that closed the residual security items and a testing/CI
+> foundation milestone.**
 > This document describes what the codebase actually does **today**, verified by an
-> independent adversarial audit, a 179-test backend regression suite, and frontend
-> lint/build. It is not a roadmap: anything not finished is listed explicitly under
-> Partially Implemented / Missing / Deferred.
+> independent adversarial audit, a 183-test backend regression suite, an 82-test
+> frontend Vitest suite, and frontend lint/build. It is not a roadmap: anything not
+> finished is listed explicitly under Partially Implemented / Missing / Deferred.
 >
 > Related: `deploy/` for ops, `docs_wiki/architecture/*` for design deep-dives.
+
+## Testing & CI Milestone (post-scrutiny)
+
+- **Frontend testing foundation established**: Vitest 4 + React Testing Library +
+  jsdom (`frontend/vitest.config.mjs`, setup in `src/test/setup.js`). 82 tests across
+  13 files cover auth (login flows, role routing, protected routes, session expiry),
+  credits widget (authoritative API costs), application tracker, the interview session
+  hook lifecycle (start/answer/finish/quit/HMAC abandon beacon/hint SSE/recovery),
+  evaluation polling recovery, skill-gap SSE → learning-path generation contract,
+  semantic talent search (incl. unscored-badge honesty), admin stats consumption, and
+  job listing/application — all at the HTTP boundary with error/loading/empty states.
+- **Backend suites restored to CI**: `test_interview.py` and `test_learning_path.py`
+  run again via a shared-schema in-memory SQLite stub in `db.py`
+  (`CI_SKIP_DB_VALIDATION=true` branch only; production paths untouched).
+  `test_recommendation_fallback.py` / `test_recommendation_system.py` re-enabled after
+  verifying they pass under mock mode. Only `test_api.py` remains excluded (live-key
+  smoke test). `test_storage.py::test_s3_file_storage_lifecycle` fixed to assert call
+  semantics instead of `BytesIO` object identity.
+- **CI pipeline strengthened** (`.github/workflows/ci-cd.yml`): frontend job now runs
+  `npm test`; backend job re-enabled the four restored suites and added an Alembic
+  verification step running `alembic upgrade head` twice against a disposable
+  PostgreSQL 16 service container (real PG DDL/enum coverage + idempotency).
+- **Regression found & fixed by the new tests**: JobsPage crashed on every render
+  (`ReferenceError: learningPathState is not defined` — dangling reference left when
+  the dead learning-path button was removed in commit a100f56). Fixed minimally;
+  regression now covered by `JobsPage.test.jsx`.
 
 ## Scrutiny Round (post-completion hardening)
 
@@ -135,14 +162,20 @@ See **Deferred** below. Nothing documented as shipped is missing.
 8. **In-memory rate limiting / JWT revocation**: rate limiting scale-out needs Redis
    (see #1). JWT revocation after credential change IS implemented (was previously
    listed as open).
+9. **SkillGapModal has no visible error banner when the gap-analysis SSE stream
+   fails** — the roadmap button correctly disables and no fabricated content is
+   shown (covered by `SkillGapModal.test.jsx`), but the user gets no explicit error
+   text; adding one is a small UX polish item, deferred with P3.
 
 ## Verification Summary
 
-- Backend: `pytest tests/ -q` → **179 passed, 1 skipped** (excludes live-key smoke test,
-  manual SMTP probe, and one pre-existing unrelated test_storage expectation).
-- Frontend: `npm run lint` (zero warnings) and `npm run build` clean.
+- Backend: `pytest tests/ -q --ignore=tests/test_api.py` → **183 passed, 1 skipped**
+  (up from 179 — the four previously CI-excluded suites are restored).
+- Frontend: `npm test` → **82 passed (13 files)**; `npm run lint` (zero warnings);
+  `npm run build` clean.
 - Migrations: `alembic upgrade head` applied 0001→0007 to the dev database
-  without data loss; chain also verified against throwaway SQLite DBs in tests.
+  without data loss and re-runs idempotently; chain also verified against throwaway
+  SQLite DBs in `test_migrations.py`; CI validates on real PostgreSQL.
 - Independent adversarial audit: 10 claims attacked from scratch; 8 CONFIRMED-RESOLVED,
   C5 PARTIAL→burst-nuance documented (#1), C10 violation found & fixed
   (JobModerationPage fake "Flagged" heuristic removed). All actionable defects

@@ -212,19 +212,22 @@ To ensure fair-use protection and safeguard against massive API cost overruns:
 
 ## 🧪 Testing Suite
 
-A solid automated test suite covers parsing, security perimeter, credit concurrency, interview lifecycle, migrations, and more. Always verify changes before pushing:
+A solid automated safety net covers backend regression suites and critical frontend workflows. Always verify changes before pushing:
 
 ```cmd
-:: Run all tests (from resume_pipeline directory with venv active)
-pytest tests/ -q
+:: Backend (from resume_pipeline with venv active; mock LLM + in-memory DB stub)
+set GEMINI_MOCK_MODE=true && set CI_SKIP_DB_VALIDATION=true && set SECRET_KEY=test_secret_key_at_least_32_characters_long_for_signing_jwt
+pytest tests/ -q --ignore=tests/test_api.py
 
-:: Run a single suite
-pytest tests/test_security_perimeter.py -v      :: auth/ownership/BOLA regression
-pytest tests/test_credit_durability.py -v       :: atomic spend, refunds, race tests
-pytest tests/test_migrations.py -v              :: Alembic chain on throwaway DBs
+:: Frontend (from frontend/)
+npm test
+npm run lint
+npm run build
 ```
 
-> Note: `tests/test_api.py` is a single live-key Gemini connectivity smoke test (excluded from CI), and CI also skips `test_interview`, `test_learning_path`, and the recommendation suites — see `docs_wiki/architecture/DEPLOYMENT.md` for details.
+Highlights: security perimeter, credit concurrency races, interview lifecycle/abandon beacon, evaluation recovery, Alembic migration chain, plus Vitest coverage of login, protected routes, recommendations/applications, interview session hooks, learning-path streaming, talent search and admin surfaces.
+
+> `tests/test_api.py` is a live Gemini connectivity smoke test — excluded from CI by design. CI additionally validates `alembic upgrade head` against disposable PostgreSQL. See `docs_wiki/operations/testing.md`.
 
 ---
 

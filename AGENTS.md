@@ -106,16 +106,17 @@ npm run lint     # ESLint (zero warnings tolerance)
 ### Run all backend tests
 
 ```powershell
-# From resume_pipeline/ with venv active
-pytest tests/ -q           # Quiet
-pytest tests/ -v           # Verbose
+# From resume_pipeline/ with venv active — matches CI exactly
+$env:GEMINI_MOCK_MODE="true"; $env:CI_SKIP_DB_VALIDATION="true"; $env:SECRET_KEY="test_secret_key_at_least_32_characters_long_for_signing_jwt"
+pytest tests/ -q --ignore=tests/test_api.py    # Quiet (canonical)
+pytest tests/ -v                               # Verbose
 ```
 
 ### Run a single test file
 
 ```powershell
 pytest tests/test_parsing.py -v        # Unit tests (no server needed)
-pytest tests/test_rag_concurrency.py -v
+pytest tests/test_security_perimeter.py -v
 ```
 
 ### Run a single test function
@@ -134,13 +135,32 @@ pytest tests/test_parsing.py::test_cgpa_normalization -v -s
 - `test_rag_concurrency.py` — uses `unittest.mock` + `tempfile`; no external dependencies.
 - `test_security_perimeter.py`, `test_interview_abandon.py`, `test_credit_durability.py`,
   `test_code_hardening.py`, `test_evaluation_recovery.py`, `test_env_validation.py`,
-  `test_migrations.py` — sqlite/TestClient regression suites added by the completion
-  cycle (auth perimeter, BOLA, credits atomicity/refunds, code lockouts, abandon
-  HMAC flow, evaluation retry, env validation, migration chain). No server or real
-  DB needed.
-- `test_api.py` — a single live-key Gemini connectivity smoke test only; it is NOT an integration suite and is excluded from CI (`ci-cd.yml` also ignores test_interview, test_learning_path, test_recommendation_fallback, test_recommendation_system).
+  `test_migrations.py`, `test_security_followups.py` — sqlite/TestClient regression suites
+  added by the completion cycle (auth perimeter, BOLA, credits atomicity/refunds, code
+  lockouts, abandon HMAC flow, evaluation retry, env validation, migration chain).
+- `test_interview.py`, `test_learning_path.py`, `test_recommendation_fallback.py`,
+  `test_recommendation_system.py` — restored to CI; run against the in-memory SQLite stub
+  created by `db.py` when `CI_SKIP_DB_VALIDATION=true` (shared DB, schema auto-created).
+- `test_api.py` — a single live-key Gemini connectivity smoke test only; it is NOT an
+  integration suite and is the ONLY module excluded from CI.
+- `test_semantic_indexing_strategy.py` and `test_smtp_password_reset.py` are interactive
+  CLI probe scripts (collect zero pytest tests); run manually, never via pytest.
+- CI additionally verifies `alembic upgrade head` twice against a disposable PostgreSQL 16
+  service container (idempotency + real PG DDL coverage). See `.github/workflows/ci-cd.yml`.
 - Set `GEMINI_MOCK_MODE=true` in `.env` to stub LLM calls during testing.
-- No frontend test framework is configured (no Jest/Vitest).
+
+### Frontend tests (Vitest + React Testing Library)
+
+```powershell
+# From frontend/
+npm test          # Single run (matches CI)
+npm run test:watch
+```
+
+- Config: `vitest.config.mjs` (jsdom, `@` → `src/` alias, setup at `src/test/setup.js`).
+- Mock the HTTP boundary with `vi.mock('../config/api', ...)`; never mock component internals.
+- framer-motion is globally mocked as passthrough in setup.js (AnimatePresence portals do
+  not mount under jsdom; animation is not under test).
 
 ---
 
