@@ -157,8 +157,6 @@ def _pdf_pages_to_base64(pdf_path: str, dpi: int = 150) -> list:
 def _extract_text_tesseract(pdf_path: str) -> str:
     """
     Offline OCR fallback using Tesseract (pytesseract + pdf2image).
-    Only invoked when Gemini Vision is unavailable.
-    Returns empty string if Tesseract is not installed.
     """
     try:
         import pytesseract  # type: ignore
@@ -174,6 +172,50 @@ def _extract_text_tesseract(pdf_path: str) -> str:
     except Exception as e:
         logger.error(f"Tesseract OCR failed for {pdf_path}: {e}")
         return ""
+
+
+def _extract_text_rapidocr(pdf_path: str) -> str:
+    """
+    Offline OCR using RapidOCR (rapidocr_onnxruntime + pdf2image).
+    Falls back to Tesseract if RapidOCR returns no text.
+    """
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        from pdf2image import convert_from_path
+        import tempfile
+        import os
+        
+        logger.info(f"Extracting text locally via RapidOCR from PDF: {pdf_path}")
+        
+        ocr_engine = RapidOCR()
+        pages = convert_from_path(pdf_path, dpi=200)
+        texts = []
+        
+        for page_img in pages:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                temp_image_path = tmp.name
+            try:
+                page_img.save(temp_image_path, "PNG")
+                results, _ = ocr_engine(temp_image_path)
+                if results:
+                    text_lines = [line[1] for line in results]
+                    texts.append("\n".join(text_lines))
+            finally:
+                if os.path.exists(temp_image_path):
+                    try:
+                        os.remove(temp_image_path)
+                    except Exception:
+                        pass
+                    
+        res_text = "\n\n".join(texts)
+        if res_text.strip():
+            return res_text
+            
+        logger.warning("RapidOCR returned no text, falling back to Tesseract.")
+        return _extract_text_tesseract(pdf_path)
+    except Exception as e:
+        logger.error(f"RapidOCR extraction failed for {pdf_path}: {e}. Falling back to Tesseract.")
+        return _extract_text_tesseract(pdf_path)
 
 
 def _extract_docx_text(path: str) -> str:
@@ -251,55 +293,35 @@ class FileTypeRouter:
             
             logger.warning(
                 f"FileTypeRouter: local text extraction for {path.name} yielded thin text "
-                f"({len(cleaned_text)} chars). Re-routing to Gemini Vision."
+                f"({len(cleaned_text)} chars). Re-routing to Local RapidOCR."
             )
             # Reclassify as visual for the vision extraction flow
             resume_type = ResumeType.VISUAL
 
-        # Type B or C (or re-routed Type A) → Gemini Vision
+        # Type B or C (or re-routed Type A) → Local RapidOCR
         text = self._vision_from_pdf(file_path, resume_type)
         return _clean(text), resume_type
 
     def _vision_from_pdf(self, pdf_path: str, resume_type: ResumeType) -> str:
         """
-        Send PDF pages as images to Gemini Vision.
-        Falls back to Tesseract if Gemini Vision fails.
+        Run local OCR using RapidOCR (offline).
         """
-        page_images_b64 = _pdf_pages_to_base64(pdf_path)
-        if not page_images_b64:
-            logger.warning(
-                f"FileTypeRouter: PDF-to-image conversion returned no pages for {pdf_path}. "
-                "Attempting Tesseract fallback."
-            )
-            return _extract_text_tesseract(pdf_path)
-
-        try:
-            text = self._call_gemini_vision(page_images_b64)
-            if text and len(text.strip()) > 50:
-                return text
-            logger.warning(
-                f"FileTypeRouter: Gemini Vision returned thin output for {pdf_path}. "
-                "Attempting Tesseract fallback."
-            )
-        except Exception as e:
-            logger.error(f"FileTypeRouter: Gemini Vision error for {pdf_path}: {e}")
-
-        return _extract_text_tesseract(pdf_path)
+        return _extract_text_rapidocr(pdf_path)
 
     def _vision_from_image_file(self, image_path: str) -> str:
-        """Send a single image file to Gemini Vision."""
+        """Run local OCR on a single image file using RapidOCR, falling back to Tesseract."""
         try:
-            with open(image_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-            text = self._call_gemini_vision([b64])
-            if text and len(text.strip()) > 50:
-                return text
-            logger.warning(
-                f"FileTypeRouter: Gemini Vision returned thin output for image {image_path}. "
-                "Attempting Tesseract OCR fallback."
-            )
+            from rapidocr_onnxruntime import RapidOCR
+            logger.info(f"Extracting text locally via RapidOCR from image: {image_path}")
+            ocr_engine = RapidOCR()
+            results, _ = ocr_engine(image_path)
+            if results:
+                text_lines = [line[1] for line in results]
+                text = "\n".join(text_lines)
+                if text.strip():
+                    return text
         except Exception as e:
-            logger.error(f"FileTypeRouter: image Vision error for {image_path}: {e}")
+            logger.error(f"RapidOCR image extraction failed for {image_path}: {e}")
 
         # Local Tesseract fallback for single image
         try:

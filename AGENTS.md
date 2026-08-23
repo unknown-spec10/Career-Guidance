@@ -51,7 +51,7 @@ Career Guidence/
 │   │   ├── schemas.py     # Pydantic v2 request/response models
 │   │   ├── auth.py        # JWT + bcrypt; require_role() guard
 │   │   ├── utils.py       # File save/hash, XSS sanitization
-│   │   ├── resume/        # Parsing: Groq parallel extraction + Gemini vision OCR, skill mapping
+│   │   ├── resume/        # Parsing: Groq parallel extraction + local OCR fallback, skill mapping
 │   │   ├── interview/     # Interview service (Groq-based generation/scoring via llm_router)
 │   │   ├── core/          # CreditService, abstract interfaces
 │   │   ├── recommendation/# Scoring engine for jobs

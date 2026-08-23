@@ -25,7 +25,7 @@ Full per-feature status, known limitations, and deferred backlog: **`docs_wiki/I
 
 1. **Groq-Gemini Hybrid Parser Pipeline**:
    - **Groq Parallel Parser**: Swapped core extraction to Groq (`llama-3.3-70b-versatile`) running 6 concurrent parallel requests in an `asyncio.gather` pool. Highly robust, structured JSON extraction with zero Gemini rate-limiting overhead.
-   - **Gemini Vision (Type B/C PDFs)**: Google Gemini is retained exclusively for scanned/image-based resumes requiring OCR-Vision processing.
+   - **Local OCR Fallback (Type B/C PDFs)**: Scanned/image-based resumes are OCR-processed locally (RapidOCR when installed, Tesseract otherwise) instead of calling Gemini Vision.
    - **Semantic Embeddings**: Gemini embeddings are used for advanced skill mapping (fuzzy + semantic passes) to ensure high-accuracy profile alignments.
 
 2. **Recommendation Cooldown & Quota Bypass**:
@@ -69,7 +69,7 @@ Career Guidence/
 │   │   ├── config.py           # Pydantic v2 settings (environment-injected; APP_ENV gate)
 │   │   ├── constants.py        # CREDIT_CONFIG, API_MESSAGES, RECOMMENDATION_WEIGHTS
 │   │   ├── auth.py             # JWT (+iat revocation), bcrypt, require_role guard
-│   │   ├── resume/             # Parsing: Groq extractor, Gemini Vision preprocessor, skill taxonomy
+│   │   ├── resume/        # Parsing: Groq extractor, local OCR fallback (RapidOCR/Tesseract), skill taxonomy
 │   │   ├── interview/          # Groq-based interview generation/scoring via llm_router
 │   │   ├── core/               # CreditService (atomic spend/refunds), storage, rate limiter
 │   │   ├── rag/                # BM25 + TF-IDF hybrid retrieval over repo docs, Gemini RAG Q&A
@@ -86,7 +86,7 @@ Career Guidence/
 ### Backend
 - **FastAPI**: Asynchronous high-performance web framework
 - **Groq API (`llama-3.3-70b-versatile`)**: High-speed, structured resume section JSON extraction + interview generation/evaluation
-- **Google Gemini API**: Scanned PDF OCR-Vision preprocessing, skill embedding generation, RAG answers (via multi-provider `llm_router` with fallbacks)
+- **Google Gemini API**: Skill embedding generation and RAG answers (via multi-provider `llm_router` with fallbacks); scanned-PDF OCR is now local (RapidOCR/Tesseract)
 - **SQLAlchemy 2.0**: Modern database mapper
 - **Alembic**: Additive, non-destructive schema migrations (`alembic upgrade head`)
 - **psycopg2-binary**: PostgreSQL adapter
