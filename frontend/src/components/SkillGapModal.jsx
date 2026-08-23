@@ -8,6 +8,7 @@ import {
 import api, { apiUrl } from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
+import { ToastContainer } from './Toast'
 
 export default function SkillGapModal({ 
   isOpen, 
@@ -191,23 +192,18 @@ export default function SkillGapModal({
       // 2. Fetch full learning path data
       const pathDetailResponse = await api.get(`/api/learning-paths/${pathId}`)
       setRoadmapData(pathDetailResponse.data)
-      
-      toast.addToast({
-        title: response.data.already_exists ? 'Fetched Cached Path' : 'Path Generated!',
-        description: response.data.already_exists 
-          ? 'Loaded your existing cached study roadmap.' 
-          : 'Charged 10 credits. Your roadmap is ready!',
-        type: 'success'
-      })
+
+      toast.addToast(
+        response.data.already_exists
+          ? 'Loaded your existing cached study roadmap.'
+          : 'Path generated! Charged 10 credits. Your roadmap is ready.',
+        'success'
+      )
     } catch (err) {
       console.error('Error generating roadmap:', err)
       const msg = err.response?.data?.detail || 'Failed to generate pathway.'
       setPhase('gap') // return to gap analysis if failed
-      toast.addToast({
-        title: 'Roadmap Generation Failed',
-        description: msg,
-        type: 'error'
-      })
+      toast.addToast(msg, 'error')
     } finally {
       setRoadmapLoading(false)
     }
@@ -222,7 +218,11 @@ export default function SkillGapModal({
   }
 
   return (
-    <AnimatePresence>
+    <>
+      {/* Feedback toasts — rendered here because this component owns its own
+          toast state; pages mounting this modal cannot display them. */}
+      {isOpen && <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />}
+      <AnimatePresence>
       {isOpen && (
         <motion.div 
           initial={{ opacity: 0 }}
@@ -712,6 +712,7 @@ export default function SkillGapModal({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </>
   )
 }

@@ -35,6 +35,17 @@
     scroll-behavior: smooth;
   }
 
+  /* Visible keyboard focus for interactive controls that don't define their
+     own focus ring. Inputs/selects already ship focus rings via .input/.select. */
+  button:focus-visible,
+  a:focus-visible,
+  [role='button']:focus-visible,
+  [role='tab']:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
   /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 8px;
@@ -393,6 +404,12 @@
 .dark .text-primary-600 {
   color: #60a5fa !important;
 }
+/* primary-500 is a dark navy (#2557a7) — unreadable as text/icons on the
+   dark surface. Remap to the same light blue used for -600/-700.
+   (primary-400 is already light enough in dark mode.) */
+.dark .text-primary-500 {
+  color: #60a5fa !important;
+}
 .dark .bg-blue-100 {
   background-color: rgba(59, 130, 246, 0.15) !important;
 }
@@ -466,6 +483,77 @@
 }
 .dark .border-rose-200 {
   border-color: rgba(244, 63, 94, 0.3) !important;
+}
+
+/* Red family (error banners, rejected badges) — mirrors rose above */
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.08) !important;
+}
+.dark .border-red-100,
+.dark .border-red-150 {
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+.dark .border-red-200 {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+.dark .text-red-500 {
+  color: #f87171 !important;
+}
+.dark .text-red-600,
+.dark .text-red-650,
+.dark .text-red-700 {
+  color: #f87171 !important;
+}
+.dark .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+/* Green family (accepted badges, success states) — mirrors emerald above */
+.dark .bg-green-50 {
+  background-color: rgba(34, 197, 94, 0.08) !important;
+}
+.dark .border-green-100,
+.dark .border-green-150 {
+  border-color: rgba(34, 197, 94, 0.25) !important;
+}
+.dark .border-green-200,
+.dark .border-green-300 {
+  border-color: rgba(34, 197, 94, 0.35) !important;
+}
+.dark .text-green-500 {
+  color: #4ade80 !important;
+}
+.dark .text-green-600,
+.dark .text-green-650,
+.dark .text-green-700 {
+  color: #4ade80 !important;
+}
+.dark .bg-green-100 {
+  background-color: rgba(34, 197, 94, 0.15) !important;
+}
+
+/* Yellow family (pending badges, parse warnings) — mirrors amber above */
+.dark .bg-yellow-50 {
+  background-color: rgba(234, 179, 8, 0.08) !important;
+}
+.dark .border-yellow-100,
+.dark .border-yellow-300 {
+  border-color: rgba(234, 179, 8, 0.3) !important;
+}
+.dark .text-yellow-400 {
+  color: #facc15 !important;
+}
+.dark .text-yellow-600,
+.dark .text-yellow-700 {
+  color: #facc15 !important;
+}
+.dark .bg-yellow-100 {
+  background-color: rgba(234, 179, 8, 0.15) !important;
+}
+
+/* Blue-600 text mirrors the existing -700 override */
+.dark .text-blue-600 {
+  color: #60a5fa !important;
 }
 
 .dark .bg-indigo-50\/50 {

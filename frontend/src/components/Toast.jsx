@@ -47,7 +47,12 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }) {
 
 export function ToastContainer({ toasts = [], removeToast }) {
   return (
-    <div className="fixed top-20 right-4 z-50 flex flex-col space-y-2">
+    <div
+      className="fixed top-20 right-4 z-50 flex flex-col space-y-2"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+    >
       <AnimatePresence>
         {toasts.map((toast) => (
           <Toast

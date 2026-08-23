@@ -143,6 +143,11 @@ describe('SkillGapModal — gap analysis streaming + learning path contract', ()
     expect(api.get).toHaveBeenCalledWith('/api/learning-paths/lp-7')
     expect(onPathGenerated).toHaveBeenCalledWith('lp-7')
 
+    // Success feedback must actually be visible (regression: toasts used to
+    // be swallowed by an isolated toast instance and never rendered)
+    expect(await screen.findByText(/path generated! charged 10 credits/i)).toBeInTheDocument()
+
+    // Roadmap content rendered from the real API payload
     expect(await screen.findByText('React Hooks Deep Dive')).toBeInTheDocument()
     expect(screen.getByText('Week 1')).toBeInTheDocument()
     expect(screen.getByText('Two Sum')).toBeInTheDocument()
@@ -165,5 +170,9 @@ describe('SkillGapModal — gap analysis streaming + learning path contract', ()
     })
     expect(screen.queryByText('React Hooks Deep Dive')).not.toBeInTheDocument()
     expect(api.get).not.toHaveBeenCalled()
+
+    // Failure feedback must be visible with the backend detail (regression:
+    // toasts used to be swallowed by an isolated toast instance)
+    expect(await screen.findByText(/Not enough credits for a learning path/i)).toBeInTheDocument()
   })
 })
