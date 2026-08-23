@@ -305,3 +305,32 @@ def test_file_type_router_upgrades():
         mock_tesseract.assert_called_once()
 
     print("[OK] FileTypeRouter dynamic re-routing and fallback triggers work correctly")
+
+
+def test_gcs_storage_backend():
+    """Test GCSFileStorage factory instantiation and backend behavior."""
+    print("\n=== Test 9: GCS Storage Backend ===")
+    from unittest.mock import MagicMock, patch
+    from resume_pipeline.config import settings
+
+    with patch.object(settings, "STORAGE_BACKEND", "gcs"), \
+         patch("google.cloud.storage.Client") as mock_gcs_client:
+        
+        mock_bucket = MagicMock()
+        mock_gcs_client.return_value.bucket.return_value = mock_bucket
+
+        from resume_pipeline.core.storage import get_storage_client, GCSFileStorage
+        
+        # Reset singleton for testing
+        import resume_pipeline.core.storage as storage_module
+        storage_module._storage_client = None
+
+        client = get_storage_client()
+        assert isinstance(client, GCSFileStorage)
+        assert client.bucket_name == settings.GCS_BUCKET_NAME
+
+        # Reset singleton after test
+        storage_module._storage_client = None
+
+    print("[OK] GCS storage backend test passed")
+
