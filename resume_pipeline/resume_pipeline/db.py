@@ -835,11 +835,20 @@ if settings.PG_DSN is None and not _ci_skip_db:
     raise RuntimeError("PG_DSN is not set in settings; cannot create engine")
 
 if _ci_skip_db:
-    # CI stub: use an in-memory SQLite engine just so SQLAlchemy is satisfied.
-    # No DB connection is opened until the first query, which will fail —
-    # but that's expected for tests that genuinely need a DB.
+    # CI/test stub: a single shared in-memory SQLite database so that suites
+    # which exercise real service logic through SessionLocal can run without
+    # PostgreSQL. StaticPool keeps every session on the same connection-backed
+    # database, and the full schema is created up front from the models.
     import sqlalchemy
-    engine = sqlalchemy.create_engine("sqlite:///:memory:", echo=False, future=True)
+    from sqlalchemy.pool import StaticPool
+    engine = sqlalchemy.create_engine(
+        "sqlite:///:memory:",
+        echo=False,
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
 else:
     if IS_SUPABASE:
         # If a full PG_DSN or DATABASE_URL is set directly (e.g., in Render), use it.

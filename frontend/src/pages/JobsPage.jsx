@@ -989,10 +989,10 @@ export default function JobsPage() {
           </div>
         </motion.div>
 
-        {(fetchError || learningPathState.error) && (
+        {fetchError && (
           <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5" />
-            <span>{fetchError || learningPathState.error}</span>
+            <span>{fetchError}</span>
           </div>
         )}
 
