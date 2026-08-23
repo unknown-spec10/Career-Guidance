@@ -68,7 +68,22 @@ export const useAuth = () => {
 
       // Set auth header
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-      setUser(userData)
+      
+      // Fetch fresh user data from server to sync cache
+      try {
+        const meResponse = await api.get('/api/auth/me')
+        if (meResponse.data) {
+          secureStorage.setItem('user', meResponse.data)
+          setUser(meResponse.data)
+          window.dispatchEvent(new Event('userProfileUpdated'))
+        } else {
+          setUser(userData)
+        }
+      } catch (meErr) {
+        console.warn('Failed to refresh user details from server, using cached user data', meErr)
+        setUser(userData)
+      }
+      
       setIsAuthenticated(true)
       return true
     } catch (err) {
