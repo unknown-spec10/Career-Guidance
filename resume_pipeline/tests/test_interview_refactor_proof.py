@@ -126,24 +126,44 @@ GOLDEN_ROUTES = {
 }
 
 
+def _flatten_routes(router):
+    """Flatten APIRoute objects, including FastAPI's lazy included-router wrappers.
+
+    FastAPI >= 0.13x (first seen with 0.162) keeps ``include_router`` lazy: the
+    parent holds ``_IncludedRouter`` wrappers whose routes live on
+    ``original_router``. Older versions copy plain ``APIRoute`` objects. This
+    helper yields the concrete routes in both layouts.
+    """
+    flat = []
+    for route in getattr(router, "routes", []):
+        inner = getattr(route, "original_router", None)
+        if inner is not None:
+            flat.extend(_flatten_routes(inner))
+        else:
+            flat.append(route)
+    return flat
+
+
 def test_route_contract_unchanged():
-    found = set()
-    for r in app.routes:
-        methods = getattr(r, "methods", None)
-        path = getattr(r, "path", "")
-        if not methods:
-            continue
-        if path.startswith("/api/interview") or path.startswith("/api/learning-paths"):
-            for m in methods:
-                if m in ("GET", "POST", "PUT", "DELETE", "PATCH"):
-                    found.add((m, path))
+    # OpenAPI is the version-agnostic flattened contract (app.routes may hold
+    # lazy include wrappers instead of concrete APIRoute objects).
+    paths = app.openapi().get("paths", {})
+    found = {
+        (method.upper(), path)
+        for path, operations in paths.items()
+        for method in operations
+    }
+    found = {
+        (method, path) for method, path in found
+        if path.startswith("/api/interview") or path.startswith("/api/learning-paths")
+    }
     assert GOLDEN_ROUTES <= found, f"missing routes: {GOLDEN_ROUTES - found}"
 
 
 def test_aggregator_reuses_split_handlers():
     """The thin aggregator must reference the same function objects (no copies)."""
     by_path = {}
-    for r in interview_router_module.router.routes:
+    for r in _flatten_routes(interview_router_module.router):
         methods = getattr(r, "methods", None)
         if methods:
             by_path[(tuple(sorted(methods)), r.path)] = r.endpoint
