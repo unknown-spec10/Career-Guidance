@@ -31,21 +31,57 @@ myenv/
 env/
 
 # Data and Logs
-data/
+data/*
+!data/raw_files/
+data/raw_files/*
+!data/raw_files/README.md
+!data/raw_files/.gitkeep
+!data/raw_files/resumes/
+!data/raw_files/avatars/
+data/raw_files/resumes/*
+!data/raw_files/resumes/.gitkeep
+data/raw_files/avatars/*
+!data/raw_files/avatars/.gitkeep
+logs/
 *.log
 *.sqlite
 *.db
 
-# Environment Variables
+# Environment Variables — single .env story: ignore every variant, keep examples
 .env
 .env.*
-!.env.example
+!*.example
 
-# Frontend (if not handled by nested gitignore)
+# Frontend
 frontend/node_modules/
+node_modules/
 frontend/dist/
-frontend/.env
-frontend/.env.local
+dist/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# RAG caches (pickle blobs, rebuilt on demand)
+.rag_cache/
+*.pkl
+
+# Screenshots scratch
+screenshots/
+screenshots-admin/
+# UI audit evidence captures (not shipped, not needed in git)
+frontend/screenshots-premium/
+
+.agents/
+
+# Parser curation queue — runtime artifact (append-only per parse, local only)
+resume_pipeline/resume_pipeline/resume/unrecognized_skills_review.jsonl
+
+# Interview Sub-Topic Taxonomy (Private)
+resume_pipeline/resume_pipeline/interview/subtopic_taxonomy.json
+# Codebase Indexer local index file
+.codebase_index.json
 
 # IDEs
 .vscode/
@@ -54,15 +90,3 @@ frontend/.env.local
 *.swo
 *.ds_store
 Thumbs.db
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-
-.agents/
-
-# Interview Sub-Topic Taxonomy (Private)
-resume_pipeline/resume_pipeline/interview/subtopic_taxonomy.json
-# Codebase Indexer local index file
-.codebase_index.json

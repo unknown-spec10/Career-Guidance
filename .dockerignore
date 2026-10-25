@@ -1,21 +1,77 @@
+# Single root .dockerignore (build context = repo root).
+# Merged from root + frontend/.dockerignore + resume_pipeline/.dockerignore (both deleted).
+# Backend image only needs resume_pipeline/; everything else is context bloat.
+
+# --- Secrets: every .env variant (examples are safe but also unneeded in image) ---
 .env
 .env.local
 .env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+# Examples carry no secrets but are also unneeded inside the image.
+*.example
+**/*.example
+
+# --- Python ---
 **/__pycache__/
+__pycache__/
 **/*.py[cod]
+*$py.class
+.Python
 **/*.egg-info/
-**/dist/
-**/build/
-**/.pytest_cache/
-**/.coverage
-**/htmlcov/
-.git
-.gitignore
+*.egg-info/
+
+# --- Virtualenvs ---
 myenv/
 venv/
 .venv/
-*.log
-.DS_Store
+env/
+
+# --- JS / frontend (not shipped in backend image) ---
+frontend/
 node_modules/
-frontend/node_modules/
-frontend/dist/
+**/node_modules/
+npm-debug.log
+yarn-error.log
+
+# --- Build output ---
+dist/
+build/
+**/dist/
+**/build/
+coverage/
+htmlcov/
+**/.coverage
+
+# --- Tests / caches ---
+**/tests/
+tests/
+.pytest_cache/
+**/.pytest_cache/
+.rag_cache/
+**/.rag_cache/
+*.pkl
+.agents/
+Data/
+raw_files/
+data/
+screenshots/
+
+# --- Logs ---
+logs/
+**/logs/
+*.log
+
+# --- IDE / OS / git ---
+.git
+.github/
+.gitignore
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
