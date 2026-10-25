@@ -1,0 +1,654 @@
+{
+  "generated_by": "golden_capture.py (pre-refactor full ranking)",
+  "embedding_mode": "forced_fallback_tfidf_only",
+  "applicants": [
+    {
+      "applicant_id": 901,
+      "name": "Python Backend Dev",
+      "ranked": [
+        {
+          "job_id": 1,
+          "score": 0.747
+        },
+        {
+          "job_id": 7,
+          "score": 0.723
+        },
+        {
+          "job_id": 8,
+          "score": 0.632
+        },
+        {
+          "job_id": 5,
+          "score": 0.537
+        },
+        {
+          "job_id": 3,
+          "score": 0.482
+        },
+        {
+          "job_id": 2,
+          "score": 0.405
+        },
+        {
+          "job_id": 6,
+          "score": 0.405
+        },
+        {
+          "job_id": 4,
+          "score": 0.33
+        }
+      ],
+      "full": [
+        {
+          "job_id": 1,
+          "score": 0.747,
+          "breakdown": {
+            "tfidf_score": 0.534,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.534,
+            "doc_similarity": null,
+            "semantic_understanding": 0.534,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.747,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.747,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 7,
+          "score": 0.723,
+          "breakdown": {
+            "tfidf_score": 0.487,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.487,
+            "doc_similarity": null,
+            "semantic_understanding": 0.487,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.723,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.723,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 8,
+          "score": 0.632,
+          "breakdown": {
+            "tfidf_score": 0.304,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.304,
+            "doc_similarity": null,
+            "semantic_understanding": 0.304,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.632,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.632,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 5,
+          "score": 0.537,
+          "breakdown": {
+            "tfidf_score": 0.115,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.115,
+            "doc_similarity": null,
+            "semantic_understanding": 0.115,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.537,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.537,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 3,
+          "score": 0.482,
+          "breakdown": {
+            "tfidf_score": 0.104,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.104,
+            "doc_similarity": null,
+            "semantic_understanding": 0.104,
+            "location_score": 1.0,
+            "experience_fit": 0.667,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.482,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.482,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 2,
+          "score": 0.405,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.7,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.405,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.405,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 6,
+          "score": 0.405,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.7,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.405,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.405,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 4,
+          "score": 0.33,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.4,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.33,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.33,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        }
+      ]
+    },
+    {
+      "applicant_id": 902,
+      "name": "Frontend Dev",
+      "ranked": [
+        {
+          "job_id": 2,
+          "score": 0.77
+        },
+        {
+          "job_id": 5,
+          "score": 0.48
+        },
+        {
+          "job_id": 7,
+          "score": 0.48
+        },
+        {
+          "job_id": 8,
+          "score": 0.421
+        },
+        {
+          "job_id": 3,
+          "score": 0.38
+        },
+        {
+          "job_id": 6,
+          "score": 0.33
+        },
+        {
+          "job_id": 1,
+          "score": 0.255
+        },
+        {
+          "job_id": 4,
+          "score": 0.255
+        }
+      ],
+      "full": [
+        {
+          "job_id": 2,
+          "score": 0.77,
+          "breakdown": {
+            "tfidf_score": 0.58,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.58,
+            "doc_similarity": null,
+            "semantic_understanding": 0.58,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.77,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.77,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 5,
+          "score": 0.48,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.48,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.48,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 7,
+          "score": 0.48,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.48,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.48,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 8,
+          "score": 0.421,
+          "breakdown": {
+            "tfidf_score": 0.182,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.182,
+            "doc_similarity": null,
+            "semantic_understanding": 0.182,
+            "location_score": 0.4,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.421,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.421,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 3,
+          "score": 0.38,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 1.0,
+            "experience_fit": 0.333,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.38,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.38,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 6,
+          "score": 0.33,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.7,
+            "experience_fit": 0.5,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.33,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.33,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 1,
+          "score": 0.255,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.4,
+            "experience_fit": 0.5,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.255,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.255,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 4,
+          "score": 0.255,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.4,
+            "experience_fit": 0.5,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.255,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.255,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        }
+      ]
+    },
+    {
+      "applicant_id": 903,
+      "name": "ML Aspirant",
+      "ranked": [
+        {
+          "job_id": 3,
+          "score": 0.611
+        },
+        {
+          "job_id": 7,
+          "score": 0.555
+        },
+        {
+          "job_id": 5,
+          "score": 0.537
+        },
+        {
+          "job_id": 4,
+          "score": 0.375
+        },
+        {
+          "job_id": 1,
+          "score": 0.314
+        },
+        {
+          "job_id": 2,
+          "score": 0.3
+        },
+        {
+          "job_id": 6,
+          "score": 0.3
+        },
+        {
+          "job_id": 8,
+          "score": 0.286
+        }
+      ],
+      "full": [
+        {
+          "job_id": 3,
+          "score": 0.611,
+          "breakdown": {
+            "tfidf_score": 0.472,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.472,
+            "doc_similarity": null,
+            "semantic_understanding": 0.472,
+            "location_score": 1.0,
+            "experience_fit": 0.3,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.611,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.611,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 7,
+          "score": 0.555,
+          "breakdown": {
+            "tfidf_score": 0.15,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.15,
+            "doc_similarity": null,
+            "semantic_understanding": 0.15,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.555,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.555,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 5,
+          "score": 0.537,
+          "breakdown": {
+            "tfidf_score": 0.115,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.115,
+            "doc_similarity": null,
+            "semantic_understanding": 0.115,
+            "location_score": 1.0,
+            "experience_fit": 1.0,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.537,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.537,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 4,
+          "score": 0.375,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 1.0,
+            "experience_fit": 0.3,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.375,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.375,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 1,
+          "score": 0.314,
+          "breakdown": {
+            "tfidf_score": 0.178,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.178,
+            "doc_similarity": null,
+            "semantic_understanding": 0.178,
+            "location_score": 0.4,
+            "experience_fit": 0.3,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.314,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.314,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 2,
+          "score": 0.3,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.7,
+            "experience_fit": 0.3,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.3,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.3,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 6,
+          "score": 0.3,
+          "breakdown": {
+            "tfidf_score": 0.0,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.0,
+            "doc_similarity": null,
+            "semantic_understanding": 0.0,
+            "location_score": 0.7,
+            "experience_fit": 0.3,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.3,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.3,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        },
+        {
+          "job_id": 8,
+          "score": 0.286,
+          "breakdown": {
+            "tfidf_score": 0.122,
+            "semantic_skill_score": null,
+            "combined_skill_score": 0.122,
+            "doc_similarity": null,
+            "semantic_understanding": 0.122,
+            "location_score": 0.4,
+            "experience_fit": 0.3,
+            "academic_score": 0.8,
+            "interview_score": null,
+            "interview_boost": 0.0,
+            "base_score": 0.286,
+            "opportunity_multiplier": 1.0,
+            "personalization_multiplier": 1.0,
+            "final_score": 0.286,
+            "embedding_fallback": true,
+            "embedding_fallback_reason": "golden: embeddings disabled"
+          }
+        }
+      ]
+    }
+  ]
+}

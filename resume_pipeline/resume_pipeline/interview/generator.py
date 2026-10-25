@@ -1,7 +1,7 @@
 """
 Interview System v2 — Question Generator
-Calls Groq once at session start to generate all questions + adaptive reserve pool.
-Falls back to the hardcoded question bank on any Groq error.
+Calls the chat provider once at session start to generate all questions + adaptive reserve pool.
+Falls back to the hardcoded question bank on any provider error.
 """
 import json
 import logging
@@ -9,10 +9,9 @@ import datetime
 from typing import List, Optional
 from sqlalchemy.orm import Session as DBSession
 
-from ..config import settings
+from ..config import INTERVIEW_CONFIG_V2
 from ..core.llm_router import llm_router
-from ..constants import INTERVIEW_CONFIG_V2
-from .prompts import GROQ_MODEL, QUESTION_GENERATION_PROMPT, PERSONA_PROMPTS
+from .prompts import QUESTION_GENERATION_PROMPT, PERSONA_PROMPTS
 from .fallback_questions import get_fallback_questions
 from .subtopic_taxonomy_builder import SubtopicTaxonomyBuilder
 
@@ -257,7 +256,7 @@ def generate_questions(
     applicant_id: Optional[int] = None,
 ) -> List[dict]:
     """
-    Generate all questions for a session in a single Groq API call.
+    Generate all questions for a session in a single chat-provider call.
     Includes RESERVE_POOL_SIZE extra questions for adaptive difficulty.
 
     Returns a list of dicts:
@@ -397,8 +396,8 @@ def generate_questions(
                 {"role": "system", "content": persona_instruction},
                 {"role": "user", "content": prompt}
             ],
-            provider="groq",
-            model_name=GROQ_MODEL,
+            provider=None,
+            capability="chat",
             temperature=0.4,  # lower temperature for stricter adherence
             max_tokens=4096,
             response_format={"type": "json_object"}
@@ -411,7 +410,7 @@ def generate_questions(
             questions = questions["questions"]
 
         if not isinstance(questions, list) or len(questions) == 0:
-            raise ValueError(f"Groq returned unexpected format: {type(questions)}")
+            raise ValueError(f"Chat provider returned unexpected format: {type(questions)}")
 
         # 7. Validate and parse the output, storing sub_topic in skill_tag
         validated = []
@@ -446,10 +445,10 @@ def generate_questions(
                 "is_reserve": bool(q.get("is_reserve", i >= num_questions)),
             })
 
-        # If Groq returned fewer questions than requested, pad with fallback
+        # If the provider returned fewer questions than requested, pad with fallback
         if len(validated) < total_count:
             logger.warning(
-                "Groq returned %d questions, expected %d. Padding with fallback.",
+                "Chat provider returned %d questions, expected %d. Padding with fallback.",
                 len(validated), total_count
             )
             fallback = get_fallback_questions(
@@ -458,11 +457,11 @@ def generate_questions(
             )
             validated.extend(fallback[:total_count - len(validated)])
 
-        logger.info("Generated %d questions via Groq (including %d reserve).", len(validated), reserve_count)
+        logger.info("Generated %d questions via chat provider (including %d reserve).", len(validated), reserve_count)
         return validated
 
     except Exception as e:
-        logger.warning("Groq question generation failed (%s). Using fallback questions.", e)
+        logger.warning("Question generation failed (%s). Using fallback questions.", e)
         return get_fallback_questions(
             target_role=context.get("target_role", "Software Engineer"),
             difficulty=difficulty,

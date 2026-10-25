@@ -85,9 +85,13 @@ def fixture_client(env, monkeypatch):
 
     # Background retries must use the throwaway DB, not the real one.
     # (importlib needed: the package's `router` attribute shadows the submodule.)
+    # Post-split the endpoints live in interview.sessions/streaming; patch those
+    # plus the aggregator shim (kept for backward compatibility).
     import importlib
     interview_router_module = importlib.import_module("resume_pipeline.interview.router")
     monkeypatch.setattr(interview_router_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr("resume_pipeline.interview.sessions.SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr("resume_pipeline.interview.streaming.SessionLocal", TestingSessionLocal)
 
     app.dependency_overrides[interview_get_db] = override_interview_db
     app.dependency_overrides[get_current_user] = override_user

@@ -1,8 +1,9 @@
 """
 Semantic skill matching service using embeddings + skill taxonomy.
 
-Uses sentence-transformers for embedding generation and cosine similarity
-to find canonical skill matches from the pre-built taxonomy.
+Uses sentence-transformers (local MiniLM) for embedding generation and cosine
+similarity to find canonical skill matches from the pre-built taxonomy.
+Fully offline: no embedding API keys, no network calls.
 """
 import json
 import logging
@@ -11,7 +12,6 @@ from pathlib import Path
 import numpy as np
 
 from ..config import settings
-from .embedding_client import GoogleEmbeddingClient
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,12 @@ class SemanticMatcher:
         if self._initialized:
             return
 
-        self.google_client = GoogleEmbeddingClient()
         self.local_model_available = EMBEDDING_AVAILABLE
-        self.enabled = bool(self.google_client.is_available() or self.local_model_available)
+        # Offline MiniLM only (legacy Google embedding path removed).
+        self.enabled = bool(self.local_model_available)
 
         if not self.enabled:
-            logger.error("Semantic matching disabled: neither Google embeddings nor MiniLM fallback is available")
+            logger.error("Semantic matching disabled: MiniLM is not available")
             return
 
         self.model = None  # Lazy load
@@ -348,7 +348,7 @@ class SemanticMatcher:
         }
 
     def embed_text(self, text: str) -> Tuple[Optional[np.ndarray], str]:
-        """Embed free-form text with Google as primary and MiniLM as fallback."""
+        """Embed free-form text with the local MiniLM model (offline only)."""
         clean_text = (text or "").strip()
         if not clean_text:
             return None, "empty"
@@ -356,16 +356,7 @@ class SemanticMatcher:
         if clean_text in self.text_embedding_cache:
             return self.text_embedding_cache[clean_text], self.last_embedding_provider
 
-        # Primary: Google embedding API
-        google_result = self.google_client.embed_text(clean_text)
-        if google_result.get("ok"):
-            values = google_result.get("values") or []
-            vector = np.array(values, dtype=float)
-            self.last_embedding_provider = "google"
-            self._cache_text_embedding(clean_text, vector)
-            return vector, "google"
-
-        # Fallback: local MiniLM
+        # Local MiniLM only — no network embedding providers.
         if EMBEDDING_AVAILABLE:
             try:
                 self._ensure_model()
@@ -375,7 +366,7 @@ class SemanticMatcher:
                     self._cache_text_embedding(clean_text, vector)
                     return vector, "minilm"
             except Exception as e:
-                logger.error("MiniLM fallback embedding failed: %s", e)
+                logger.error("MiniLM embedding failed: %s", e)
 
         self.last_embedding_provider = "unavailable"
         return None, "unavailable"

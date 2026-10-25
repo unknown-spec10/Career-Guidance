@@ -1271,13 +1271,15 @@ def seed_applications_and_run_recommender(db, applicants, jobs):
     try:
         import resume_pipeline.recommendation.explainer as explainer
         import resume_pipeline.recommendation.engine as engine
+        import resume_pipeline.recommendation.ranking as ranking
+        import resume_pipeline.recommendation.reranking as reranking
         
         # Mock explanation generation to run lightning-fast during seeding
-        def mock_generate_explanation(applicant, job, breakdown):
+        def mock_generate_explanation(applicant, job, breakdown, db=None):
             req_skill_names = [s["name"] for s in job.required_skills or []]
             return f"Excellent match on required skills such as {', '.join(req_skill_names[:2])}.", "seed_mock"
 
-        def mock_generate_employer_match_analysis(applicant, job, breakdown):
+        def mock_generate_employer_match_analysis(applicant, job, breakdown, db=None):
             req_skill_names = [s["name"] for s in job.required_skills or []]
             cand_skills = []
             if applicant.parsed_record and applicant.parsed_record.normalized:
@@ -1290,16 +1292,21 @@ def seed_applications_and_run_recommender(db, applicants, jobs):
                 "gaps": f"Missing direct mention of: {missing_str} in resume." if missing_skills else "No major skill gaps identified."
             }
 
-        # Dynamic mock injection for BOTH namespaces (explainer and engine modules)
+        # Dynamic mock injection for all namespaces that looked up the
+        # explainer names at import time (explainer, engine shim, ranking, reranking)
         explainer.generate_explanation = mock_generate_explanation
         explainer.generate_employer_match_analysis = mock_generate_employer_match_analysis
         engine.generate_explanation = mock_generate_explanation
         engine.generate_employer_match_analysis = mock_generate_employer_match_analysis
+        ranking.generate_explanation = mock_generate_explanation
+        ranking.generate_employer_match_analysis = mock_generate_employer_match_analysis
+        reranking.generate_explanation = mock_generate_explanation
+        reranking.generate_employer_match_analysis = mock_generate_employer_match_analysis
         
-        from resume_pipeline.recommendation.engine import compute_recommendations
+        from resume_pipeline.recommendation.service import get_recommendations as facade_get_recommendations
         for applicant in applicants:
             logger.info(f"Recalculating dynamic recommendations for: {applicant.display_name}...")
-            compute_recommendations(applicant.id, db)
+            facade_get_recommendations(applicant.id, db, purpose="jobs")
         logger.info("✓ Dynamic recommendation calculations completed successfully.")
     except Exception as e:
         logger.error(f"Failed to run dynamic recommendation pipeline: {e}", exc_info=True)

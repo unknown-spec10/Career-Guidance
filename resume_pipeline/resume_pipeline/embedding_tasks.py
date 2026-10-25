@@ -22,7 +22,7 @@ def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
     """
     import asyncio
     from .resume.parse_service import ResumeParserService
-    from .constants import PARSE_STATUS_ACCEPTED, PARSE_STATUS_PENDING_REVIEW
+    from .config import PARSE_STATUS_ACCEPTED, PARSE_STATUS_PENDING_REVIEW
 
     from .core.storage import get_local_directory
 
@@ -123,6 +123,13 @@ def parse_resume_task(applicant_id: str, applicant_dir: str) -> Dict[str, Any]:
                 "AUTO_ACCEPT: generating embedding+recommendations for applicant (db_id=%s)",
                 applicant.id,
             )
+            # Embed-once: persist applicant vectors at parse time so the
+            # recommendation request path reads stored vectors (cache hits).
+            try:
+                from .recommendation.precompute import ensure_applicant_embeddings
+                ensure_applicant_embeddings(applicant, db)
+            except Exception as e:
+                logger.warning(f"Applicant embedding precompute failed: {e}")
             embedding_res = generate_resume_embedding_task(applicant.id)
             generate_recommendations_task(embedding_res, applicant.id)
         else:
@@ -196,12 +203,11 @@ def generate_recommendations_task(
     applicant_db_id: int,
 ) -> Dict[str, Any]:
     """Generate and persist recommendations after embedding step."""
-    from .recommendation.recommendation_service import RecommendationService
+    from .recommendation.service import get_recommendations as facade_get_recommendations
 
     db = SessionLocal()
     try:
-        service = RecommendationService(db)
-        rec_result = service.get_recommendations(applicant_db_id)
+        rec_result = facade_get_recommendations(applicant_db_id, db, purpose="jobs")
         job_recs = rec_result.get("job_recommendations", [])
         return {
             "ok": True,
@@ -316,6 +322,13 @@ def generate_job_embedding_task(job_id: int) -> Dict[str, Any]:
             )
 
         db.commit()
+        # Embed-once: warm the recommendation Embedder cache (pgvector path)
+        # at posting time so ranking reads stored vectors per request.
+        try:
+            from .recommendation.precompute import ensure_job_embeddings
+            ensure_job_embeddings(job, db)
+        except Exception as e:
+            logger.warning(f"Job embedding precompute failed (job_id={job_id}): {e}")
         return {"ok": True, "status": "updated", "job_id": job_id, "provider": provider}
     finally:
         db.close()

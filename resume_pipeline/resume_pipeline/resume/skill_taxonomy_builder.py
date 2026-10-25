@@ -2,7 +2,7 @@ import requests
 import json
 import re
 import hashlib
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed

@@ -115,7 +115,7 @@ def test_non_pdf_txt_extension():
         mock_llm.api_key = "test"
         mock_llm.base_url = "https://example.com"
         from resume_pipeline.resume.file_type_router import FileTypeRouter, ResumeType
-        router = FileTypeRouter(mock_llm)
+        router = FileTypeRouter()
         text, rtype = router.extract(tmp)
         assert rtype == ResumeType.TEXT
         assert "John Doe" in text

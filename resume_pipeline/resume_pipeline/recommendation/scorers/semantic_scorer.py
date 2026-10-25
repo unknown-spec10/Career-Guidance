@@ -9,8 +9,9 @@ class SemanticScorer:
 
     Exposes cosine similarity matching between a user's skills and a job's required skills.
     Applicant skill embeddings are persisted to applicant_embeddings (suffix='_skills')
-    so repeated recommendation runs reuse the cached vector (zero Gemini API calls).
-    Raises GeminiEmbeddingUnavailable if API fails, allowing engine.py to fallback to TF-IDF.
+    so repeated recommendation runs reuse the cached vector (no recompute after first run).
+    Raises GeminiEmbeddingUnavailable (legacy name) only if the local model fails,
+    allowing ranking.py to fall back to TF-IDF.
     """
 
     def __init__(self, embedder: Embedder):

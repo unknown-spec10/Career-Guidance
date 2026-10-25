@@ -55,6 +55,9 @@ class AnswerRequest(BaseModel):
 class AnswerResponse(BaseModel):
     status: str  # "ok" | "interview_complete"
     next_question: Optional[QuestionOut] = None
+    # ID of the persisted InterviewAnswer row — the client needs it to
+    # request a mid-interview hint (GET /api/interview/hint/{answer_id}).
+    answer_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -95,17 +98,6 @@ class QuestionReviewItem(BaseModel):
     strength: Optional[str]
     missing_concepts: Optional[List[str]]
     status: str           # evaluated | evaluation_failed | pending_evaluation
-
-
-class ResultsResponse(BaseModel):
-    status: str           # "processing" | "complete"
-    completed: Optional[int] = None   # how many evaluations done (for processing state)
-    total: Optional[int] = None
-    overall_score: Optional[float] = None
-    skill_breakdown: Optional[List[SkillBreakdownItem]] = None
-    questions_review: Optional[List[QuestionReviewItem]] = None
-    weak_skills: Optional[List[str]] = None  # skills with avg score < 0.60
-    study_plan: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

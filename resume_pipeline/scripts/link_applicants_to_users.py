@@ -17,7 +17,6 @@ Be careful and review matches before running in production.
 
 import argparse
 from resume_pipeline.db import SessionLocal
-from resume_pipeline.config import settings
 from sqlalchemy import text
 
 

@@ -5,8 +5,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
+
 from resume_pipeline.config import settings
-from resume_pipeline.core.storage import get_storage_client, LocalFileStorage, S3FileStorage, get_local_directory
+from resume_pipeline.core.storage import get_storage_client, LocalFileStorage, get_local_directory
 
 
 @pytest.fixture(autouse=True)
@@ -62,93 +63,84 @@ def test_local_file_storage_lifecycle():
         assert len(storage.list_files("resumes/app_test1")) == 0
 
 
-@patch("boto3.client")
-def test_s3_file_storage_lifecycle(mock_boto_client):
-    # Setup mocks
-    mock_s3 = MagicMock()
-    mock_boto_client.return_value = mock_s3
-    
-    # Mock paginator for list_files
-    mock_paginator = MagicMock()
-    mock_s3.get_paginator.return_value = mock_paginator
-    mock_paginator.paginate.return_value = [
-        {"Contents": [{"Key": "resumes/app_test2/resume.pdf"}]}
-    ]
-    
-    with patch.object(settings, "STORAGE_BACKEND", "s3"), \
-         patch.object(settings, "S3_BUCKET_NAME", "my-test-bucket"), \
-         patch.object(settings, "AWS_ACCESS_KEY_ID", "fake_key"), \
-         patch.object(settings, "AWS_SECRET_ACCESS_KEY", "fake_secret"):
-        
-        storage = S3FileStorage()
-        
+@patch("google.cloud.storage.Client")
+def test_gcs_file_storage_lifecycle(mock_gcs_client_cls):
+    from resume_pipeline.core.storage import GCSFileStorage
+
+    mock_gcs_client = MagicMock()
+    mock_gcs_client_cls.return_value = mock_gcs_client
+    mock_bucket = MagicMock()
+    mock_gcs_client.bucket.return_value = mock_bucket
+
+    with patch.object(settings, "STORAGE_BACKEND", "gcs"), \
+         patch.object(settings, "GCS_BUCKET_NAME", "my-test-bucket"):
+
+        storage = GCSFileStorage()
+
         # 1. Test upload_fileobj
-        content = b"hello s3 storage"
+        content = b"hello gcs storage"
         fileobj = io.BytesIO(content)
         remote_path = "resumes/app_test2/resume.pdf"
+        mock_blob = MagicMock()
+        mock_bucket.blob.return_value = mock_blob
+
         storage.upload_fileobj(fileobj, remote_path, is_public=False)
 
-        # Assert on call semantics (bucket/key/content-type) rather than the
-        # identity of the Fileobj argument — implementations may legitimately
-        # re-wrap the stream (e.g. into a fresh BytesIO) for retry safety.
-        mock_s3.upload_fileobj.assert_called_once()
-        call_kwargs = mock_s3.upload_fileobj.call_args.kwargs
-        assert call_kwargs["Bucket"] == "my-test-bucket"
-        assert call_kwargs["Key"] == remote_path
-        assert call_kwargs["ExtraArgs"] == {"ContentType": "application/pdf"}
-        uploaded_obj = call_kwargs["Fileobj"]
-        if isinstance(uploaded_obj, io.BytesIO):
-            uploaded_obj.seek(0)
-            assert uploaded_obj.read() == content
-        else:
-            fileobj.seek(0)
-            assert fileobj.read() == content
-        
+        mock_bucket.blob.assert_called_with(remote_path)
+        assert mock_blob.upload_from_file.called
+        assert mock_blob.content_type == "application/pdf"
+
         # 2. Test list_files
+        mock_item = MagicMock()
+        mock_item.name = "resumes/app_test2/resume.pdf"
+        mock_gcs_client.list_blobs.return_value = [mock_item]
         files = storage.list_files("resumes/app_test2/")
         assert files == ["resumes/app_test2/resume.pdf"]
-        mock_s3.get_paginator.assert_called_once_with("list_objects_v2")
-        
+        mock_gcs_client.list_blobs.assert_called_with("my-test-bucket", prefix="resumes/app_test2/")
+
         # 3. Test download_file
-        storage.download_file(remote_path, "local_dest.pdf")
-        mock_s3.download_file.assert_called_once_with(
-            Bucket="my-test-bucket",
-            Key=remote_path,
-            Filename="local_dest.pdf"
-        )
-        
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf_path = tf.name
+        try:
+            storage.download_file(remote_path, tf_path)
+            mock_blob.download_to_filename.assert_called_with(tf_path)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
         # 4. Test delete_file
         storage.delete_file(remote_path)
-        mock_s3.delete_object.assert_called_once_with(
-            Bucket="my-test-bucket",
-            Key=remote_path
-        )
+        mock_blob.delete.assert_called_once()
 
 
-@patch("boto3.client")
-def test_get_local_directory_s3(mock_boto_client):
-    mock_s3 = MagicMock()
-    mock_boto_client.return_value = mock_s3
-    
+@patch("google.cloud.storage.Client")
+def test_get_local_directory_gcs(mock_gcs_client_cls):
+    from resume_pipeline.core.storage import GCSFileStorage
+
+    mock_gcs_client = MagicMock()
+    mock_gcs_client_cls.return_value = mock_gcs_client
+    mock_bucket = MagicMock()
+    mock_gcs_client.bucket.return_value = mock_bucket
+
     # Mock listing files
-    mock_paginator = MagicMock()
-    mock_s3.get_paginator.return_value = mock_paginator
-    mock_paginator.paginate.return_value = [
-        {"Contents": [{"Key": "resumes/app_test3/resume.pdf"}, {"Key": "resumes/app_test3/metadata.json"}]}
-    ]
-    
+    mock_item1 = MagicMock()
+    mock_item1.name = "resumes/app_test3/resume.pdf"
+    mock_item2 = MagicMock()
+    mock_item2.name = "resumes/app_test3/metadata.json"
+    mock_gcs_client.list_blobs.return_value = [mock_item1, mock_item2]
+
     # Track downloaded files
     downloaded = []
-    def mock_download(Bucket, Key, Filename):
-        downloaded.append((Key, Filename))
-        with open(Filename, "wb") as f:
+    def mock_download(remote_path, local_path):
+        downloaded.append((remote_path, local_path))
+        with open(local_path, "wb") as f:
             f.write(b"content")
-            
-    mock_s3.download_file.side_effect = mock_download
 
-    with patch.object(settings, "STORAGE_BACKEND", "s3"), \
-         patch.object(settings, "S3_BUCKET_NAME", "my-test-bucket"):
-        
+    with patch.object(settings, "STORAGE_BACKEND", "gcs"), \
+         patch.object(settings, "GCS_BUCKET_NAME", "my-test-bucket"), \
+         patch.object(GCSFileStorage, "download_file", autospec=True,
+                      side_effect=lambda self, remote, local: mock_download(remote, local)):
+
         with get_local_directory("app_test3") as local_dir:
             assert Path(local_dir).exists()
             assert (Path(local_dir) / "resume.pdf").exists()
@@ -156,6 +148,6 @@ def test_get_local_directory_s3(mock_boto_client):
             assert len(downloaded) == 2
             assert downloaded[0][0] == "resumes/app_test3/resume.pdf"
             assert downloaded[1][0] == "resumes/app_test3/metadata.json"
-            
+
         # Verify that temp folder was cleaned up on exit
         assert not Path(local_dir).exists()

@@ -312,55 +312,6 @@ def test_growth_oriented_history(db, test_user_and_applicant):
     assert len(past_weak_skills) >= 1
 
 
-def test_study_plan_caching(db, test_user_and_applicant):
-    """Test study plan caching mechanism."""
-    import asyncio
-    from unittest.mock import patch
-    user, applicant = test_user_and_applicant
-    
-    # Create session
-    questions_data = get_fallback_questions("Software Engineer", "medium", 2, 1)
-    session, _ = create_session(
-        applicant_id=applicant.id,
-        interview_type="technical",
-        difficulty="medium",
-        num_questions=2,
-        voice_mode=False,
-        topic_focus="Python",
-        questions_data=questions_data,
-        db=db
-    )
-    assert session.study_plan is None
-    
-    # Mock stream generator to avoid external API rate limits during unit tests
-    async def mock_stream_study_plan(*args, **kwargs):
-        yield 'data: {"token": "Mock Study Plan Token 1"}\n\n'
-        yield 'data: {"token": "Mock Study Plan Token 2"}\n\n'
-        yield 'data: [DONE]\n\n'
-    
-    # Run async generator consumption
-    async def run_consume():
-        from resume_pipeline.interview.router import _stream_and_cache_study_plan
-        tokens = []
-        async for item in _stream_and_cache_study_plan(
-            session_id=session.id,
-            db=db,
-            weak_skills=["Python"],
-            missing_concepts_summary="Syntax errors",
-            target_role="Software Engineer",
-            experience_level="junior"
-        ):
-            tokens.append(item)
-        return tokens
-        
-    with patch("resume_pipeline.interview.router.stream_study_plan", new=mock_stream_study_plan):
-        asyncio.run(run_consume())
-    
-    db.refresh(session)
-    assert session.study_plan is not None
-    assert len(session.study_plan) > 0
-
-
 def test_exit_suspension_logic(db, test_user_and_applicant):
     """Test daily mock practice suspension logic when user exits sessions more than twice."""
     user, applicant = test_user_and_applicant

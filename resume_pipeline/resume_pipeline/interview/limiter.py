@@ -2,8 +2,8 @@ import datetime
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from ..config import INTERVIEW_LIMITS
 from ..db import InterviewSession, InterviewAnswer
-from ..constants import INTERVIEW_LIMITS
 
 def check_session_start_limits(applicant_id: int, db: Session) -> None:
     """

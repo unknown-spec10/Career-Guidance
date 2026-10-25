@@ -1009,5 +1009,237 @@
     "category": "uncategorized",
     "related_skills": [],
     "market_demand": "very_low"
+  },
+  "celery": {
+    "skill_id": "skill_099",
+    "display_name": "Celery",
+    "relevance_score": 0,
+    "category": "tools",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "apscheduler": {
+    "skill_id": "skill_100",
+    "display_name": "APScheduler",
+    "relevance_score": 0,
+    "category": "tools",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "semantic caching": {
+    "skill_id": "skill_101",
+    "display_name": "Semantic Caching",
+    "relevance_score": 0,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "parent-child": {
+    "skill_id": "skill_102",
+    "display_name": "Parent-Child",
+    "relevance_score": 0,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "chunking": {
+    "skill_id": "skill_103",
+    "display_name": "Chunking",
+    "relevance_score": 0,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "jsonb": {
+    "skill_id": "skill_104",
+    "display_name": "JSONB",
+    "relevance_score": 0,
+    "category": "database",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "indexing": {
+    "skill_id": "skill_105",
+    "display_name": "Indexing",
+    "relevance_score": 0,
+    "category": "database",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "query optimisation": {
+    "skill_id": "skill_106",
+    "display_name": "Query Optimisation",
+    "relevance_score": 0,
+    "category": "database",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "query optimization": {
+    "skill_id": "skill_106",
+    "display_name": "Query Optimisation",
+    "relevance_score": 0,
+    "category": "database",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "acid transactions": {
+    "skill_id": "skill_107",
+    "display_name": "ACID Transactions",
+    "relevance_score": 0,
+    "category": "database",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "alembic migrations": {
+    "skill_id": "skill_108",
+    "display_name": "Alembic Migrations",
+    "relevance_score": 0,
+    "category": "database",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "alembic": {
+    "skill_id": "skill_108",
+    "display_name": "Alembic Migrations",
+    "relevance_score": 0,
+    "category": "database",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "s3 sse-kms": {
+    "skill_id": "skill_109",
+    "display_name": "S3 SSE-KMS",
+    "relevance_score": 0,
+    "category": "cloud",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "rds": {
+    "skill_id": "skill_110",
+    "display_name": "RDS",
+    "relevance_score": 0,
+    "category": "cloud",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "amazon rds": {
+    "skill_id": "skill_110",
+    "display_name": "RDS",
+    "relevance_score": 0,
+    "category": "cloud",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "sns": {
+    "skill_id": "skill_111",
+    "display_name": "SNS",
+    "relevance_score": 0,
+    "category": "cloud",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "amazon sns": {
+    "skill_id": "skill_111",
+    "display_name": "SNS",
+    "relevance_score": 0,
+    "category": "cloud",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "supabase": {
+    "skill_id": "skill_112",
+    "display_name": "Supabase",
+    "relevance_score": 0,
+    "category": "cloud",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "vercel": {
+    "skill_id": "skill_113",
+    "display_name": "Vercel",
+    "relevance_score": 0,
+    "category": "cloud",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "ci/cd": {
+    "skill_id": "skill_114",
+    "display_name": "CI/CD",
+    "relevance_score": 0,
+    "category": "tools",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "ci cd": {
+    "skill_id": "skill_114",
+    "display_name": "CI/CD",
+    "relevance_score": 0,
+    "category": "tools",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "anthropic": {
+    "skill_id": "skill_115",
+    "display_name": "Anthropic",
+    "relevance_score": 0,
+    "category": "other",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "rapidfuzz": {
+    "skill_id": "skill_116",
+    "display_name": "RapidFuzz",
+    "relevance_score": 0,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "watchdog": {
+    "skill_id": "skill_117",
+    "display_name": "Watchdog",
+    "relevance_score": 0,
+    "category": "tools",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "httpx": {
+    "skill_id": "skill_118",
+    "display_name": "HTTPX",
+    "relevance_score": 0,
+    "category": "programming",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "fernet encryption": {
+    "skill_id": "skill_119",
+    "display_name": "Fernet Encryption",
+    "relevance_score": 0,
+    "category": "tools",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "fernet": {
+    "skill_id": "skill_119",
+    "display_name": "Fernet Encryption",
+    "relevance_score": 0,
+    "category": "tools",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "sgd": {
+    "skill_id": "skill_120",
+    "display_name": "SGD",
+    "relevance_score": 0,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
+  },
+  "loss functions": {
+    "skill_id": "skill_121",
+    "display_name": "Loss Functions",
+    "relevance_score": 0,
+    "category": "data_science",
+    "related_skills": [],
+    "market_demand": "very_low"
   }
 }

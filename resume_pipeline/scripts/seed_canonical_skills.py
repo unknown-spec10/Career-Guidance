@@ -6,7 +6,7 @@ resume_pipeline/resume_pipeline/resume/skill_taxonomy.json (+ metadata) into
 canonical_skills, and creates SystemConfiguration defaults that are read at
 runtime but were previously never writable/seeded:
 
-    - learning_path_generation_cost  (default from constants.CREDIT_CONFIG)
+    - learning_path_generation_cost  (default from config.CREDIT_CONFIG)
     - dynamic_subtopic_taxonomy      (empty object placeholder)
 
 Usage (from resume_pipeline/, venv active):
@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from resume_pipeline.db import SessionLocal, CanonicalSkill, SystemConfiguration
-from resume_pipeline.constants import CREDIT_CONFIG
+from resume_pipeline.config import CREDIT_CONFIG
 
 TAXONOMY_PATH = Path(__file__).resolve().parents[1] / "resume_pipeline" / "resume" / "skill_taxonomy.json"
 METADATA_PATH = Path(__file__).resolve().parents[1] / "resume_pipeline" / "resume" / "skill_taxonomy_metadata.json"

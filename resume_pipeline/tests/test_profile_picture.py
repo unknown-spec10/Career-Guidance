@@ -72,7 +72,7 @@ def test_upload_profile_picture_success(mock_get_storage, client, db_session):
     mock_storage = MagicMock()
     mock_get_storage.return_value = mock_storage
 
-    file_content = b"fake image bytes"
+    file_content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32  # minimal valid PNG magic bytes
     file_name = "test_avatar.png"
     file_io = io.BytesIO(file_content)
 

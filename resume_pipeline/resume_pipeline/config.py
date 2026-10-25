@@ -12,6 +12,19 @@ if not os.environ.get("RENDER"):
     # process/user environment variables that may linger across sessions.
     load_dotenv(dotenv_path=_env_file, override=True)
 
+
+def _get_repo_root() -> Path:
+    """Get the repository root directory (project root)."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_storage_path(path: str) -> str:
+    """Resolve storage path relative to repo root if relative; absolute paths pass through unchanged."""
+    p = Path(path)
+    if p.is_absolute():
+        return str(p)
+    return str((_get_repo_root() / p).resolve())
+
 class Settings(BaseSettings):
     # Pydantic-settings: only read from OS environment, never from .env files.
     # This ensures Render's injected env vars always win over any baked-in .env.
@@ -28,39 +41,50 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
     FILE_STORAGE_PATH: str = "./data/raw_files"
     
-    # Storage Integration (local, s3, gcs)
-    STORAGE_BACKEND: str = "local"  # "local", "s3", or "gcs"
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
-    AWS_REGION: str = "ap-south-1"
-    S3_BUCKET_NAME: str = "mine-career-guidance-bucket"
-    S3_REGION: str = "ap-south-1"
-    AWS_S3_ENDPOINT_URL: str | None = None
+    # Storage Integration (local, gcs)
+    STORAGE_BACKEND: str = "local"  # "local" or "gcs"
     
     # GCP Storage Integration
     GCS_BUCKET_NAME: str = "mine-career-guidance-bucket"
     GCS_PROJECT_ID: str | None = None
 
-    GEMINI_API_KEY: str = ""
-    GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta"
-    GEMINI_SMALL_MODEL: str = "gemini-3-flash-preview"
-    GEMINI_LARGE_MODEL: str = "gemini-3-pro-preview"
-    GEMINI_INTERVIEW_MODEL: str = "gemini-2.5-flash"
-    GEMINI_MOCK_MODE: bool = False
-    GROQ_API_BASE_URL: str = "https://api.groq.com/openai/v1"
-    GROQ_CHAT_MODEL: str = "llama-3.3-70b-versatile"
+    # Capability-based model selection (model-agnostic)
+    # Callers ask for a capability ("chat", "explanation", "stt"); the provider
+    # adapter registry in core/llm_router.py resolves these slots to concrete
+    # providers/models. Swapping models requires only env changes, no code edits.
+    # An empty *_NAME means "use the provider default" (GROQ_STT_MODEL,
+    # OPENCODE_CHAT_MODEL below), so
+    # existing deployments behave exactly as before until the slots are set.
+    # Cutover defaults (Oct 2026): ALL chat/explanation workloads route to
+    # opencode (DeepSeek). There is NO fallback: each capability resolves to a
+    # single provider and a failure raises (callers own their recovery:
+    # interview question bank, evaluator error path, learning-path template,
+    # RAG error return, offline explanation).
+    # STT stays on Groq Whisper (MODEL_STT_* untouched).
+    # ============================================================================
+    MODEL_CHAT_PRIMARY_PROVIDER: str = "opencode"
+    MODEL_CHAT_PRIMARY_NAME: str = "deepseek-v4.1-flash"
+    # Explanation order defaults to opencode too (was gemini -> groq).
+    MODEL_EXPLAIN_PRIMARY_PROVIDER: str = "opencode"
+    MODEL_EXPLAIN_PRIMARY_NAME: str = "deepseek-v4.1-flash"
+    MODEL_STT_PROVIDER: str = "groq"
+    MODEL_STT_NAME: str = ""
+
+    # ============================================================================
+    # OPENCODE PROVIDER (OpenAI-compatible, e.g. OpenCode Zen)
+    # Registered in core/llm_router.py as the `opencode` adapter. Selectable via
+    # the MODEL_* slots above with zero code changes, e.g.
+    # MODEL_CHAT_PRIMARY_PROVIDER=opencode.
+    # ============================================================================
+    OPENCODE_API_BASE_URL: str = "https://opencode.ai/zen/v1"
+    OPENCODE_API_KEY: str = ""
+    OPENCODE_CHAT_MODEL: str = "deepseek-v4.1-flash"
+
+    # Removed (Oct 2026 cutover): GEMINI_* keys, legacy Groq chat-model keys,
+    # GROQ_TTS_*, NVIDIA_NIM_*, OPENROUTER_*, GOOGLE_EMBEDDING_ENABLED,
+    # EMBEDDING_TIMEOUT_SECONDS (dead Google embedding path + unused providers).
     GROQ_STT_MODEL: str = "whisper-large-v3"
-    GROQ_TTS_MODEL: str = "canopylabs/orpheus-v1-english"
-    GROQ_TTS_VOICE: str = "troy"
-    NVIDIA_NIM_API_KEY: str = ""
-    NVIDIA_NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_NIM_DEEPSEEK_MODEL: str = "deepseek-ai/deepseek-v4-flash"
-    NVIDIA_NIM_KIMI_MODEL: str = "moonshotai/kimi-k2.6"
-    
-    OPENROUTER_API_KEY: str = ""
-    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_MODEL: str = "openai/gpt-oss-120b:free"
-    EMBEDDING_MODEL: str = "gemini-embedding-2-preview"
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     MAX_PARSE_TOKENS: int = 12000
     
     # Parsing thresholds
@@ -78,6 +102,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+
+    # Admin seeding from environment (plaintext in env, hashed at seeding, never logged)
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
 
     # Runtime environment: "development" | "production".
     # In production a strong SECRET_KEY (>= 32 chars) is REQUIRED at startup.
@@ -106,16 +134,8 @@ class Settings(BaseSettings):
     # Uses embeddings + taxonomy for intelligent skill normalization & matching
     # ============================================================================
     SEMANTIC_MATCHING_ENABLED: bool = True              # Feature toggle
-    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"     # Lightweight, fast local model
-    GOOGLE_EMBEDDING_ENABLED: bool = True               # Primary embedding provider toggle
-    EMBEDDING_TIMEOUT_SECONDS: int = 30                 # HTTP timeout for embedding API
     EMBEDDING_CACHE_MAX_ITEMS: int = 2000               # In-memory embedding cache cap
-    EMBEDDING_FALLBACK_ENABLED: bool = True             # Allow MiniLM fallback on API failure
     SEMANTIC_SIMILARITY_THRESHOLD: float = 0.70         # Min confidence for canonical match
-    RELATED_SKILL_WEIGHT: float = 0.60                  # Weight for related skill matches
-    EXACT_MATCH_WEIGHT: float = 1.0                     # Weight for exact matches
-    SEMANTIC_MATCH_WEIGHT: float = 0.85                 # Weight for embedding-based matches
-    CATEGORY_MATCH_WEIGHT: float = 0.40                 # Weight for same-category matches
     
     # Google Search API for skill taxonomy builder
     GOOGLE_API_KEY: str | None = None
@@ -131,22 +151,9 @@ class Settings(BaseSettings):
     
     # Groq API for RAG Q&A system
     GROQ_API_KEY: str | None = None
-    YOUTUBE_API_KEY: str | None = None
-    
-    # YouTube Data API v3 (for Learning Path resource discovery)
+
+    # YouTube Data API v3 (for Learning Path resource discovery) — single key.
     YOUTUBE_DATA_API_KEY: str = ""
-    YOUTUBE_TRUSTED_CHANNELS: list[str] = [
-        "freeCodeCamp.org",
-        "CS50",
-        "Fireship",
-        "Traversy Media",
-        "Corey Schafer",
-        "Tech With Tim",
-        "MIT OpenCourseWare",
-        "Abdul Bari",
-        "CodeWithHarry",
-        "Jenny's Lectures CS IT"
-    ]
     
     # CORS Origins - configurable for cloud deployments
     # In development: localhost:3000 and localhost:5173
@@ -154,42 +161,26 @@ class Settings(BaseSettings):
     # Format: comma-separated list
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
-    # Email verification mode: "link" or "code"
-    EMAIL_VERIFICATION_MODE: str = "code"
+    # Email verification codes (blank = code defaults: 6 digits / 30 minutes).
     VERIFICATION_CODE_LENGTH: int = 6
     VERIFICATION_CODE_TTL_MINUTES: int = 30
+    # Password-reset codes are higher-risk (6 digits, account takeover): shorter
+    # validity than email-verification codes.
+    PASSWORD_RESET_CODE_TTL_MINUTES: int = 10
 
     # ============================================================================
-    # JOB RECOMMENDATION WEIGHTS (Skills & Experience-focused)
-    # Sum should equal 1.0 for normalized scoring
+    # RECOMMENDATIONS
+    # Former live-weight dicts (SEMANTIC_MATCHING_CONFIG,
+    # JOB_RECOMMENDATION_WEIGHTS, legacy RECOMMENDATION_WEIGHTS) had zero code
+    # readers — live scoring in recommendation/aggregator.py uses inline
+    # literals — and were deleted in the constants.py merge. Only
+    # MAX_RECOMMENDATIONS is read from the environment.
     # ============================================================================
-    JOB_REC_SKILLS_WEIGHT: float = 0.40             # 40% - Technical skills match
-    JOB_REC_EXPERIENCE_WEIGHT: float = 0.20         # 20% - Work experience
-    JOB_REC_CERTIFICATIONS_WEIGHT: float = 0.10     # 10% - Industry certifications
-    JOB_REC_LOCATION_WEIGHT: float = 0.05          # 5% - Location preference
-    JOB_REC_INTERVIEW_WEIGHT: float = 0.08          # 8% - Interview performance
-    JOB_REC_PROJECTS_WEIGHT: float = 0.05           # 5% - Project experience
-    JOB_REC_WORK_TYPE_WEIGHT: float = 0.05          # 5% - Work type preference
-    JOB_REC_SALARY_WEIGHT: float = 0.05             # 5% - Salary alignment
-    JOB_REC_EDUCATION_WEIGHT: float = 0.02          # 2% - Education requirements
-    
-    # Legacy weights (backward compatibility)
-    RECOMMENDATION_SKILLS_WEIGHT: float = 0.40
-    RECOMMENDATION_EDUCATION_WEIGHT: float = 0.25
-    RECOMMENDATION_EXPERIENCE_WEIGHT: float = 0.20
-    RECOMMENDATION_INTERVIEW_WEIGHT: float = 0.15
-    
-    # Recommendation thresholds
-    MIN_RECOMMENDATION_SCORE: float = 0.25  # 25% minimum match score
-    MIN_JOB_REC_SCORE: float = 0.10         # Job-specific minimum (lowered to 10% for testing)
     MAX_RECOMMENDATIONS: int = 10           # Maximum recommendations to return
     
     # RAG System Configuration
     RAG_PRELOAD_ON_STARTUP: bool = False    # Pre-initialize RAG on startup (vs lazy init on first query)
-    RAG_ENABLE_FILE_WATCHER: bool = True    # Enable automatic doc reloading when files change
-    RAG_FILE_WATCHER_DEBOUNCE: float = 2.0  # Debounce file changes for N seconds
 
-    USE_VECTOR_RETRIEVAL: bool = True
     VECTOR_RETRIEVAL_TOP_K: int = 200
     VECTOR_RETRIEVAL_MIN_CANDIDATES: int = 20
 
@@ -214,7 +205,191 @@ AI_INPUT_CONFIG = {
     "resume_truncation_strategy": "top_and_tail",  # or "top_only"
 }
 
+# ============================================================================
+# NON-ENV APPLICATION CONSTANTS (moved from constants.py — single source of
+# truth lives here now; constants.py is deleted, import from this module).
+# These are tuned code sets, NOT environment-driven: they are intentionally
+# plain module constants rather than Settings fields, so .env/compose
+# changes cannot silently alter scoring, state machines, or credit costs.
+# Env-tunable thresholds live on Settings above
+# (LLM_CONFIDENCE_THRESHOLD, CGPA_MISMATCH_THRESHOLD == 0.2,
+# MAX_UNKNOWN_SKILLS, MAX_SUMMARY_SENTENCES, LONG_DOC_WORD_THRESHOLD).
+# Deleted as dead/duplicate (zero code readers, verified by grep):
+#   LLM_CONFIDENCE_THRESHOLD / MAX_UNKNOWN_SKILLS module copies (Settings wins),
+#   CGPA_MISMATCH_THRESHOLD == 0.5 copy (Settings 0.2 wins; neither had a
+#   Python reader — Settings wins via .env.example + compose wiring),
+#   SEMANTIC_MATCHING_CONFIG / JOB_RECOMMENDATION_WEIGHTS /
+#   RECOMMENDATION_WEIGHTS (zero readers; live scoring in
+#   recommendation/aggregator.py uses inline literals).
+# ============================================================================
+
+# ── Parse pipeline: confidence weights (redesign v2.0) ──────────────────────
+# Weighted average of per-section heuristic scores.
+# Weights reflect importance to downstream recommendation quality.
+CONFIDENCE_WEIGHTS = {
+    'contact':   0.10,
+    'education': 0.35,   # Highest: CGPA feeds recommendation scoring directly
+    'experience': 0.25,
+    'skills':    0.20,
+    'projects':  0.05,
+    'extras':    0.05,
+}
+
+# ── Parse status: state machine outcomes ────────────────────────────────────
+PARSE_STATUS_PROCESSING    = 'processing'     # Background task running
+PARSE_STATUS_ACCEPTED      = 'accepted'       # AUTO_ACCEPT ≥ 0.85
+PARSE_STATUS_PENDING_REVIEW = 'pending_review' # NEEDS_REVIEW 0.60–0.84
+PARSE_STATUS_FAILED        = 'failed'         # RE_PARSE exhausted
+
+PARSE_AUTO_ACCEPT_THRESHOLD = 0.85
+PARSE_REVIEW_THRESHOLD      = 0.60
+SECTION_RETRY_THRESHOLD     = 0.70   # Retry individual section if below this
+
+# ── File type router: detection heuristics ──────────────────────────────────
+ROUTER_THRESHOLDS = {
+    'min_chars_per_page': 200,      # Below this → Type C (scanned)
+    'whitespace_ratio_limit': 0.40,  # Above this → Type B (designed/columnar)
+}
+
+# ── Validation / pagination ─────────────────────────────────────────────────
+MAX_RESUME_TEXT_WORDS = 2000  # Maximum words before summarization
+
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 100
+
+# ── Interview & assessment configuration ────────────────────────────────────
+INTERVIEW_CONFIG = {
+    'SESSION_DURATION_SECONDS': 1800,  # 30 minutes for full interview
+    'MICRO_SESSION_DURATION_SECONDS': 300,  # 5 minutes for micro-session
+    'SCORE_FRESHNESS_MONTHS': 6,  # Prompt retake after 6 months
+    'MCQ_COUNT_RANGE': (10, 10),  # 10 MCQ questions per session
+    'SHORT_ANSWER_COUNT_RANGE': (0, 0),  # 0 short answer questions (focus on MCQ)
+    'MIN_PASSING_SCORE': 40.0,  # Minimum score to pass
+    'DIFFICULTY_ADJUSTMENT_THRESHOLD': 70.0,  # Increase difficulty if score > 70
+    'MAX_SESSIONS_PER_DAY': 10,  # Max any interview sessions per day
+}
+
+LIVE_INTERVIEW_CONFIG = {
+    'SESSION_DURATION_SECONDS': 1800,  # 30 minutes
+    'HEARTBEAT_SECONDS': 20,
+    'START_ACTIVITY_TYPE': 'full_interview',  # Reuse existing credit policy
+}
+
+# Interview System v2 — configuration (provider-agnostic; models come from
+# MODEL_CHAT_* slots resolved by core/llm_router.py)
+INTERVIEW_CONFIG_V2 = {
+    'RESERVE_POOL_SIZE': 3,           # Extra questions generated for adaptive difficulty
+    'ADAPTIVE_CHECK_EVERY': 3,        # Check running score every N answered questions
+    'ADAPTIVE_HIGH_THRESHOLD': 80,    # Swap in harder (reserve) question if score >= this %
+    'ADAPTIVE_LOW_THRESHOLD': 40,     # Show hint if answer score below this % (0.0-100 scale)
+    'WEAK_SKILL_THRESHOLD': 0.60,     # Skills with avg score below this go into study plan
+    'POLLING_MAX_WAIT_SECONDS': 30,   # Frontend max polling window
+    'SESSION_ACTIVE_HOURS': 24,       # Hours before an active session is considered stale
+    # --- Scalability guards (audit 4.1-4.2; no behavior change under normal load) ---
+    'MAX_CONCURRENT_EVALS': 8,        # Cap on concurrent background run_evaluation tasks
+    'EVAL_BACKOFF_BASE_SECONDS': 1.0,  # Base for exp backoff+jitter on Groq 429/timeout
+    'EVAL_BACKOFF_MAX_SECONDS': 8.0,  # Cap for a single backoff sleep (inside 3-retry budget)
+    'SSE_STREAM_TIMEOUT_SECONDS': 120,  # Max lifetime of one hint/feedback/skill-gap stream
+    'SSE_HEARTBEAT_INTERVAL_SECONDS': 15,  # Idle interval after which a `: ping` comment is sent
+    'YOUTUBE_CACHE_TTL_DAYS': 7,      # TTL for cached search_youtube results
+}
+
+# Rate limiting & cost safeguards for mock interview system
+INTERVIEW_LIMITS = {
+    'SESSION_START_WINDOW_SECONDS': 300,  # 5 minutes
+    'SESSION_START_MAX_DAILY': 3,         # 3 sessions per day
+    'ANSWER_SUBMIT_WINDOW_SECONDS': 10,   # 10 seconds
+    'ANSWER_SUBMIT_MAX_DAILY': 30,        # 30 answer evaluations per day
+}
+
+# ── Credit-based quota system ───────────────────────────────────────────────
+CREDIT_CONFIG = {
+    # Credit costs
+    'FULL_MOCK_INTERVIEW_COST': 10,  # 1 full interview = 10 credits
+    'LIVE_INTERVIEW_COST': 10,  # 1 live interview = 10 credits
+    'MICRO_SESSION_COST': 1,  # 1 micro-session (1 question) = 1 credit
+    'CODING_QUESTION_COST': 1,  # 1 coding question = 1 credit
+    'PROJECT_IDEA_COST': 2,  # 1 project idea generation = 2 credits
+    'LEARNING_PATH_GENERATION_COST': 10,  # 1 learning path generation = 10 credits
+    'RECOMMENDATION_REFRESH_COST': 5,  # Refreshing recommendations within cooldown = 5 credits
+    'RECOMMENDATION_REFRESH_COOLDOWN_HOURS': 24,  # Cooldown between free refreshes
+
+    # Credit limits (free tier)
+    'DEFAULT_WEEKLY_CREDITS': 60,  # 60 credits per week (4 full + 20 micro)
+    'MAX_DAILY_CREDITS_USAGE': 0,  # <= 0 disables daily credit cap (temporary)
+    'CREDITS_REFILL_DAYS': 7,  # Refill every 7 days from last refill
+
+    # Session limits
+    'MAX_FULL_INTERVIEWS_PER_WEEK': 4,  # 4 full interviews per week
+    'MAX_MICRO_SESSIONS_PER_DAY': 10,  # 10 micro-sessions per day
+    'MAX_CODING_QUESTIONS_PER_DAY': 10,  # 10 coding questions per day
+    'MAX_PROJECT_IDEAS_PER_WEEK': 10,  # 10 project ideas per week
+
+    # Token budgets (for optimization)
+    'FULL_MOCK_TOKEN_BUDGET': 5000,  # Target 5k tokens per full interview
+    'MICRO_SESSION_TOKEN_BUDGET': 800,  # Target 800 tokens per micro-session
+    'CODING_QUESTION_TOKEN_BUDGET': 500,  # Target 500 tokens per coding question
+    'PROJECT_IDEA_TOKEN_BUDGET': 1000,  # Target 1k tokens per project idea
+}
+
+# ── Interview question types / categories / difficulty ──────────────────────
+QUESTION_TYPES = ['mcq', 'short_answer', 'coding', 'theory', 'behavioral']
+
+INTERVIEW_CATEGORIES = [
+    'DSA', 'Python', 'Java', 'JavaScript', 'C++',
+    'DBMS', 'SQL', 'OS', 'OOP', 'System Design',
+    'Machine Learning', 'Data Structures', 'Algorithms',
+    'Networking', 'Cloud Computing', 'DevOps'
+]
+
+DIFFICULTY_LEVELS = ['easy', 'medium', 'hard']
+
+# Proficiency mapping (based on assessment scores)
+PROFICIENCY_MAPPING = {
+    (0, 40): 'beginner',
+    (40, 60): 'intermediate',
+    (60, 80): 'advanced',
+    (80, 100): 'expert'
+}
+
+# Interview score multipliers for recommendations
+INTERVIEW_SCORE_MULTIPLIERS = {
+    'excellent': 1.0,  # >= 80: Full 15 points
+    'good': 0.67,  # 60-79: 10 points
+    'average': 0.33,  # 40-59: 5 points
+    'poor': 0.0,  # < 40: 0 points
+}
+
+# ── File upload limits ──────────────────────────────────────────────────────
+MAX_FILE_SIZE_MB = 10
+ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt'}
+ALLOWED_MIME_TYPES = {
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'text/plain',
+}
+
+# ── Database ────────────────────────────────────────────────────────────────
+DEFAULT_BATCH_SIZE = 100
+
+# ── API response messages ───────────────────────────────────────────────────
+API_MESSAGES = {
+    'APPLICANT_NOT_FOUND': 'Applicant not found',
+    'NO_PARSED_DATA': 'No parsed resume data found. Please parse resume first.',
+    'INVALID_FILE_TYPE': 'Invalid file type. Supported: PDF, DOCX, DOC, TXT',
+    'JOB_NOT_FOUND': 'Job not found',
+    'UPLOAD_SUCCESS': 'File uploaded successfully',
+    'PARSE_SUCCESS': 'Resume parsed successfully',
+}
+
 settings = Settings()
+
+# Resolve FILE_STORAGE_PATH relative to repo root if relative
+try:
+    settings.FILE_STORAGE_PATH = _resolve_storage_path(settings.FILE_STORAGE_PATH)
+except Exception:
+    pass
 
 # Naming fallbacks for backward compatibility with older/alternative env names
 if not settings.GOOGLE_API_KEY and os.environ.get("GOOGLE_SEARCH_API_KEY"):
@@ -222,9 +397,6 @@ if not settings.GOOGLE_API_KEY and os.environ.get("GOOGLE_SEARCH_API_KEY"):
 
 if not settings.GOOGLE_SEARCH_ENGINE_ID and os.environ.get("GOOGLE_CSE_ID"):
     settings.GOOGLE_SEARCH_ENGINE_ID = os.environ.get("GOOGLE_CSE_ID")
-
-if os.environ.get("GROQ_MODEL"):
-    settings.GROQ_CHAT_MODEL = os.environ.get("GROQ_MODEL")
 
 # If DATABASE_URL is set, prioritize it to populate PG_DSN
 if settings.DATABASE_URL:

@@ -15,9 +15,9 @@ Public API:
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-from ..constants import CONFIDENCE_WEIGHTS
+from ..config import CONFIDENCE_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +195,7 @@ class ConfidenceScorer:
 
     def compute_overall(self, section_scores: Dict[str, float]) -> float:
         """
-        Weighted average of per-section scores using CONFIDENCE_WEIGHTS from constants.py.
+        Weighted average of per-section scores using CONFIDENCE_WEIGHTS from config.py.
         """
         total = 0.0
         weight_sum = 0.0

@@ -6,7 +6,6 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from resume_pipeline.config import settings
 from resume_pipeline.db import SessionLocal, LearningPath
 from resume_pipeline.core.google_search import InterviewContentFetcher
 

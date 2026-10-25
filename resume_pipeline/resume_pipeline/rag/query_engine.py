@@ -9,11 +9,10 @@ import time
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 
 from .vector_store import VectorStore, SearchResult
-from .document_processor import DocumentChunk
 
 logger = logging.getLogger(__name__)
 

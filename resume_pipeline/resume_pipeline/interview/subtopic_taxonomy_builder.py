@@ -2,12 +2,11 @@ import json
 import logging
 import requests
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 from sqlalchemy.orm import Session as DBSession
 from ..config import settings
 from ..db import SystemConfiguration
 from ..core.llm_router import llm_router
-from .prompts import GROQ_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +96,8 @@ Respond ONLY with a valid JSON array of strings. No preamble, no explanation, no
         try:
             res = llm_router.generate_chat_completion(
                 messages=[{"role": "user", "content": prompt}],
-                provider="groq",
-                model_name=GROQ_MODEL,
+                provider=None,
+                capability="chat",
                 temperature=0.2,
                 max_tokens=600,
                 response_format={"type": "json_object"}

@@ -76,12 +76,9 @@ def _calculate_keyword_match(parsed_data: dict, job_skills: list = None, db: Ses
     elif db:
         # Dynamic market demand list: fetch all required skills from active approved jobs
         try:
-            from ..db import Job
+            from ..db import Job, active_job_criteria
             now = datetime.datetime.utcnow()
-            active_jobs = db.query(Job).filter(
-                Job.status == "approved",
-                ((Job.expires_at.is_(None)) | (Job.expires_at > now))
-            ).all()
+            active_jobs = db.query(Job).filter(*active_job_criteria(now)).all()
             
             market_skills = []
             for j in active_jobs:

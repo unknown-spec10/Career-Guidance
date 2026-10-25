@@ -1,6 +1,7 @@
-"""
-Authentication and authorization utilities
-"""
+"""Authentication and authorization utilities."""
+import logging
+import os
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -8,8 +9,9 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from typing import Optional
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -34,6 +36,10 @@ async def get_current_user_optional(creds: Optional[HTTPAuthorizationCredentials
             return None
         user_id = int(user_id_raw)
         user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            return None
+        if not getattr(user, "is_active", True):
+            return None
         if user is not None and _token_is_revoked(payload, user):
             return None
         return user
@@ -45,10 +51,56 @@ async def get_current_user_optional(creds: Optional[HTTPAuthorizationCredentials
         except Exception:
             pass
 
-# JWT settings from config/env
+# JWT settings from config/env.
+# NOTE: SECRET_KEY is resolved lazily via _active_secret_key() (never the
+# import-time value below) so tests may override settings.SECRET_KEY and so a
+# missing/weak key can never silently sign with "".
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.JWT_ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+
+# Ephemeral per-boot JWT key for non-production when no strong SECRET_KEY is
+# configured. Held only in memory; invalidated on restart (fail-safe default).
+_EPHEMERAL_SECRET_KEY: Optional[str] = None
+_EPHEMERAL_WARNED = False
+
+
+def _is_production() -> bool:
+    """True when running on a production platform (Render) or APP_ENV=production."""
+    return (
+        os.environ.get("RENDER") is not None
+        or str(getattr(settings, "APP_ENV", "development")).lower() == "production"
+    )
+
+
+def _active_secret_key() -> str:
+    """Resolve the JWT signing key in effect right now.
+
+    - Strong configured key (>= 32 chars) → used as-is (tests override via env).
+    - Production + missing/weak key → raise (refuse to start/serve).
+    - Non-prod + missing/weak key → one ephemeral random key per boot with a
+      loud warning (tokens die on restart; never silently sign with "").
+    """
+    global _EPHEMERAL_SECRET_KEY, _EPHEMERAL_WARNED
+    configured = settings.SECRET_KEY or ""
+    if len(configured) >= 32:
+        return configured
+    if _is_production():
+        raise RuntimeError(
+            "SECRET_KEY is missing or shorter than 32 characters "
+            "(required because APP_ENV=production or a production platform "
+            "was detected). Refusing to sign tokens."
+        )
+    if _EPHEMERAL_SECRET_KEY is None:
+        _EPHEMERAL_SECRET_KEY = secrets.token_urlsafe(48)
+    if not _EPHEMERAL_WARNED:
+        _EPHEMERAL_WARNED = True
+        logger.warning(
+            "SECURITY: SECRET_KEY is missing or weaker than 32 chars — using an "
+            "EPHEMERAL per-boot JWT key. All sessions will be invalidated on "
+            "restart. Set a strong SECRET_KEY (>= 32 chars) for stable logins."
+        )
+    return _EPHEMERAL_SECRET_KEY
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -69,9 +121,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if expires_delta:
         expire = now + expires_delta
     else:
-        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _active_secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -103,7 +155,7 @@ def _token_is_revoked(payload: dict, user) -> bool:
 def decode_access_token(token: str) -> dict:
     """Decode a JWT access token"""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _active_secret_key(), algorithms=[ALGORITHM])
         return payload
     except JWTError:
         raise HTTPException(
@@ -138,6 +190,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found",
+            )
+        if not getattr(user, "is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is deactivated",
             )
         if _token_is_revoked(payload, user):
             raise HTTPException(

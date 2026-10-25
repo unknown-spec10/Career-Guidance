@@ -11,14 +11,12 @@ Also updates interview_sessions table with credit-related fields.
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from sqlalchemy import create_engine, text
-from resume_pipeline.config import settings
+from sqlalchemy import text
 from resume_pipeline.db import Base, engine
 import logging
 

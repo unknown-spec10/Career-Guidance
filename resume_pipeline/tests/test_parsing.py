@@ -8,12 +8,9 @@ p = pathlib.Path(__file__).resolve().parents[1]
 if str(p) not in sys.path:
     sys.path.insert(0, str(p))
 
-from resume_pipeline.resume.preprocessor import (
-    clean_text, 
-    extract_numeric_snippets, 
-    PdfTextExtractor,
-    TesseractOCR
-)
+from resume_pipeline.resume.ingest import clean_text, PdfTextExtractor
+from resume_pipeline.resume.extractors import extract_numeric_snippets
+from resume_pipeline.resume.preprocess_ocr import TesseractOCR
 from resume_pipeline.resume.validators_numeric import SimpleNumericValidator
 from resume_pipeline.resume.skill_mapper_simple import SimpleSkillMapper
 from resume_pipeline.resume.parse_service import ResumeParserService
@@ -208,6 +205,10 @@ if __name__ == "__main__":
         test_student_details_integration()
         test_truncate_for_llm()
         test_file_type_router_upgrades()
+        test_rule_parser_golden_bars()
+        test_rule_parser_sections_split()
+        test_rule_parser_shared_entry_parser()
+        test_rule_parser_ingest_and_numeric()
         
         print("\n" + "=" * 60)
         print("[OK] ALL TESTS PASSED")
@@ -262,49 +263,43 @@ def test_truncate_for_llm():
 
 
 def test_file_type_router_upgrades():
-    """Test dynamic re-routing and fallback triggers in FileTypeRouter."""
-    print("\n=== Test 8: FileTypeRouter Upgrades ===")
+    """Test deterministic re-routing: scanned PDFs and images use local OCR, never Vision/LLM."""
+    print("\n=== Test 8: FileTypeRouter Deterministic OCR Routing ===")
     from unittest.mock import MagicMock, patch
     from resume_pipeline.resume.file_type_router import FileTypeRouter, ResumeType
+    from resume_pipeline.resume.ingest import IngestResult, PageIngest
 
-    # Mock llm client
-    mock_llm = MagicMock()
-    mock_llm.api_key = "mock_key"
-    mock_llm.base_url = "https://mock.api"
-    router = FileTypeRouter(mock_llm)
+    router = FileTypeRouter()
 
-    # 1. Test Dynamic Re-routing of thin text (< 100 chars)
-    with patch("resume_pipeline.resume.file_type_router._detect_type") as mock_detect, \
-         patch("resume_pipeline.resume.file_type_router._extract_text_pdfplumber") as mock_pdfplumber, \
-         patch.object(router, "_vision_from_pdf") as mock_vision:
-        
-        mock_detect.return_value = (ResumeType.TEXT, {"avg_chars_per_page": 50, "whitespace_ratio": 0.1, "has_images": False})
-        mock_pdfplumber.return_value = "Thin text"  # 9 chars < 100 chars limit
-        mock_vision.return_value = "Extracted via Gemini Vision fallback"
+    # 1. Scanned PDF (thin text) → offline OCR leg, no Vision calls
+    fake = IngestResult(
+        raw_text="", resume_type=ResumeType.SCANNED,
+        pages=[PageIngest(page_no=1, text="", chars=0, scanned=True,
+                          has_images=False, table_count=0)],
+        flags=["all_pages_scanned"],
+    )
+    with patch("resume_pipeline.resume.ingest.ingest_resume", return_value=fake), \
+         patch("resume_pipeline.resume.preprocess_ocr.ocr_scanned_pages") as mock_ocr:
+
+        mock_ocr.return_value = MagicMock(
+            pages={1: MagicMock(text="Extracted via local OCR")})
 
         text, rtype = router.extract("dummy_resume.pdf")
 
-        # Verify reclassify triggered and vision method was called
-        assert rtype == ResumeType.VISUAL
-        assert text == "Extracted via Gemini Vision fallback"
-        mock_vision.assert_called_once_with("dummy_resume.pdf", ResumeType.VISUAL)
+        assert rtype == ResumeType.SCANNED
+        assert text == "Extracted via local OCR"
+        mock_ocr.assert_called_once_with("dummy_resume.pdf", page_nos=[1])
 
-    # 2. Test Image OCR Tesseract Fallback
-    with patch("resume_pipeline.resume.file_type_router.base64.b64encode") as mock_b64, \
-         patch("resume_pipeline.resume.file_type_router.open", create=True) as mock_open, \
-         patch.object(router, "_call_gemini_vision") as mock_call_vision, \
-         patch("pytesseract.image_to_string") as mock_tesseract, \
-         patch("PIL.Image.open") as mock_image_open:
-        
-        mock_call_vision.return_value = ""  # empty output from Gemini
-        mock_tesseract.return_value = "Extracted via Tesseract locally"
+    # 2. Image file → single-image OCR, no LLM
+    with patch("resume_pipeline.resume.preprocess_ocr.ocr_image_file") as mock_img:
+        mock_img.return_value = ("Extracted via RapidOCR", 0.9, "rapidocr")
 
-        text = router._vision_from_image_file("dummy_image.png")
+        text = router._ocr_image("dummy_image.png")
 
-        assert text == "Extracted via Tesseract locally"
-        mock_tesseract.assert_called_once()
+        assert text == "Extracted via RapidOCR"
+        mock_img.assert_called_once_with("dummy_image.png")
 
-    print("[OK] FileTypeRouter dynamic re-routing and fallback triggers work correctly")
+    print("[OK] FileTypeRouter routes scans to local OCR with no LLM calls")
 
 
 def test_gcs_storage_backend():
@@ -333,4 +328,140 @@ def test_gcs_storage_backend():
         storage_module._storage_client = None
 
     print("[OK] GCS storage backend test passed")
+
+
+# ── Rule-based parser coverage (deterministic, no LLMs) ──
+
+def test_rule_parser_golden_bars():
+    """Golden-set bars: contact 7/7 and full skills recall on both samples."""
+    print("\n=== Test 10: Rule Parser Golden Bars ===")
+    import re
+    import shutil
+    import tempfile
+    from resume_pipeline.resume.rule_parser import RuleBasedParserService
+
+    expectations = {
+        "sample_resume_1.txt": (
+            {"name": "Raj Kumar", "email": "raj.kumar@example.com",
+             "phone": "+91-9876543210", "location": "Bangalore, Karnataka",
+             "linkedin_url": None, "github_url": None, "portfolio_url": None},
+            ["python", "java", "machine learning", "data analysis",
+             "deep learning", "sql", "react"],
+        ),
+        "sample_resume_2.txt": (
+            {"name": "Priya Sharma", "email": "priya.sharma@gmail.com",
+             "phone": "+91-8765432109", "location": "Mumbai, Maharashtra",
+             "linkedin_url": None, "github_url": None, "portfolio_url": None},
+            ["python", "c++", "javascript", "html", "css", "node.js",
+             "sql", "mongodb", "git", "docker"],
+        ),
+    }
+
+    parser = RuleBasedParserService()
+    test_dir = Path(__file__).parent
+    for fname, (want_contact, want_skills) in expectations.items():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shutil.copy(test_dir / fname, Path(tmpdir) / "resume.txt")
+            result = parser.run_parse(tmpdir, "golden_test")
+
+        assert result["parse_status"] == "accepted", fname
+        got = result["normalized"]["personal"]
+        for field, want in want_contact.items():
+            have = got.get(field)
+            if want is None:
+                assert have is None, f"{fname}:{field} want None got {have!r}"
+            elif field == "phone":
+                assert re.sub(r"\D", "", have) == re.sub(r"\D", "", want), \
+                    f"{fname}:{field} got {have!r}"
+            else:
+                assert (have or "").strip().lower() == want.lower(), \
+                    f"{fname}:{field} want {want!r} got {have!r}"
+        found = {s["name"].lower() for s in result["normalized"]["skills"]}
+        missing = [s for s in want_skills if s not in found]
+        assert not missing, f"{fname} missing skills: {missing}"
+        print(f"  {fname}: contact 7/7, skills {len(want_skills)}/{len(want_skills)}")
+
+    print("[OK] Golden bars hold on every sample")
+
+
+def test_rule_parser_sections_split():
+    """Segmenter splits every sample into the right non-empty sections."""
+    print("\n=== Test 11: Rule Parser Section Splits ===")
+    from resume_pipeline.resume.segmenter import split_sections
+
+    test_dir = Path(__file__).parent
+    text1 = (test_dir / "sample_resume_1.txt").read_text(encoding="utf-8")
+    secs1 = split_sections(text1)
+    for section in ("contact", "education", "skills", "projects", "extras"):
+        assert secs1[section].strip(), f"sample1 section '{section}' empty"
+    assert not secs1["experience"].strip()
+    assert "Raj Kumar" in secs1["contact"]
+
+    text2 = (test_dir / "sample_resume_2.txt").read_text(encoding="utf-8")
+    secs2 = split_sections(text2)
+    for section in ("contact", "education", "experience", "skills",
+                    "certifications", "extras"):
+        assert secs2[section].strip(), f"sample2 section '{section}' empty"
+    assert not secs2["projects"].strip()
+    assert "TCS" in secs2["experience"]
+
+    print("[OK] Sections split correctly on every sample")
+
+
+def test_rule_parser_shared_entry_parser():
+    """One entry-parser serves education, experience, and projects."""
+    print("\n=== Test 12: Shared Entry Parser ===")
+    from resume_pipeline.resume import extractors as E
+    from resume_pipeline.resume.segmenter import split_sections
+
+    test_dir = Path(__file__).parent
+    secs = split_sections(
+        (test_dir / "sample_resume_2.txt").read_text(encoding="utf-8"))
+
+    edu = E.extract_education(secs["education"])["education"]
+    assert len(edu) == 2
+    assert edu[0]["institution"] == "University of Mumbai"
+    assert edu[0]["grade"] == 9.12
+    assert edu[0]["end_year"] == "2024"
+
+    exp = E.extract_experience(secs["experience"])["experience"]
+    assert len(exp) == 1
+    assert exp[0]["company"] == "TCS"
+    assert exp[0]["employment_type"] == "internship"
+    assert len(exp[0]["responsibilities"]) == 2
+
+    secs1 = split_sections(
+        (test_dir / "sample_resume_1.txt").read_text(encoding="utf-8"))
+    proj = E.extract_projects(secs1["projects"])["projects"]
+    assert len(proj) == 2
+    assert proj[0]["name"] == "ML-Based Recommendation System"
+    assert "python" in proj[0]["tech_stack"]
+
+    print("[OK] Shared entry parser covers education, experience, projects")
+
+
+def test_rule_parser_ingest_and_numeric():
+    """Ingest detection signals + extended numeric snippets on real files."""
+    print("\n=== Test 13: Ingest Signals and Numeric Snippets ===")
+    from resume_pipeline.resume.file_type_router import ResumeType
+    from resume_pipeline.resume.ingest import ingest_resume
+    from resume_pipeline.resume.extractors import extract_numeric_snippets_ext
+
+    test_dir = Path(__file__).parent
+    ingested = ingest_resume(str(test_dir / "sample_resume_1.txt"))
+    assert ingested.resume_type == ResumeType.TEXT
+    assert "Raj Kumar" in ingested.raw_text
+
+    text = (test_dir / "sample_resume_1.txt").read_text(encoding="utf-8")
+    snippets = extract_numeric_snippets_ext(text)
+    assert snippets["cgpa"] == "8.75"
+    assert snippets["percentage"] == "92.5"
+    assert snippets["jee_rank"] == "2487"
+
+    text2 = (test_dir / "sample_resume_2.txt").read_text(encoding="utf-8")
+    snippets2 = extract_numeric_snippets_ext(text2)
+    assert snippets2["cgpa"] == "9.12"
+    assert snippets2["jee_rank"] == "5432"
+
+    print("[OK] Ingest signals and numeric snippets work")
 

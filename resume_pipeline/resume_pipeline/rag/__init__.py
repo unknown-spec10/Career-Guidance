@@ -5,7 +5,7 @@ Components:
 - DocumentProcessor: Loads and chunks markdown documentation
 - VectorStore: BM25 + TF-IDF hybrid retrieval
 - QueryEngine: Query processing, re-ranking, abuse prevention
-- RAGService: Main orchestration with Groq API integration
+- RAGService: Main orchestration with shared LLMRouter chat generation
 """
 
 from .document_processor import DocumentProcessor, DocumentChunk

@@ -100,11 +100,7 @@ class RateLimiter:
             self.trial_start_time = 0.0
 
 # Shared singletons — import these wherever you call AI
-gemini_limiter = RateLimiter(calls_per_minute=10)  # Gemini free tier ~15 RPM, use 10
 groq_limiter   = RateLimiter(calls_per_minute=20)  # Groq is generous, 20 is safe
-
-# Embedding rate limits: Gemini Embedding free tier is 15 RPM
-gemini_embedding_limiter = RateLimiter(calls_per_minute=10)
-gemini_embedding_limiter.cooldown_duration = 30.0  # Tripped cooldown duration (seconds)
+opencode_limiter = RateLimiter(calls_per_minute=20)  # OpenAI-compatible endpoint, 20 is safe
 
 

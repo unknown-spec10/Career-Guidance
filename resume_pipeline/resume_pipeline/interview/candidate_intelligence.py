@@ -3,17 +3,15 @@ Interview System v2 — Longitudinal Candidate Intelligence Service
 Synthesizes candidate resumes, mock session history, and latest performance
 into a living, cumulative AI model (JSON profile).
 """
-import datetime
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
 from sqlalchemy.orm import Session as DBSession
 
-from ..config import settings
 from ..db import Applicant, LLMParsedRecord, InterviewSession, InterviewQuestion, InterviewAnswer
 from ..core.llm_router import llm_router
-from .prompts import CANDIDATE_INTELLIGENCE_PROMPT, GROQ_MODEL
+from .prompts import CANDIDATE_INTELLIGENCE_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,7 @@ def generate_longitudinal_profile(applicant_id: int, db: DBSession) -> Optional[
     """
     Computes/updates the cumulative candidate intelligence profile for an applicant.
     Retrieves candidate's resume parsed record, past mock sessions, and the latest session logs,
-    invokes Groq to generate/update the cumulative JSON profile, and persists it.
+    invokes the chat provider to generate/update the cumulative JSON profile, and persists it.
     
     Runs safely with automatic fallbacks for mock mode and api errors.
     """
@@ -122,27 +120,27 @@ def generate_longitudinal_profile(applicant_id: int, db: DBSession) -> Optional[
         # 5. Fetch previous profile JSON
         previous_profile = applicant.candidate_profile or {}
 
-        # 6. Execute Groq call.
+        # 6. Execute chat-provider call.
         # NOTE: fabricated mock profiles are no longer generated, persisted, or
         # served. If the LLM call is unavailable (mock mode, missing key, or
         # transient failure) the function returns None and the API surfaces an
         # honest "unavailable" state instead of fake insights.
-        if settings.GEMINI_MOCK_MODE or not settings.GROQ_API_KEY:
+        if not llm_router.is_chat_available():
             logger.info("Candidate Intelligence: LLM unavailable (mock mode / missing key). Skipping profile generation.")
             return None
         try:
-            profile_json = _evaluate_with_groq(
+            profile_json = _evaluate_with_llm(
                 resume_context=json.dumps(resume_context),
                 current_profile_json=json.dumps(previous_profile),
                 latest_session_data=json.dumps(latest_session_data),
                 past_sessions_summary=json.dumps(past_summary)
             )
         except Exception as err:
-            logger.warning("Candidate Intelligence: Groq call raised exception (%s).", err)
+            logger.warning("Candidate Intelligence: chat-provider call raised exception (%s).", err)
             profile_json = None
 
         if not profile_json:
-            logger.warning("Candidate Intelligence: Groq call failed or returned None. No profile persisted.")
+            logger.warning("Candidate Intelligence: chat-provider call failed or returned None. No profile persisted.")
 
         if profile_json:
             applicant.candidate_profile = profile_json
@@ -158,7 +156,7 @@ def generate_longitudinal_profile(applicant_id: int, db: DBSession) -> Optional[
     return None
 
 
-def _evaluate_with_groq(
+def _evaluate_with_llm(
     resume_context: str,
     current_profile_json: str,
     latest_session_data: str,
@@ -175,8 +173,8 @@ def _evaluate_with_groq(
     try:
         res = llm_router.generate_chat_completion(
             messages=[{"role": "user", "content": prompt}],
-            provider="groq",
-            model_name=GROQ_MODEL,
+            provider=None,
+            capability="chat",
             temperature=0.3,
             max_tokens=1500,
             response_format={"type": "json_object"}

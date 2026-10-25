@@ -6,7 +6,6 @@ import secrets
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
-from typing import Optional
 import logging
 from .config import settings
 
@@ -238,12 +237,6 @@ def send_password_reset_code_email(to_email: str, code: str, user_name: str) -> 
     except Exception as e:
         logger.error(f"Failed to send password reset code to {to_email}: {e}")
         return False
-
-
-def is_token_expired(created_at: datetime, expiry_hours: int = 24) -> bool:
-    """Check if verification token has expired"""
-    expiry_time = created_at + timedelta(hours=expiry_hours)
-    return datetime.utcnow() > expiry_time
 
 
 def is_code_expired(created_at: datetime, ttl_minutes: int = 30) -> bool:

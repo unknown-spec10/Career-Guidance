@@ -113,6 +113,8 @@ def test_forgot_password_no_enumeration(env):
 
 
 def test_reset_password_lockout_after_five_failures(env):
+    from resume_pipeline.routers.deps import rate_limiting_storage
+    rate_limiting_storage.clear()
     client = TestClient(app)
     for i in range(6):
         r = client.post("/api/auth/reset-password", json={"code": "999999", "new_password": "newpassword1"})
@@ -120,3 +122,90 @@ def test_reset_password_lockout_after_five_failures(env):
             assert r.status_code == 429  # per-IP lockout
         else:
             assert r.status_code == 400
+
+
+def test_reset_password_per_account_lockout_invalidates_code(env):
+    """Guesses bound to an account (via email) trip a per-account lockout that
+    invalidates the live code — a resend is required even with the right code."""
+    from resume_pipeline.routers.deps import rate_limiting_storage
+    rate_limiting_storage.clear()
+    client = TestClient(app)
+
+    for i in range(5):
+        r = client.post("/api/auth/reset-password", json={
+            "code": "000000", "new_password": "newpassword1",
+            "email": "codes@example.com",
+        })
+        assert r.status_code == 400
+
+    # 6th attempt hits the per-account lockout and the code is invalidated.
+    r = client.post("/api/auth/reset-password", json={
+        "code": "000000", "new_password": "newpassword1",
+        "email": "codes@example.com",
+    })
+    assert r.status_code == 429
+
+    user = env["db"].query(User).filter(User.email == "codes@example.com").first()
+    env["db"].refresh(user)
+    assert user.password_reset_token is None
+
+    # Even the previously-correct code is now dead.
+    r = client.post("/api/auth/reset-password", json={
+        "code": "654321", "new_password": "newpassword1",
+        "email": "codes@example.com",
+    })
+    assert r.status_code in (400, 429)
+
+
+def test_reset_password_success_with_email(env):
+    """The documented account-bound flow still resets the password and clears
+    the code (invalidate-on-success)."""
+    from resume_pipeline.routers.deps import rate_limiting_storage
+    from resume_pipeline.auth import verify_password
+    rate_limiting_storage.clear()
+    client = TestClient(app)
+
+    r = client.post("/api/auth/reset-password", json={
+        "code": "654321", "new_password": "newpassword1",
+        "email": "codes@example.com",
+    })
+    assert r.status_code == 200
+
+    user = env["db"].query(User).filter(User.email == "codes@example.com").first()
+    env["db"].refresh(user)
+    assert user.password_reset_token is None
+    assert user.password_reset_expires is None
+    assert verify_password("newpassword1", user.password_hash)
+
+
+def test_reset_password_unknown_email_uniform(env):
+    """Account-bound guesses for unknown emails return the same uniform 400
+    (no enumeration oracle)."""
+    from resume_pipeline.routers.deps import rate_limiting_storage
+    rate_limiting_storage.clear()
+    client = TestClient(app)
+
+    r = client.post("/api/auth/reset-password", json={
+        "code": "000000", "new_password": "newpassword1",
+        "email": "ghost@example.com",
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Invalid or expired reset code"
+
+
+def test_forgot_password_short_reset_ttl(env):
+    """Reset codes carry the shortened TTL (10 min), not the 30-min default."""
+    import datetime as dt
+    from resume_pipeline.routers.deps import rate_limiting_storage
+    rate_limiting_storage.clear()
+    client = TestClient(app)
+
+    r = client.post("/api/auth/forgot-password", json={"email": "codes@example.com"})
+    assert r.status_code == 200
+
+    user = env["db"].query(User).filter(User.email == "codes@example.com").first()
+    env["db"].refresh(user)
+    assert user.password_reset_token
+    remaining = user.password_reset_expires - dt.datetime.utcnow()
+    assert remaining <= dt.timedelta(minutes=11)
+    assert remaining > dt.timedelta(minutes=0)

@@ -1,25 +1,23 @@
-"""
-Explanation generator for job recommendations.
+"""Explanation generator for job recommendations.
 
-LLM chain (each tried EXACTLY ONCE with a tight timeout — no internal retries):
-  1. Gemini   (direct REST call, 6s timeout)
-  2. Groq     (direct SDK call, 6s timeout)
-  3. Offline  (pgvector cosine similarity on pre-computed applicant_embeddings vector)
+Single-provider LLM call (exactly once, tight timeout — no retries), then offline:
+  1. Configured explanation primary   (single-shot adapter call, 6s timeout)
+  2. Offline  (pgvector cosine similarity on pre-computed applicant_embeddings vector)
 
-The offline fallback fires IMMEDIATELY after the second failure — not after cascading
-through the LLMRouter's internal OpenRouter path. Each provider is attempted at most once.
+Defaults route to opencode (DeepSeek); swap via
+MODEL_EXPLAIN_PRIMARY_PROVIDER / MODEL_EXPLAIN_PRIMARY_NAME.
+
+The offline path fires IMMEDIATELY after the single LLM failure.
+The provider is attempted at most once.
 """
 import json
 import logging
-import time
 from typing import Optional, Tuple
 
 import numpy as np
-import requests
-from groq import Groq, BadRequestError, AuthenticationError, PermissionDeniedError
 
-from ..config import settings
-from ..core.rate_limiter import gemini_limiter, groq_limiter
+from ..core.llm_router import AdapterClientError, llm_router
+from ..core.rate_limiter import opencode_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -76,70 +74,35 @@ Speak directly to the candidate using "your" and "you". Write exactly 1 or 2 con
 
 
 # ---------------------------------------------------------------------------
-# Direct LLM callers (bypass LLMRouter to guarantee exactly-once semantics)
+# Direct LLM callers (single-shot adapter calls to guarantee exactly-once semantics)
 # ---------------------------------------------------------------------------
 
-def _try_gemini_once(prompt: str) -> Optional[str]:
-    """Call Gemini REST API exactly once with a tight timeout. Returns text or None."""
-    if not settings.GEMINI_API_KEY or settings.GEMINI_MOCK_MODE:
+def _try_opencode_once(prompt: str) -> Optional[str]:
+    """Call the opencode adapter exactly once with a tight timeout. Returns text or None."""
+    if not llm_router.get_adapter("opencode").has_credentials():
         return None
-    if not gemini_limiter.allow_call():
-        logger.warning("Gemini explanation call skipped: circuit breaker is OPEN")
+    if not opencode_limiter.allow_call():
+        logger.warning("OpenCode explanation call skipped: circuit breaker is OPEN")
         return None
-    model = settings.GEMINI_INTERVIEW_MODEL or "gemini-2.5-flash"
-    url = (
-        f"{settings.GEMINI_API_URL}/models/{model}"
-        f":generateContent?key={settings.GEMINI_API_KEY}"
-    )
-    body = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 150},
-    }
+    model = llm_router.model_for("opencode", "explanation")
     try:
-        r = requests.post(url, json=body, timeout=_LLM_TIMEOUT_S)
-        if r.status_code != 200:
-            if r.status_code not in (400, 401, 403):
-                gemini_limiter.report_failure()
-            logger.warning(f"Gemini explanation call returned HTTP {r.status_code}")
-            return None
-        gemini_limiter.report_success()
-        candidates = r.json().get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if parts:
-                return parts[0].get("text", "").strip().strip('"')
-    except Exception as e:
-        gemini_limiter.report_failure()
-        logger.warning(f"Gemini explanation failed (timeout or error): {e}")
-    return None
-
-
-def _try_groq_once(prompt: str) -> Optional[str]:
-    """Call Groq SDK exactly once with a tight timeout. Returns text or None."""
-    if not settings.GROQ_API_KEY:
-        return None
-    if not groq_limiter.allow_call():
-        logger.warning("Groq explanation call skipped: circuit breaker is OPEN")
-        return None
-    model = settings.GROQ_CHAT_MODEL or "llama-3.3-70b-versatile"
-    try:
-        client = Groq(api_key=settings.GROQ_API_KEY)
-        resp = client.chat.completions.create(
-            model=model,
+        text = llm_router.get_adapter("opencode").chat(
             messages=[{"role": "user", "content": prompt}],
+            model=model,
             temperature=0.7,
             max_tokens=150,
+            response_format=None,
             timeout=_LLM_TIMEOUT_S,
         )
-        groq_limiter.report_success()
-        content = resp.choices[0].message.content
-        return content.strip().strip('"') if content else None
-    except (BadRequestError, AuthenticationError, PermissionDeniedError) as e:
-        # Client errors - do NOT trip the breaker
-        logger.warning(f"Groq explanation failed (client error): {e}")
+        opencode_limiter.report_success()
+        return text.strip().strip('"') if text else None
+    except AdapterClientError as e:
+        # Client errors - do NOT trip the breaker.
+        logger.warning(f"OpenCode explanation call returned client error: {e}")
+        return None
     except Exception as e:
-        groq_limiter.report_failure()
-        logger.warning(f"Groq explanation failed (timeout or error): {e}")
+        opencode_limiter.report_failure()
+        logger.warning(f"OpenCode explanation failed (timeout or error): {e}")
     return None
 
 
@@ -160,9 +123,8 @@ def _cosine(v1: list, v2: list) -> float:
 def _offline_explanation_with_embeddings(applicant, job, db=None) -> str:
     """Build a semantic explanation using the pre-computed applicant embedding.
 
-    Compares the applicant's cached embedding_vector (from applicant_embeddings table)
-    against each job skill's text embedding — no Gemini API calls.
-    Falls through to string-match if no DB embedding exists.
+    Uses the applicant's cached embedding context when available and falls
+    through to string-match. Fully offline — no embedding API calls.
     """
     # Step 1: try to load pre-computed applicant embedding from DB
     applicant_vector = None
@@ -176,12 +138,13 @@ def _offline_explanation_with_embeddings(applicant, job, db=None) -> str:
                 .first()
             )
             if row and row.embedding_vector is not None:
-                emb = row.embedding_vector
-                applicant_vector = list(emb) if not isinstance(emb, list) else emb
-                logger.info(
-                    f"Offline fallback using pgvector applicant embedding "
-                    f"(applicant_id={applicant.id}, dim={len(applicant_vector)})"
-                )
+                from .embedder import coerce_embedding_vector
+                applicant_vector = coerce_embedding_vector(row.embedding_vector)
+                if applicant_vector is not None:
+                    logger.info(
+                        f"Offline fallback using pgvector applicant embedding "
+                        f"(applicant_id={applicant.id}, dim={len(applicant_vector)})"
+                    )
         except Exception as e:
             logger.warning(f"Could not load applicant embedding from DB: {e}")
 
@@ -192,57 +155,10 @@ def _offline_explanation_with_embeddings(applicant, job, db=None) -> str:
         if name:
             job_skills.append(name)
 
-    # Step 3a: SEMANTIC path — use embedding cosine similarity per skill
-    if applicant_vector and job_skills and settings.GEMINI_API_KEY:
-        try:
-            from ..embedder import Embedder
-            # Re-use Embedder just for the static cosine_similarity helper + embed()
-            # We do NOT pass a DB session here to avoid re-persisting in the fallback path
-            from google import genai
-            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    # Step 3: STRING MATCH path (offline — no embedding API calls).
+    # (The pre-cutover live-embedding semantic path required GEMINI_API_KEY
+    # and was removed; string match is the deterministic offline fallback.)
 
-            strong_matches, partial_matches, missing = [], [], []
-
-            for skill_name in job_skills[:10]:  # cap at 10 to avoid timeout
-                try:
-                    result = client.models.embed_content(
-                        model=settings.EMBEDDING_MODEL or "gemini-embedding-2-preview",
-                        contents=skill_name,
-                        config={"output_dimensionality": len(applicant_vector)},
-                    )
-                    skill_vec = list(result.embeddings[0].values)
-                    sim = _cosine(applicant_vector, skill_vec)
-                    if sim >= _STRONG_MATCH_THRESHOLD:
-                        strong_matches.append(skill_name)
-                    elif sim >= _PARTIAL_MATCH_THRESHOLD:
-                        partial_matches.append(skill_name)
-                    else:
-                        missing.append(skill_name)
-                except Exception:
-                    # Per-skill embed failure → fall through to string match for this skill
-                    pass
-
-            if strong_matches or partial_matches:
-                matched = strong_matches[:2] + partial_matches[:1]
-                sentences = [
-                    f"Your skills show a strong semantic match for this role, "
-                    f"particularly around {', '.join(matched)}."
-                ]
-                if missing:
-                    sentences.append(
-                        f"Consider building experience with {', '.join(missing[:2])} "
-                        "to further strengthen your candidacy."
-                    )
-                else:
-                    sentences.append(
-                        "Your overall skill profile aligns well with the full requirements of this position."
-                    )
-                return " ".join(sentences)
-
-        except Exception as e:
-            logger.warning(f"Semantic offline skill comparison failed: {e} — falling back to string match")
-
-    # Step 3b: STRING MATCH path (last resort — no embeddings available)
     candidate_skills_lower: set = set()
     if applicant.parsed_record and applicant.parsed_record.normalized:
         for s in applicant.parsed_record.normalized.get("skills", []):
@@ -274,12 +190,12 @@ def _offline_explanation_with_embeddings(applicant, job, db=None) -> str:
 # ---------------------------------------------------------------------------
 
 def generate_explanation(applicant, job, breakdown, db=None) -> Tuple[Optional[str], Optional[str]]:
-    """Generate a recommendation explanation. Each LLM is tried EXACTLY ONCE.
+    """Generate a recommendation explanation. The LLM is tried EXACTLY ONCE.
 
-    Execution order (fail-fast, no retries):
-      1. Gemini  — direct REST, 6s timeout
-      2. Groq    — direct SDK, 6s timeout
-      3. Offline — pgvector applicant embedding cosine match (no API calls)
+    Execution order (fail-fast, no retries) follows the MODEL_EXPLAIN_*
+    config slots (default: opencode only), then offline:
+      1. Explanation primary    — single-shot adapter call
+      2. Offline — pgvector applicant embedding cosine match (no API calls)
 
     Args:
         applicant: SQLAlchemy Applicant ORM object.
@@ -289,25 +205,23 @@ def generate_explanation(applicant, job, breakdown, db=None) -> Tuple[Optional[s
 
     Returns:
         (explanation_string, source_flag)
-        source_flag: 'gemini' | 'groq_fallback' | 'offline_fallback'
+        source_flag: 'opencode' | 'offline_fallback'
     """
     prompt = build_explanation_prompt(applicant, job, breakdown)
 
-    # 1. Gemini — exactly once
-    result = _try_gemini_once(prompt)
-    if result:
-        logger.info("Explanation generated via Gemini (direct, 1 attempt)")
-        return result, "gemini"
-    logger.warning("Gemini explanation failed once — moving to Groq immediately")
+    # Explanation provider (single configured primary) — tried exactly once.
+    for adapter, _model in llm_router.ordered_adapters("explanation"):
+        if adapter.name == "opencode":
+            result = _try_opencode_once(prompt)
+            source = "opencode"
+        else:
+            continue
+        if result:
+            logger.info(f"Explanation generated via {adapter.name} (direct, 1 attempt)")
+            return result, source
+        logger.warning(f"{adapter.name} explanation failed once — moving on immediately")
 
-    # 2. Groq — exactly once
-    result = _try_groq_once(prompt)
-    if result:
-        logger.info("Explanation generated via Groq (direct, 1 attempt)")
-        return result, "groq_fallback"
-    logger.warning("Groq explanation failed once — activating offline pgvector fallback immediately")
-
-    # 3. Offline fallback — fires immediately, no further LLM attempts
+    # 2. Offline fallback — fires immediately, no further LLM attempts
     try:
         explanation = _offline_explanation_with_embeddings(applicant, job, db=db)
         return explanation, "offline_fallback"
@@ -317,9 +231,9 @@ def generate_explanation(applicant, job, breakdown, db=None) -> Tuple[Optional[s
 
 
 def generate_employer_match_analysis(applicant, job, breakdown, db=None) -> dict:
-    """Generate structured recruiter analysis. Each LLM is tried EXACTLY ONCE.
+    """Generate structured recruiter analysis. The LLM is tried EXACTLY ONCE.
 
-    Falls back immediately to pgvector-aware offline analysis if both LLMs fail.
+    Falls back immediately to pgvector-aware offline analysis if the LLM fails.
     """
     candidate_skills = []
     if applicant.parsed_record and applicant.parsed_record.normalized:
@@ -375,27 +289,21 @@ Respond ONLY with a valid JSON object:
             pass
         return None
 
-    # 1. Gemini — exactly once
-    gemini_result = _try_gemini_once(prompt)
-    if gemini_result:
-        parsed = _parse_employer_json(gemini_result)
-        if parsed:
-            parsed["source"] = "gemini"
-            logger.info("Employer analysis generated via Gemini (direct, 1 attempt)")
-            return parsed
-    logger.warning("Gemini employer analysis failed once — moving to Groq immediately")
+    # Explanation provider (single configured primary) — tried exactly once.
+    for adapter, _model in llm_router.ordered_adapters("explanation"):
+        if adapter.name == "opencode":
+            llm_result = _try_opencode_once(prompt)
+        else:
+            continue
+        if llm_result:
+            parsed = _parse_employer_json(llm_result)
+            if parsed:
+                parsed["source"] = "opencode"
+                logger.info(f"Employer analysis generated via {adapter.name} (direct, 1 attempt)")
+                return parsed
+        logger.warning(f"{adapter.name} employer analysis failed once — moving on immediately")
 
-    # 2. Groq — exactly once
-    groq_result = _try_groq_once(prompt)
-    if groq_result:
-        parsed = _parse_employer_json(groq_result)
-        if parsed:
-            parsed["source"] = "groq_fallback"
-            logger.info("Employer analysis generated via Groq (direct, 1 attempt)")
-            return parsed
-    logger.warning("Groq employer analysis failed once — activating offline fallback immediately")
-
-    # 3. Offline fallback — fires immediately
+    # 2. Offline fallback — fires immediately
     missing_skills = [s for s in job_skills if s not in candidate_skills]
     missing_str = ", ".join(missing_skills[:3]) if missing_skills else "None critical"
     return {

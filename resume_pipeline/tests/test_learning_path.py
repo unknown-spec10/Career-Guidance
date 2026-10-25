@@ -13,7 +13,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from resume_pipeline.db import SessionLocal, User, Applicant, InterviewSession, InterviewQuestion, InterviewAnswer, LearningPath, CreditAccount, CreditUsageStats
-from resume_pipeline.constants import CREDIT_CONFIG
+from resume_pipeline.config import CREDIT_CONFIG, settings
 from resume_pipeline.interview.learning_path_generator import parse_iso8601_duration, filter_and_rank_videos, generate_learning_path
 
 @pytest.fixture(scope="module")
@@ -150,12 +150,17 @@ def test_filter_and_rank_videos():
     assert ranked[0]["score"] > ranked[1]["score"]
 
 
-@patch("resume_pipeline.interview.learning_path_generator.search_youtube")
-@patch("resume_pipeline.interview.learning_path_generator.fetch_video_stats")
-@patch("resume_pipeline.interview.learning_path_generator.llm_router.generate_chat_completion")
-def test_generate_learning_path_orchestrator(mock_generate_chat_completion, mock_stats, mock_search, db, test_user_and_applicant):
+@patch("resume_pipeline.learning.generator.search_youtube_with_rotation")
+@patch("resume_pipeline.learning.generator.fetch_video_stats_with_rotation")
+@patch("resume_pipeline.learning.generator.llm_router.generate_chat_completion")
+def test_generate_learning_path_orchestrator(mock_generate_chat_completion, mock_stats, mock_search, db, test_user_and_applicant, monkeypatch):
     """Test full learning path generation orchestration including credit spending and daily limits."""
     user, applicant = test_user_and_applicant
+
+    # The YouTube discovery path is opt-in via YOUTUBE_DATA_API_KEY; the test
+    # must not depend on a real key being present in the environment (LLM/search
+    # keys are intentionally empty). Patch the canonical (not shim) call sites.
+    monkeypatch.setattr(settings, "YOUTUBE_DATA_API_KEY", "test-youtube-key")
     
     # 1. Setup mock interview session
     session = InterviewSession(

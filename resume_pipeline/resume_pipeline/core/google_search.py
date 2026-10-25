@@ -1,25 +1,26 @@
 """
 Google Search API integration for fetching interview questions, coding problems, and learning resources.
-Includes fallback to Gemini generation when quota is exhausted.
+Includes fallback to chat-provider generation (via llm_router) when quota is exhausted.
 """
-import requests
 import hashlib
 import json
 from typing import List, Dict, Optional
+
+import requests
+
 from ..config import settings
-from ..resume.llm_gemini import GeminiLLMClient
+from ..core.llm_router import llm_router
 
 
 class InterviewContentFetcher:
     """
-    Fetch interview-related content from Google Search API with Gemini fallback.
+    Fetch interview-related content from Google Search API with chat-provider fallback.
     """
-    
+
     def __init__(self):
         self.api_key = settings.GOOGLE_API_KEY
         self.search_engine_id = settings.GOOGLE_SEARCH_ENGINE_ID
         self.base_url = "https://www.googleapis.com/customsearch/v1"
-        self.gemini_client = GeminiLLMClient()
         self.cache = {}  # Simple in-memory cache
         self.quota_exhausted = False
     
@@ -62,7 +63,7 @@ class InterviewContentFetcher:
             response = requests.get(self.base_url, params=params, timeout=10)
             
             if response.status_code == 429:  # Rate limit exceeded
-                print("Google Search API quota exhausted - switching to Gemini fallback")
+                print("Google Search API quota exhausted - switching to chat-provider fallback")
                 self.quota_exhausted = True
                 return []
             
@@ -98,111 +99,6 @@ class InterviewContentFetcher:
             return domain.replace('www.', '')
         except:
             return 'unknown'
-    
-    def _gemini_fallback_questions(
-        self, 
-        category: str, 
-        difficulty: str, 
-        count: int = 5
-    ) -> List[Dict]:
-        """
-        Generate questions using Gemini when Google Search quota is exhausted.
-        """
-        prompt = f"""Generate {count} {difficulty} {category} interview questions with answers.
-
-Return JSON array:
-[
-  {{
-    "title": "Question text?",
-    "answer_snippet": "Brief answer or key points",
-    "category": "{category}",
-    "difficulty": "{difficulty}",
-    "source": "AI Generated"
-  }}
-]
-
-Make questions practical and commonly asked in interviews."""
-
-        try:
-            url = f"{self.gemini_client.base_url}/models/gemini-1.5-pro:generateContent?key={self.gemini_client.api_key}"
-            headers = {"Content-Type": "application/json"}
-            body = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 2048,
-                    "responseMimeType": "application/json"
-                }
-            }
-            
-            r = requests.post(url, headers=headers, json=body, timeout=30)
-            if r.status_code == 200:
-                result = r.json()
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    generated_text = result['candidates'][0]['content']['parts'][0].get('text', '[]')
-                    questions = json.loads(generated_text)
-                    return questions if isinstance(questions, list) else []
-        except Exception as e:
-            print(f"Gemini fallback error: {e}")
-        
-        return []
-    
-    def fetch_coding_problems(
-        self, 
-        skill: str, 
-        difficulty: str = "medium", 
-        count: int = 5
-    ) -> List[Dict]:
-        """
-        Fetch coding problems from LeetCode, HackerRank, or generate with Gemini.
-        
-        Args:
-            skill: Programming skill (e.g., "Python", "DSA", "Arrays")
-            difficulty: "easy", "medium", or "hard"
-            count: Number of problems to fetch
-        
-        Returns:
-            List of dicts with title, url, snippet, source
-        """
-        query = f"{skill} {difficulty} coding problems site:leetcode.com OR site:hackerrank.com OR site:geeksforgeeks.org"
-        
-        results = self._google_search(query, num_results=count)
-        
-        # If Google Search failed or quota exhausted, use Gemini fallback
-        if not results:
-            print(f"Using Gemini fallback for coding problems: {skill}")
-            return self._gemini_fallback_questions(skill, difficulty, count)
-        
-        return results
-    
-    def fetch_interview_questions(
-        self, 
-        category: str, 
-        difficulty: str = "medium",
-        count: int = 5
-    ) -> List[Dict]:
-        """
-        Fetch interview questions from GeeksForGeeks, InterviewBit, etc.
-        
-        Args:
-            category: Topic category (e.g., "DBMS", "OS", "OOP")
-            difficulty: "easy", "medium", or "hard"
-            count: Number of questions to fetch
-        
-        Returns:
-            List of dicts with title, url, snippet, source
-        """
-        query = f"{category} {difficulty} interview questions 2024 site:geeksforgeeks.org OR site:interviewbit.com OR site:javatpoint.com"
-        
-        results = self._google_search(query, num_results=count)
-        
-        # Fallback to Gemini if needed
-        if not results:
-            print(f"Using Gemini fallback for interview questions: {category}")
-            return self._gemini_fallback_questions(category, difficulty, count)
-        
-        return results
-    
     def fetch_learning_resources(
         self, 
         skill_gaps: Dict[str, str],
@@ -256,9 +152,9 @@ Make questions practical and commonly asked in interviews."""
                         "context": role_context.strip()
                     })
         
-        # If no Google results or API not configured, use Gemini fallback
+        # If no Google results or API not configured, use chat-provider fallback
         if not all_resources:
-            print(f"Generating YouTube learning resources via Gemini (weak skills: {weak_skills})")
+            print(f"Generating YouTube learning resources via chat provider (weak skills: {weak_skills})")
             prompt = f"""Generate SPECIFIC, ACTIONABLE YouTube tutorial recommendations for learning these skills: {', '.join(weak_skills[:5])}{role_context}.
 
 For EACH skill, provide 2-3 high-quality YouTube learning resources with:
@@ -298,36 +194,26 @@ CRITICAL REQUIREMENTS:
 6. Return ONLY the JSON array, no markdown or other text"""
 
             try:
-                url = f"{self.gemini_client.base_url}/models/gemini-1.5-pro:generateContent?key={self.gemini_client.api_key}"
-                headers = {"Content-Type": "application/json"}
-                body = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0.3,
-                        "maxOutputTokens": 2048,
-                        "responseMimeType": "application/json"
-                    }
-                }
-                
-                r = requests.post(url, headers=headers, json=body, timeout=30)
-                if r.status_code == 200:
-                    result = r.json()
-                    if 'candidates' in result and len(result['candidates']) > 0:
-                        generated_text = result['candidates'][0]['content']['parts'][0].get('text', '[]')
-                        try:
-                            resources = json.loads(generated_text)
-                            if isinstance(resources, list):
-                                all_resources = resources
-                                print(f"[SUCCESS] Generated {len(all_resources)} YouTube resources via Gemini")
-                            else:
-                                print(f"Warning: Gemini returned non-list: {type(resources)}")
-                        except json.JSONDecodeError as je:
-                            print(f"Error parsing Gemini JSON response: {je}")
-                            print(f"Raw response: {generated_text[:200]}")
-                else:
-                    print(f"Gemini API error: {r.status_code} - {r.text[:200]}")
+                res = llm_router.generate_chat_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    provider=None,
+                    capability="chat",
+                    temperature=0.3,
+                    max_tokens=2048,
+                    response_format={"type": "json_object"},
+                    timeout=30,
+                )
+                try:
+                    resources = json.loads(res["content"])
+                    if isinstance(resources, list):
+                        all_resources = resources
+                        print(f"[SUCCESS] Generated {len(all_resources)} YouTube resources via chat provider")
+                    else:
+                        print(f"Warning: chat provider returned non-list: {type(resources)}")
+                except json.JSONDecodeError as je:
+                    print(f"Error parsing chat-provider JSON response: {je}")
             except Exception as e:
-                print(f"Error generating learning resources via Gemini: {e}")
+                print(f"Error generating learning resources via chat provider: {e}")
         
         if all_resources:
             print(f"[SUCCESS] Fetched {len(all_resources)} learning resources")
@@ -335,70 +221,3 @@ CRITICAL REQUIREMENTS:
             print("[WARNING] No learning resources could be fetched - returning empty list")
         
         return all_resources
-
-    def generate_topic_outline(
-        self,
-        skill_gaps: Dict[str, str],
-        job_title: Optional[str] = None,
-        job_description: Optional[str] = None,
-        max_topics: int = 3
-    ) -> List[Dict]:
-        """Generate a simple topic tree with brief details and YouTube links for weak skills."""
-        weak_skills = [s for s, lvl in skill_gaps.items() if lvl == "weak"]
-        if not weak_skills:
-            weak_skills = list(skill_gaps.keys())[:max_topics]
-
-        role_context = f" for the role '{job_title}'" if job_title else ""
-        if job_description:
-            role_context += f". Job description (trimmed): {job_description[:400]}"
-
-        prompt = f"""Create a concise learning outline{role_context} focused on these skills: {', '.join(weak_skills[:max_topics])}.
-
-Return JSON array of topics with subtopics:
-[
-  {{
-    "topic": "High-level topic",
-    "why_it_matters": "One-sentence relevance",
-    "youtube": [{{"title": "", "url": ""}}],
-    "subtopics": [
-      {{"title": "", "details": "1-2 sentences", "youtube": [{{"title": "", "url": ""}}]}}
-    ]
-  }}
-]
-
-Keep it compact (max 3 topics, each max 4 subtopics)."""
-
-        try:
-            url = f"{self.gemini_client.base_url}/models/gemini-1.5-pro:generateContent?key={self.gemini_client.api_key}"
-            headers = {"Content-Type": "application/json"}
-            body = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.5,
-                    "maxOutputTokens": 1024,
-                    "responseMimeType": "application/json"
-                }
-            }
-            r = requests.post(url, headers=headers, json=body, timeout=30)
-            if r.status_code == 200:
-                result = r.json()
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    text = result['candidates'][0]['content']['parts'][0].get('text', '[]')
-                    outline = json.loads(text)
-                    return outline if isinstance(outline, list) else []
-        except Exception as e:
-            print(f"Gemini topic outline error: {e}")
-
-        return []
-    
-    def fetch_practice_problems(
-        self, 
-        skill: str,
-        difficulty: str = "medium",
-        count: int = 5
-    ) -> List[Dict]:
-        """
-        Fetch practice problems for a specific skill.
-        Alias for fetch_coding_problems with different naming.
-        """
-        return self.fetch_coding_problems(skill, difficulty, count)

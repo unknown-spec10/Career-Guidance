@@ -17,6 +17,8 @@ import shutil
 from resume_pipeline.rag.rag_service import RAGService
 from resume_pipeline.rag.vector_store import VectorStore
 from resume_pipeline.rag.document_processor import DocumentChunk
+from resume_pipeline.config import settings
+from resume_pipeline.core import rate_limiter
 
 
 @pytest.fixture
@@ -374,6 +376,186 @@ class TestQueryQueueing:
             assert 0.04 < elapsed < 0.2  # Should wait ~50ms
             
             await completion_task
+
+
+class MockChoice:
+    def __init__(self, content):
+        self.message = MagicMock()
+        self.message.content = content
+
+
+class MockCompletion:
+    def __init__(self, content):
+        self.choices = [MockChoice(content)]
+
+
+class MockHTTPResponse:
+    def __init__(self, status_code, json_data=None, text=""):
+        self.status_code = status_code
+        self._json_data = json_data
+        self.text = text
+        self.headers = {}
+
+    def json(self):
+        return self._json_data
+
+
+def _opencode_success_payload(text):
+    return {"choices": [{"message": {"content": text}}]}
+
+
+@pytest.fixture
+def router_isolation(monkeypatch):
+    """Reset LLMRouter limiter state and pin chat settings (mirrors test_llm_router.py)."""
+    for limiter in (rate_limiter.groq_limiter, rate_limiter.opencode_limiter):
+        limiter.state = rate_limiter.STATE_CLOSED
+        limiter.last_state_change = 0.0
+        limiter.trial_in_progress = False
+        limiter.trial_start_time = 0.0
+        limiter._last_call_time = 0.0
+
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "gsk_test_key")
+    monkeypatch.setattr(settings, "MODEL_CHAT_PRIMARY_PROVIDER", "opencode")
+    monkeypatch.setattr(settings, "MODEL_CHAT_PRIMARY_NAME", "")
+    monkeypatch.setattr(settings, "OPENCODE_API_KEY", "oc_test_key")
+    return settings
+
+
+class TestRAGAnswerGenerationThroughRouter:
+    """RAG answers go through the shared LLMRouter: opencode primary, raise on failure."""
+
+    def _make_service(self, temp_docs_dir, temp_cache_dir, sample_chunks):
+        rag_service = RAGService(
+            docs_path=temp_docs_dir,
+            cache_path=temp_cache_dir,
+            enable_file_watcher=False,
+        )
+        with patch.object(rag_service.document_processor, 'process_documents', return_value=sample_chunks):
+            assert rag_service.initialize()
+        return rag_service
+
+    @pytest.mark.asyncio
+    async def test_ask_opencode_primary_serves(
+        self, temp_docs_dir, temp_cache_dir, sample_chunks, router_isolation
+    ):
+        # Single provider serves; no second adapter fires.
+        with patch("resume_pipeline.core.llm_router.Groq") as mock_groq, \
+             patch("resume_pipeline.core.llm_router.requests.post") as mock_post:
+            mock_post.return_value = MockHTTPResponse(
+                status_code=200,
+                json_data=_opencode_success_payload("Mock OpenCode RAG Response"),
+            )
+
+            svc = self._make_service(temp_docs_dir, temp_cache_dir, sample_chunks)
+            response, error = await svc.ask("How does Python programming work for web development?", use_cache=False)
+
+            assert error is None
+            assert response is not None
+            assert response.answer == "Mock OpenCode RAG Response"
+            assert response.metadata["model"] == router_isolation.OPENCODE_CHAT_MODEL
+            assert mock_post.call_count == 1
+
+    def test_ask_sync_opencode_primary_serves(
+        self, temp_docs_dir, temp_cache_dir, sample_chunks, router_isolation
+    ):
+        # Same opencode-primary guarantee for the synchronous generation path.
+        with patch("resume_pipeline.core.llm_router.requests.post") as mock_post:
+            mock_post.return_value = MockHTTPResponse(
+                status_code=200,
+                json_data=_opencode_success_payload("Mock OpenCode Sync RAG Response"),
+            )
+
+            svc = self._make_service(temp_docs_dir, temp_cache_dir, sample_chunks)
+            response, error = svc.ask_sync("How does Python programming work for web development?", use_cache=False)
+
+            assert error is None
+            assert response is not None
+            assert response.answer == "Mock OpenCode Sync RAG Response"
+            assert response.metadata["model"] == router_isolation.OPENCODE_CHAT_MODEL
+            assert mock_post.call_count == 1
+
+    def test_ask_sync_primary_failure_serves_retrieval_answer(
+        self, temp_docs_dir, temp_cache_dir, sample_chunks, router_isolation
+    ):
+        # Single provider raises, so RAG serves its own
+        # retrieval-based answer (model 'fallback', no LLM text).
+        with patch("resume_pipeline.core.llm_router.requests.post") as mock_post:
+            mock_post.return_value = MockHTTPResponse(status_code=500, text="OpenCode down")
+
+            svc = self._make_service(temp_docs_dir, temp_cache_dir, sample_chunks)
+            response, error = svc.ask_sync("How does Python programming work for web development?", use_cache=False)
+
+            assert error is None
+            assert response is not None
+            assert response.metadata["model"] == "fallback"
+            assert mock_post.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_ask_explicit_mock_helper_serves_without_live_keys(
+        self, temp_docs_dir, temp_cache_dir, sample_chunks, router_isolation, monkeypatch
+    ):
+        # Hermeticity via EXPLICIT mock: the shared _mock_completion helper is
+        # reused directly as the stubbed router result (no global flag, no HTTP).
+        from resume_pipeline.core.llm_router import _mock_completion
+
+        stubbed = _mock_completion([{"role": "user", "content": "gap analysis please"}])
+        assert "skill_gaps" in stubbed
+        monkeypatch.setattr(settings, "GROQ_API_KEY", "")
+        monkeypatch.setattr(settings, "OPENCODE_API_KEY", "")
+        with patch(
+            "resume_pipeline.rag.rag_service.llm_router.generate_chat_completion",
+            return_value={
+                "content": stubbed,
+                "model": router_isolation.OPENCODE_CHAT_MODEL,
+                "_latency": 0.0,
+                "_provenance": {"provider": "opencode", "fallback": False, "mock": False},
+            },
+        ):
+            with patch("resume_pipeline.core.llm_router.requests.post") as mock_post:
+                svc = self._make_service(temp_docs_dir, temp_cache_dir, sample_chunks)
+                response, error = await svc.ask("How does Python programming work for web development?", use_cache=False)
+
+                assert error is None
+                assert response is not None
+                assert "skill_gaps" in response.answer
+                assert response.metadata["model"] == router_isolation.OPENCODE_CHAT_MODEL
+                assert mock_post.call_count == 0
+
+    def test_ask_sync_explicit_mock_helper_serves_without_live_keys(
+        self, temp_docs_dir, temp_cache_dir, sample_chunks, router_isolation, monkeypatch
+    ):
+        from resume_pipeline.core.llm_router import _mock_completion
+
+        stubbed = _mock_completion([{"role": "user", "content": "hello"}])
+        monkeypatch.setattr(settings, "GROQ_API_KEY", "")
+        monkeypatch.setattr(settings, "OPENCODE_API_KEY", "")
+        with patch(
+            "resume_pipeline.rag.rag_service.llm_router.generate_chat_completion",
+            return_value={
+                "content": stubbed,
+                "model": router_isolation.OPENCODE_CHAT_MODEL,
+                "_latency": 0.0,
+                "_provenance": {"provider": "opencode", "fallback": False, "mock": False},
+            },
+        ):
+            with patch("resume_pipeline.core.llm_router.requests.post") as mock_post:
+                svc = self._make_service(temp_docs_dir, temp_cache_dir, sample_chunks)
+                response, error = svc.ask_sync("How does Python programming work for web development?", use_cache=False)
+
+                assert error is None
+                assert response is not None
+                assert stubbed in response.answer
+                assert response.metadata["model"] == router_isolation.OPENCODE_CHAT_MODEL
+                assert mock_post.call_count == 0
+
+    def test_bespoke_gemini_client_removed(self):
+        import inspect
+
+        import resume_pipeline.rag.rag_service as rag_module
+
+        assert not hasattr(rag_module, "GeminiRAGClient")
+        assert "requests" not in dir(rag_module)
+        assert "gemini_api_key" not in inspect.signature(rag_module.RAGService.__init__).parameters
 
 
 if __name__ == "__main__":

@@ -6,7 +6,6 @@ Tracks per-file content hashes for robust cache invalidation.
 Triggers async rebuilds without blocking queries.
 """
 
-import os
 import json
 import hashlib
 import logging

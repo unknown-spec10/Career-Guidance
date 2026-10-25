@@ -17,7 +17,6 @@ Run from resume_pipeline/ directory:
     python -m scripts.migrate_pgvector
 """
 
-import os
 import sys
 from pathlib import Path
 

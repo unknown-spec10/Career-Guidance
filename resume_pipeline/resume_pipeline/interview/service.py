@@ -6,15 +6,30 @@ conversation history, and adaptive difficulty.
 import datetime
 import logging
 import uuid
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Tuple
 
 from sqlalchemy.orm import Session as DBSession, joinedload
 
-from ..db import InterviewSession, InterviewQuestion, InterviewAnswer, Applicant, LLMParsedRecord, LearningPath
-from ..constants import INTERVIEW_CONFIG_V2
+from ..config import INTERVIEW_CONFIG_V2
+from ..db import InterviewSession, InterviewQuestion, InterviewAnswer, LearningPath
 from .schemas import SkillBreakdownItem, QuestionReviewItem
 
 logger = logging.getLogger(__name__)
+
+
+def sse_response(stream):
+    """Build a Server-Sent Events StreamingResponse with standard headers.
+
+    Dedupe of four identical ``StreamingResponse(..., media_type="text/event-stream",
+    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})`` blocks
+    previously repeated in ``interview/router.py``.
+    """
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 # Score thresholds for skill labels
 _SCORE_LABELS = [
@@ -196,12 +211,12 @@ def get_current_question(session_id: str, db: DBSession) -> Optional[InterviewQu
 
 
 # ---------------------------------------------------------------------------
-# Conversation history (for Groq evaluation context)
+# Conversation history (for chat-provider evaluation context)
 # ---------------------------------------------------------------------------
 
 def build_conversation_history(session_id: str, db: DBSession) -> List[dict]:
     """
-    Reconstruct full conversation history for passing to Groq.
+    Reconstruct full conversation history for passing to the chat provider.
     Returns list of {role, content} dicts.
     """
     from ..utils import truncate_for_llm

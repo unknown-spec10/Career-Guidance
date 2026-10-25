@@ -1,6 +1,6 @@
 """
 Interview System v2 — Fallback Question Bank
-Used when Groq API is unavailable during session start.
+Used when the chat provider is unavailable during session start.
 Questions are organized by role and difficulty.
 """
 from typing import List, Dict

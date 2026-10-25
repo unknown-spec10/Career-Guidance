@@ -3,9 +3,6 @@ import shutil
 import logging
 from pathlib import Path
 from typing import List, Optional
-import boto3
-from botocore.exceptions import ClientError
-from botocore.config import Config
 
 from .interfaces import FileStorage
 from ..config import settings
@@ -13,11 +10,27 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+def _get_repo_root() -> Path:
+    """Get the repository root directory (project root)."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_storage_path(path: str) -> Path:
+    """Resolve storage path relative to repo root if relative; absolute paths pass through unchanged."""
+    p = Path(path)
+    if p.is_absolute():
+        return p.resolve()
+    return (_get_repo_root() / p).resolve()
+
+
 class LocalFileStorage(FileStorage):
     """Local filesystem implementation of FileStorage."""
 
     def __init__(self, base_path: str = None):
-        self.base_path = Path(base_path or settings.FILE_STORAGE_PATH).resolve()
+        if base_path is not None:
+            self.base_path = _resolve_storage_path(base_path)
+        else:
+            self.base_path = Path(settings.FILE_STORAGE_PATH).resolve()
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     def _get_absolute_path(self, path: str) -> Path:
@@ -85,162 +98,6 @@ class LocalFileStorage(FileStorage):
                 rel_path = full_path.relative_to(self.base_path)
                 files.append(str(rel_path).replace("\\", "/"))
         return files
-
-
-class S3FileStorage(FileStorage):
-    """AWS S3 implementation of FileStorage."""
-
-    def __init__(self):
-        self.bucket_name = settings.S3_BUCKET_NAME
-        self.region = settings.S3_REGION or settings.AWS_REGION
-        
-        # Configure client config
-        config = Config(
-            region_name=self.region,
-            signature_version="s3v4",
-            retries={"max_attempts": 3, "mode": "standard"}
-        )
-        
-        client_kwargs = {
-            "config": config
-        }
-        
-        if settings.AWS_ACCESS_KEY_ID:
-            client_kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
-        if settings.AWS_SECRET_ACCESS_KEY:
-            client_kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
-        if settings.AWS_S3_ENDPOINT_URL:
-            client_kwargs["endpoint_url"] = settings.AWS_S3_ENDPOINT_URL
-            
-        self.s3_client = boto3.client("s3", **client_kwargs)
-
-    def upload_file(self, local_path: str, remote_path: str, is_public: bool = False) -> str:
-        import mimetypes
-        extra_args = {}
-        if is_public:
-            extra_args["ACL"] = "public-read"
-        
-        content_type, _ = mimetypes.guess_type(remote_path)
-        if content_type:
-            extra_args["ContentType"] = content_type
-            
-        try:
-            self.s3_client.upload_file(
-                Filename=local_path,
-                Bucket=self.bucket_name,
-                Key=remote_path,
-                ExtraArgs=extra_args
-            )
-            return remote_path
-        except ClientError as e:
-            if is_public and e.response and e.response.get("Error", {}).get("Code") == "AccessControlListNotSupported":
-                logger.info("S3 ACL not supported by bucket, retrying upload without ACL.")
-                extra_args.pop("ACL", None)
-                self.s3_client.upload_file(
-                    Filename=local_path,
-                    Bucket=self.bucket_name,
-                    Key=remote_path,
-                    ExtraArgs=extra_args
-                )
-                return remote_path
-            logger.error(f"S3 upload_file error: {e}")
-            raise
-
-    def upload_fileobj(self, fileobj, remote_path: str, is_public: bool = False) -> str:
-        import mimetypes
-        import io
-        extra_args = {}
-        if is_public:
-            extra_args["ACL"] = "public-read"
-            
-        content_type, _ = mimetypes.guess_type(remote_path)
-        if content_type:
-            extra_args["ContentType"] = content_type
-
-        # Read the bytes into memory so we can safely retry if the stream is consumed/closed
-        try:
-            if hasattr(fileobj, "seek"):
-                fileobj.seek(0)
-            file_bytes = fileobj.read()
-        except Exception as read_err:
-            logger.warning(f"Could not read fileobj into memory: {read_err}")
-            file_bytes = None
-
-        try:
-            # If we couldn't read the bytes, just upload the original fileobj
-            upload_obj = io.BytesIO(file_bytes) if file_bytes is not None else fileobj
-            self.s3_client.upload_fileobj(
-                Fileobj=upload_obj,
-                Bucket=self.bucket_name,
-                Key=remote_path,
-                ExtraArgs=extra_args
-            )
-            return remote_path
-        except ClientError as e:
-            if is_public and e.response and e.response.get("Error", {}).get("Code") == "AccessControlListNotSupported":
-                logger.info("S3 ACL not supported by bucket, retrying upload without ACL.")
-                extra_args.pop("ACL", None)
-                upload_obj = io.BytesIO(file_bytes) if file_bytes is not None else fileobj
-                self.s3_client.upload_fileobj(
-                    Fileobj=upload_obj,
-                    Bucket=self.bucket_name,
-                    Key=remote_path,
-                    ExtraArgs=extra_args
-                )
-                return remote_path
-            logger.error(f"S3 upload_fileobj error: {e}")
-            raise
-
-    def download_file(self, remote_path: str, local_path: str) -> None:
-        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self.s3_client.download_file(
-                Bucket=self.bucket_name,
-                Key=remote_path,
-                Filename=local_path
-            )
-        except ClientError as e:
-            logger.error(f"S3 download_file error: {e}")
-            raise
-
-    def delete_file(self, remote_path: str) -> None:
-        try:
-            self.s3_client.delete_object(
-                Bucket=self.bucket_name,
-                Key=remote_path
-            )
-        except ClientError as e:
-            logger.error(f"S3 delete_file error: {e}")
-            raise
-
-    def get_file_url(self, remote_path: str, expires_in: int = 900) -> str:
-        try:
-            url = self.s3_client.generate_presigned_url(
-                ClientMethod="get_object",
-                Params={
-                    "Bucket": self.bucket_name,
-                    "Key": remote_path
-                },
-                ExpiresIn=expires_in
-            )
-            return url
-        except ClientError as e:
-            logger.error(f"S3 generate_presigned_url error: {e}")
-            # Fallback to standard URL format if presigning fails (e.g. mock S3)
-            return f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{remote_path}"
-
-    def list_files(self, prefix: str) -> List[str]:
-        files = []
-        try:
-            paginator = self.s3_client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=prefix):
-                if "Contents" in page:
-                    for obj in page["Contents"]:
-                        files.append(obj["Key"])
-            return files
-        except ClientError as e:
-            logger.error(f"S3 list_files error: {e}")
-            raise
 
 
 class GCSFileStorage(FileStorage):
@@ -359,9 +216,6 @@ def get_storage_client() -> FileStorage:
         if backend == "gcs":
             logger.info("Initializing GCS File Storage client")
             _storage_client = GCSFileStorage()
-        elif backend == "s3":
-            logger.info("Initializing S3 File Storage client")
-            _storage_client = S3FileStorage()
         else:
             logger.info("Initializing Local File Storage client")
             _storage_client = LocalFileStorage()
@@ -375,14 +229,14 @@ import tempfile
 def get_local_directory(applicant_id: str):
     """
     Context manager that yields a local directory path containing the applicant's files.
-    If storage backend is S3 or GCS, it downloads files to a temporary directory and cleans it up on exit.
+    If storage backend is GCS, it downloads files to a temporary directory and cleans it up on exit.
     If local, it returns the local directory path.
     """
     storage = get_storage_client()
     base_data_root = Path(settings.FILE_STORAGE_PATH).resolve()
     backend = (settings.STORAGE_BACKEND or "local").lower()
     
-    if backend in ("s3", "gcs"):
+    if backend == "gcs":
         with tempfile.TemporaryDirectory() as temp_dir:
             prefix = f"resumes/{applicant_id}/"
             logger.info(f"Downloading files from {backend.upper()} prefix {prefix} to temporary local directory {temp_dir}")
@@ -402,7 +256,9 @@ def get_local_directory(applicant_id: str):
         legacy_path = base_data_root / applicant_id
         if new_path.exists():
             yield str(new_path)
-        else:
+        elif legacy_path.exists():
             yield str(legacy_path)
+        else:
+            yield str(new_path)
 
 

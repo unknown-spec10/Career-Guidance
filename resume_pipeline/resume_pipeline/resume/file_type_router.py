@@ -1,56 +1,41 @@
 """
-file_type_router.py
--------------------
-Layer 1: Intelligent Ingestion for the redesigned resume parse pipeline.
+file_type_router.py — DETERMINISTIC ingestion router (rule-based parser boundary).
 
-Detects whether a PDF is:
-  - Type A: Clean text-based PDF  → pdfplumber layout-aware extraction
-  - Type B: Designed/multi-column → Gemini Vision (image input)
-  - Type C: Scanned/image-only   → Gemini Vision (primary) / Tesseract (offline fallback)
+No LLMs, no Vision calls, no network. Detects PDF type with the same THREE
+zero-cost signals as before (chars/page floor → scanned, embedded images →
+visual, whitespace ratio → visual; see ROUTER_THRESHOLDS) and routes to
+local extraction only:
 
-Detection uses THREE signals (no model call needed):
-  1. chars_per_page < ROUTER_THRESHOLDS['min_chars_per_page'] → Type C
-  2. page.images present (pdfplumber image list) → Type B
-  3. whitespace_ratio > ROUTER_THRESHOLDS['whitespace_ratio_limit'] → Type B
-  Otherwise → Type A
+  Type A (text)    → pdfplumber layout-aware text (+ tables via ingest.py)
+  Type B (visual)  → same local text pass (column-aware reading order)
+  Type C (scanned) → offline OCR (RapidOCR, Tesseract fallback)
+  images           → offline OCR directly
 
-Public API:
-    router = FileTypeRouter(llm_client)
+Public API (unchanged):
+    router = FileTypeRouter()
     text, resume_type = router.extract(pdf_path)
 """
 
-import base64
-import io
-import json
 import logging
 import re
 import zipfile
 import xml.etree.ElementTree as ET
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple
 
 import pdfplumber  # type: ignore
 
-from ..constants import ROUTER_THRESHOLDS
-from ..core.rate_limiter import gemini_limiter
+from ..config import ROUTER_THRESHOLDS
 
 logger = logging.getLogger(__name__)
 
-
-# ─────────────────────────────────────────────────────────────
-# Resume type enumeration
-# ─────────────────────────────────────────────────────────────
 
 class ResumeType(str, Enum):
     TEXT    = "text"    # Type A — clean ATS-friendly PDF
     VISUAL  = "visual"  # Type B — designed/multi-column PDF
     SCANNED = "scanned" # Type C — image-only / scanned PDF
 
-
-# ─────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────
 
 def _detect_type(pdf_path: str) -> Tuple[ResumeType, dict]:
     """
@@ -80,9 +65,7 @@ def _detect_type(pdf_path: str) -> Tuple[ResumeType, dict]:
             for page in pages:
                 text = page.extract_text() or ""
                 total_chars += len(text)
-                # Count whitespace characters (space, tab, newline)
                 total_ws += sum(1 for c in text if c in " \t\n\r")
-                # Signal 2: embedded image objects
                 if page.images:
                     has_images = True
 
@@ -93,22 +76,16 @@ def _detect_type(pdf_path: str) -> Tuple[ResumeType, dict]:
             diagnostics["whitespace_ratio"]   = round(ws_ratio, 3)
             diagnostics["has_images"]          = has_images
 
-            # Signal 1: very few characters → scanned/image PDF
             if avg_chars < min_chars:
                 diagnostics["detected_type"] = ResumeType.SCANNED
                 return ResumeType.SCANNED, diagnostics
-
-            # Signal 2: page has embedded image objects → designed PDF
             if has_images:
                 diagnostics["detected_type"] = ResumeType.VISUAL
                 return ResumeType.VISUAL, diagnostics
-
-            # Signal 3: anomalous whitespace ratio → likely multi-column
             if ws_ratio > ws_limit:
                 diagnostics["detected_type"] = ResumeType.VISUAL
                 return ResumeType.VISUAL, diagnostics
 
-            # Default → clean text PDF
             diagnostics["detected_type"] = ResumeType.TEXT
             return ResumeType.TEXT, diagnostics
 
@@ -116,106 +93,6 @@ def _detect_type(pdf_path: str) -> Tuple[ResumeType, dict]:
         logger.warning(f"FileTypeRouter: detection failed for {pdf_path}: {e}")
         diagnostics["detected_type"] = ResumeType.TEXT
         return ResumeType.TEXT, diagnostics  # safe fallback
-
-
-def _extract_text_pdfplumber(pdf_path: str) -> str:
-    """
-    Type A extraction: pdfplumber with layout-aware settings.
-    Uses x_tolerance and y_tolerance to preserve column structure.
-    """
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            pages_text = []
-            for page in pdf.pages:
-                text = page.extract_text(x_tolerance=3, y_tolerance=3) or ""
-                pages_text.append(text)
-            return "\n\n".join(pages_text)
-    except Exception as e:
-        logger.error(f"pdfplumber extraction failed for {pdf_path}: {e}")
-        return ""
-
-
-def _pdf_pages_to_base64(pdf_path: str, dpi: int = 150) -> list:
-    """
-    Render PDF pages as PNG images and return as list of base64-encoded strings.
-    Requires pdf2image (poppler). Falls back to [] on failure.
-    """
-    try:
-        from pdf2image import convert_from_path  # type: ignore
-        images = convert_from_path(pdf_path, dpi=dpi, fmt="png")
-        encoded = []
-        for img in images:
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            encoded.append(base64.b64encode(buf.getvalue()).decode("utf-8"))
-        return encoded
-    except Exception as e:
-        logger.error(f"PDF-to-image conversion failed for {pdf_path}: {e}")
-        return []
-
-
-def _extract_text_tesseract(pdf_path: str) -> str:
-    """
-    Offline OCR fallback using Tesseract (pytesseract + pdf2image).
-    """
-    try:
-        import pytesseract  # type: ignore
-        from pdf2image import convert_from_path  # type: ignore
-        pages = convert_from_path(pdf_path, dpi=200)
-        texts = []
-        for page_img in pages:
-            texts.append(pytesseract.image_to_string(page_img))
-        return "\n\n".join(texts)
-    except ImportError:
-        logger.warning("Tesseract/pdf2image not available — cannot perform OCR fallback")
-        return ""
-    except Exception as e:
-        logger.error(f"Tesseract OCR failed for {pdf_path}: {e}")
-        return ""
-
-
-def _extract_text_rapidocr(pdf_path: str) -> str:
-    """
-    Offline OCR using RapidOCR (rapidocr_onnxruntime + pdf2image).
-    Falls back to Tesseract if RapidOCR returns no text.
-    """
-    try:
-        from rapidocr_onnxruntime import RapidOCR
-        from pdf2image import convert_from_path
-        import tempfile
-        import os
-        
-        logger.info(f"Extracting text locally via RapidOCR from PDF: {pdf_path}")
-        
-        ocr_engine = RapidOCR()
-        pages = convert_from_path(pdf_path, dpi=200)
-        texts = []
-        
-        for page_img in pages:
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                temp_image_path = tmp.name
-            try:
-                page_img.save(temp_image_path, "PNG")
-                results, _ = ocr_engine(temp_image_path)
-                if results:
-                    text_lines = [line[1] for line in results]
-                    texts.append("\n".join(text_lines))
-            finally:
-                if os.path.exists(temp_image_path):
-                    try:
-                        os.remove(temp_image_path)
-                    except Exception:
-                        pass
-                    
-        res_text = "\n\n".join(texts)
-        if res_text.strip():
-            return res_text
-            
-        logger.warning("RapidOCR returned no text, falling back to Tesseract.")
-        return _extract_text_tesseract(pdf_path)
-    except Exception as e:
-        logger.error(f"RapidOCR extraction failed for {pdf_path}: {e}. Falling back to Tesseract.")
-        return _extract_text_tesseract(pdf_path)
 
 
 def _extract_docx_text(path: str) -> str:
@@ -231,43 +108,28 @@ def _extract_docx_text(path: str) -> str:
         return ""
 
 
-# ─────────────────────────────────────────────────────────────
-# Main router class
-# ─────────────────────────────────────────────────────────────
-
 class FileTypeRouter:
-    """
-    Detects resume type and routes to the appropriate text extractor.
+    """Detects resume type and routes to the local (non-LLM) text extractor."""
 
-    Args:
-        llm_client: GeminiLLMClient instance (used for Vision extraction on Type B/C).
-        vision_model: Gemini model name to use for Vision calls.
-    """
-
-    def __init__(self, llm_client, vision_model: str = "gemini-2.5-flash"):
-        self.llm = llm_client
-        self.vision_model = vision_model
+    def __init__(self):
+        pass
 
     def extract(self, file_path: str) -> Tuple[str, ResumeType]:
-        """
-        Main entry point. Returns (extracted_text, resume_type).
-        Dispatches based on detected type.
-        """
+        """Main entry point. Returns (extracted_text, resume_type)."""
+        from .ingest import ingest_resume
+
         path = Path(file_path)
         ext = path.suffix.lower()
 
-        # Non-PDF formats: direct extraction (no routing needed)
         if ext == ".txt":
             text = path.read_text(encoding="utf-8", errors="ignore")
             return _clean(text), ResumeType.TEXT
 
         if ext == ".docx":
-            text = _extract_docx_text(file_path)
-            return _clean(text), ResumeType.TEXT
+            return _clean(_extract_docx_text(file_path)), ResumeType.TEXT
 
         if ext in (".png", ".jpg", ".jpeg", ".tiff", ".bmp"):
-            text = self._vision_from_image_file(file_path)
-            return _clean(text), ResumeType.VISUAL
+            return _clean(self._ocr_image(file_path)), ResumeType.SCANNED
 
         if ext != ".pdf":
             logger.warning(f"FileTypeRouter: unsupported extension '{ext}', attempting text read")
@@ -276,121 +138,35 @@ class FileTypeRouter:
             except Exception:
                 return "", ResumeType.TEXT
 
-        # PDF: run detection heuristic
-        resume_type, diagnostics = _detect_type(file_path)
-        logger.info(
-            f"FileTypeRouter: {path.name} → {resume_type.value} "
-            f"(chars/page={diagnostics['avg_chars_per_page']}, "
-            f"ws_ratio={diagnostics['whitespace_ratio']}, "
-            f"has_images={diagnostics['has_images']})"
-        )
+        ingested = ingest_resume(file_path)
+        if ingested.raw_text.strip() and not all(
+                p.scanned for p in ingested.pages if ingested.pages):
+            return ingested.raw_text, ingested.resume_type
 
-        if resume_type == ResumeType.TEXT:
-            text = _extract_text_pdfplumber(file_path)
-            cleaned_text = _clean(text)
-            if len(cleaned_text.strip()) >= 100:
-                return cleaned_text, resume_type
-            
-            logger.warning(
-                f"FileTypeRouter: local text extraction for {path.name} yielded thin text "
-                f"({len(cleaned_text)} chars). Re-routing to Local RapidOCR."
-            )
-            # Reclassify as visual for the vision extraction flow
-            resume_type = ResumeType.VISUAL
+        # Thin or fully scanned text → offline OCR leg (no Vision calls).
+        logger.info(f"FileTypeRouter: {path.name} needs OCR "
+                    f"(type={ingested.resume_type.value})")
+        ocr_text = self._ocr_pdf(file_path, ingested)
+        merged = (ingested.raw_text.strip() + "\n\n" + ocr_text.strip()).strip()
+        return _clean(merged), ResumeType.SCANNED
 
-        # Type B or C (or re-routed Type A) → Local RapidOCR
-        text = self._vision_from_pdf(file_path, resume_type)
-        return _clean(text), resume_type
+    def _ocr_pdf(self, pdf_path: str, ingested=None) -> str:
+        """Offline OCR for scanned/thin PDFs via preprocess_ocr.py."""
+        from .preprocess_ocr import ocr_scanned_pages
 
-    def _vision_from_pdf(self, pdf_path: str, resume_type: ResumeType) -> str:
-        """
-        Run local OCR using RapidOCR (offline).
-        """
-        return _extract_text_rapidocr(pdf_path)
+        scanned = None
+        if ingested is not None and ingested.pages:
+            scanned = [p.page_no for p in ingested.pages if p.scanned] or None
+        result = ocr_scanned_pages(pdf_path, page_nos=scanned)
+        return "\n\n".join(
+            p.text for _, p in sorted(result.pages.items()) if p.text.strip())
 
-    def _vision_from_image_file(self, image_path: str) -> str:
-        """Run local OCR on a single image file using RapidOCR, falling back to Tesseract."""
-        try:
-            from rapidocr_onnxruntime import RapidOCR
-            logger.info(f"Extracting text locally via RapidOCR from image: {image_path}")
-            ocr_engine = RapidOCR()
-            results, _ = ocr_engine(image_path)
-            if results:
-                text_lines = [line[1] for line in results]
-                text = "\n".join(text_lines)
-                if text.strip():
-                    return text
-        except Exception as e:
-            logger.error(f"RapidOCR image extraction failed for {image_path}: {e}")
+    def _ocr_image(self, image_path: str) -> str:
+        """Offline OCR for a single image file."""
+        from .preprocess_ocr import ocr_image_file
 
-        # Local Tesseract fallback for single image
-        try:
-            import pytesseract
-            from PIL import Image
-            img = Image.open(image_path)
-            return pytesseract.image_to_string(img)
-        except Exception as e:
-            logger.error(f"FileTypeRouter: Tesseract image fallback failed for {image_path}: {e}")
-            return ""
-
-    def _call_gemini_vision(self, pages_b64: list) -> str:
-        """
-        Call Gemini Vision to extract resume text from page images.
-        Sends all pages in one call, up to a maximum of 10 pages.
-        """
-        import requests as _requests
-
-        # Throttle Gemini Vision requests
-        gemini_limiter.acquire_sync()
-
-        api_key = self.llm.api_key
-        base_url = self.llm.base_url
-        model = self.vision_model
-
-        url = f"{base_url}/models/{model}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-
-        # Build parts: instruction text + one inline_data image per page
-        parts = [
-            {
-                "text": (
-                    "You are a resume text extractor. The following image(s) are pages of a resume. "
-                    "Extract ALL text exactly as it appears, preserving section structure. "
-                    "Output ONLY the extracted text — no commentary, no JSON, no markdown formatting. "
-                    "If multiple pages, separate them with a blank line."
-                )
-            }
-        ]
-
-        for b64_img in pages_b64[:10]:  # cap at 10 pages
-            parts.append({
-                "inline_data": {
-                    "mime_type": "image/png",
-                    "data": b64_img,
-                }
-            })
-
-        body = {
-            "contents": [{"parts": parts}],
-            "generationConfig": {
-                "temperature": 0.0,
-                "maxOutputTokens": 8192,
-            },
-        }
-
-        resp = _requests.post(url, headers=headers, json=body, timeout=120)
-        if resp.status_code != 200:
-            raise RuntimeError(f"Gemini Vision API error {resp.status_code}: {resp.text[:200]}")
-
-        data = resp.json()
-        candidates = data.get("candidates", [])
-        if candidates:
-            content = candidates[0].get("content", {})
-            parts_out = content.get("parts", [])
-            if parts_out:
-                return parts_out[0].get("text", "")
-
-        return ""
+        text, _, _ = ocr_image_file(image_path)
+        return text
 
 
 def _clean(text: str) -> str:

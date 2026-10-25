@@ -6,16 +6,70 @@ Also provides streaming generators for hints and per-question feedback.
 import datetime
 import json
 import logging
+import random
+import threading
+import time
 from typing import AsyncGenerator, Optional, List
 
-from ..config import settings
+from ..config import INTERVIEW_CONFIG_V2
 from ..db import InterviewAnswer, InterviewQuestion
-from ..constants import INTERVIEW_CONFIG_V2
 from ..core.llm_router import llm_router
-from .prompts import GROQ_MODEL, EVALUATION_PROMPT, HINT_PROMPT, PERSONA_PROMPTS
-from .service import build_conversation_history, get_running_score
+from .common import MAX_EVAL_RETRIES
+from .prompts import EVALUATION_PROMPT, HINT_PROMPT, PERSONA_PROMPTS
+from .service import build_conversation_history
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Bounded eval concurrency + backoff (audit §4.1)
+#
+# BackgroundTasks are in-process and unbounded: under a cohort burst every
+# answer spawns a worker that immediately hits the chat provider, tripping
+# free-tier TPM/rate limits. The semaphore below caps concurrent run_evaluation bodies;
+# overflow sheds load by returning early and leaving the answer
+# pending_evaluation, which the existing retry-on-poll in
+# GET /results/{id} re-queues within the unchanged 3-attempt budget.
+# ---------------------------------------------------------------------------
+
+_EVAL_SEMAPHORE = threading.BoundedSemaphore(
+    INTERVIEW_CONFIG_V2.get("MAX_CONCURRENT_EVALS", 8)
+)
+# Back-compat alias for tests/monkeypatching.
+EVAL_SEMAPHORE = _EVAL_SEMAPHORE
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """True for chat-provider 429 / TPM / timeout errors worth backing off on."""
+    name = type(exc).__name__
+    text = f"{name}: {exc}".lower()
+    markers = (
+        "ratelimit",
+        "rate_limit",
+        "rate limit",
+        "429",
+        "too many requests",
+        "tpm",
+        "tokens per minute",
+        "quota",
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "503",
+        "overloaded",
+    )
+    return any(m in text for m in markers)
+
+
+def eval_backoff_delay(attempt: int) -> float:
+    """Exponential backoff + jitter for one retry sleep (seconds).
+
+    ``attempt`` is the 0-based retry index within the existing
+    MAX_EVAL_RETRIES budget — no extra attempts are created.
+    """
+    base = float(INTERVIEW_CONFIG_V2.get("EVAL_BACKOFF_BASE_SECONDS", 1.0))
+    cap = float(INTERVIEW_CONFIG_V2.get("EVAL_BACKOFF_MAX_SECONDS", 8.0))
+    return min(cap, base * (2 ** max(0, attempt))) + random.uniform(0, base)
 
 
 
@@ -32,10 +86,23 @@ def run_evaluation(
     db,
 ) -> None:
     """
-    Evaluates a single answer via Groq and persists the result.
+    Evaluates a single answer via the chat provider and persists the result.
     Designed to run as a FastAPI BackgroundTask (runs after HTTP response is sent).
     Uses a separate DB session to avoid conflicts with the request session.
+
+    Bounded concurrency: at most MAX_CONCURRENT_EVALS bodies run at once.
+    When the cap is hit the evaluation is shed (answer stays
+    pending_evaluation for retry-on-poll) instead of piling up workers.
+    Chat-provider 429/timeout errors back off with jitter inside the existing
+    MAX_EVAL_RETRIES budget — no extra attempts, honest evaluation_failed
+    when the budget is exhausted.
     """
+    if not _EVAL_SEMAPHORE.acquire(blocking=False):
+        logger.warning(
+            "Eval shed for answer %s: %d concurrent evaluations already running",
+            answer_id, INTERVIEW_CONFIG_V2.get("MAX_CONCURRENT_EVALS", 8),
+        )
+        return
     try:
         question: Optional[InterviewQuestion] = db.query(InterviewQuestion).filter_by(id=question_id).first()
         answer: Optional[InterviewAnswer] = db.query(InterviewAnswer).filter_by(id=answer_id).first()
@@ -49,14 +116,32 @@ def run_evaluation(
         interviewer_persona = session_obj.interviewer_persona if session_obj else "Friendly Senior Engineer"
 
         history = build_conversation_history(session_id, db)
-        evaluation = _evaluate_with_groq(
-            question_text=question.question_text,
-            answer_text=answer.answer_text or "",
-            skill_tag=question.skill_tag,
-            expected_keywords=question.expected_keywords or [],
-            conversation_history=history,
-            interviewer_persona=interviewer_persona,
-        )
+        # Remaining attempts within the shared 3-retry budget (results-poll
+        # recovery consumes the same budget via evaluation_attempts).
+        attempts_done = answer.evaluation_attempts or 0
+        remaining = max(1, MAX_EVAL_RETRIES - attempts_done)
+        evaluation = None
+        for trial in range(remaining):
+            try:
+                evaluation = _evaluate_with_llm(
+                    question_text=question.question_text,
+                    answer_text=answer.answer_text or "",
+                    skill_tag=question.skill_tag,
+                    expected_keywords=question.expected_keywords or [],
+                    conversation_history=history,
+                    interviewer_persona=interviewer_persona,
+                )
+                break
+            except Exception as e:
+                if _is_rate_limit_error(e) and trial < remaining - 1:
+                    delay = eval_backoff_delay(attempts_done + trial)
+                    logger.warning(
+                        "Eval rate-limited for answer %s (trial %d/%d), backing off %.1fs: %s",
+                        answer_id, trial + 1, remaining, delay, e,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
 
         answer.score = evaluation.get("score", 0.0)
         answer.feedback = evaluation.get("feedback", "")
@@ -112,9 +197,11 @@ def run_evaluation(
                 db.commit()
         except Exception as inner:
             logger.error("Could not mark answer as failed: %s", inner)
+    finally:
+        _EVAL_SEMAPHORE.release()
 
 
-def _evaluate_with_groq(
+def _evaluate_with_llm(
     question_text: str,
     answer_text: str,
     skill_tag: str,
@@ -123,7 +210,7 @@ def _evaluate_with_groq(
     interviewer_persona: str = "Friendly Senior Engineer",
 ) -> dict:
     """
-    Send question + answer + conversation history to LLMRouter for evaluation.
+    Send question + answer + conversation history to the chat provider for evaluation.
     Returns a dict: {score, feedback, strength, missing_concepts, hint_for_next}
     """
     from ..utils import truncate_for_llm
@@ -145,8 +232,8 @@ def _evaluate_with_groq(
     try:
         res = llm_router.generate_chat_completion(
             messages=messages,
-            provider="groq",
-            model_name=GROQ_MODEL,
+            provider=None,
+            capability="chat",
             temperature=0.3,
             max_tokens=1024,
             response_format={"type": "json_object"}
@@ -215,8 +302,8 @@ async def stream_hint(
     try:
         sync_gen = llm_router.generate_chat_completion_stream(
             messages=messages,
-            provider="groq",
-            model_name=GROQ_MODEL,
+            provider=None,
+            capability="chat",
             temperature=0.6,
             max_tokens=150
         )
@@ -224,6 +311,7 @@ async def stream_hint(
             yield f"data: {json.dumps({'token': chunk})}\n\n"
     except Exception as e:
         logger.error(f"stream_hint fallback stream error: {e}")
+        yield f"data: {json.dumps({'error': 'Hint generation failed. Please try again.'})}\n\n"
 
     yield "data: [DONE]\n\n"
 
@@ -265,8 +353,8 @@ Be encouraging and specific. Address the candidate directly ("Your answer...").
     try:
         sync_gen = llm_router.generate_chat_completion_stream(
             messages=messages,
-            provider="groq",
-            model_name=GROQ_MODEL,
+            provider=None,
+            capability="chat",
             temperature=0.5,
             max_tokens=400
         )
@@ -274,63 +362,6 @@ Be encouraging and specific. Address the candidate directly ("Your answer...").
             yield f"data: {json.dumps({'token': chunk})}\n\n"
     except Exception as e:
         logger.error(f"stream_feedback stream error: {e}")
-
-    yield "data: [DONE]\n\n"
-
-
-# ---------------------------------------------------------------------------
-# Streaming study plan — called on results page after all evaluations complete
-# ---------------------------------------------------------------------------
-
-async def stream_study_plan(
-    weak_skills: List[str],
-    missing_concepts_summary: str,
-    target_role: str,
-    experience_level: str,
-    past_weak_skills: Optional[List[str]] = None,
-    interviewer_persona: str = "Friendly Senior Engineer",
-) -> AsyncGenerator[str, None]:
-    """
-    Yields SSE tokens for a personalized 30-day study plan.
-    """
-    from .prompts import STUDY_PLAN_PROMPT, PERSONA_PROMPTS
-
-    if not weak_skills:
-        yield f"data: {json.dumps({'token': 'Great news — no significant weak areas identified! Keep practicing consistently to maintain your strengths.'})}\n\n"
-        yield "data: [DONE]\n\n"
-        return
-
-    persona_info = PERSONA_PROMPTS.get(interviewer_persona, PERSONA_PROMPTS["Friendly Senior Engineer"])
-    persona_instruction = persona_info["study_plan_instruction"]
-
-    if past_weak_skills:
-        history_desc = f"Historical Growth Context:\n- Past weak areas (from previous mock sessions): {', '.join(past_weak_skills)}\nCompare these past weak areas with current weaknesses. If the candidate has improved in certain areas (e.g. is no longer weak in a skill they previously struggled with), briefly acknowledge and celebrate that progress at the very beginning of the plan to motivate them! If areas remain weak, highlight them as persistent gaps that need extra focus."
-    else:
-        history_desc = "Historical Growth Context:\nNone. (First mock session recorded or no prior weak skills)."
-
-    prompt = STUDY_PLAN_PROMPT.format(
-        experience_level=experience_level,
-        weak_skills=", ".join(weak_skills),
-        target_role=target_role,
-        missing_concepts_summary=missing_concepts_summary,
-        persona_instruction=persona_instruction,
-        history_context=history_desc,
-    )
-
-    messages = [{"role": "user", "content": prompt}]
-
-    try:
-        sync_gen = llm_router.generate_chat_completion_stream(
-            messages=messages,
-            provider="groq",
-            model_name=GROQ_MODEL,
-            temperature=0.7,
-            max_tokens=2048
-        )
-        async for chunk in run_generator_in_thread(sync_gen):
-            yield f"data: {json.dumps({'token': chunk})}\n\n"
-        
-    except Exception as e:
-        logger.error(f"stream_study_plan stream error: {e}")
+        yield f"data: {json.dumps({'error': 'Feedback generation failed. Please try again.'})}\n\n"
 
     yield "data: [DONE]\n\n"

@@ -83,7 +83,7 @@ class DocumentScorer:
         """Score document-level similarity between applicant summary and full job posting.
 
         The applicant's resume-summary vector is persisted to applicant_embeddings (suffix='')
-        so repeated runs reuse the cached vector — zero Gemini API calls after first run.
+        so repeated runs reuse the cached vector — no recompute after first run.
         """
         resume_text = self.build_resume_text(applicant)
         if not resume_text:

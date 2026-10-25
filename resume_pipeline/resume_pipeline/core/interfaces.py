@@ -1,21 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Tuple
-
-
-class LLMClient(ABC):
-    @abstractmethod
-    def call_parse(self, model_name: str, payload: dict, images: Optional[List[str]] = None, system_instruction: Optional[str] = None) -> dict: ...
-
-    @abstractmethod
-    def call_rerank(self, model_name: str, payload: dict) -> dict: ...
+from typing import List, Dict, Optional
 
 
 class TextExtractor(ABC):
     @abstractmethod
     def extract_text(self, path: str) -> str: ...
-
-    @abstractmethod
-    def summarize(self, text: str, max_sentences: int) -> str: ...
 
 
 class OCRService(ABC):

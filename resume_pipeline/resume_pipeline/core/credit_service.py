@@ -7,12 +7,12 @@ These are not runtime errors - the code works correctly.
 """
 # pyright: reportAttributeAccessIssue=false
 import datetime
-from typing import Tuple, Optional, Dict, TYPE_CHECKING
+from typing import Tuple, Optional, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..db import CreditAccount, CreditTransaction, CreditUsageStats, Applicant, SystemConfiguration
-from ..constants import CREDIT_CONFIG
+from ..config import CREDIT_CONFIG
+from ..db import CreditAccount, CreditTransaction, CreditUsageStats, SystemConfiguration
 
 
 class InsufficientCreditsError(Exception):
@@ -30,6 +30,15 @@ class InsufficientCreditsError(Exception):
             f"Insufficient credits for applicant {applicant_id}: "
             f"need {cost}, have {current_credits}"
         )
+
+
+def _premium_limit(account, premium_value: int, config_key: str) -> int:
+    """Return the premium cap when the account is premium, else the configured default.
+
+    Dedupe of eight identical ``X if is_premium else CREDIT_CONFIG[...]`` ternaries
+    previously repeated in ``check_eligibility`` and ``get_account_summary``.
+    """
+    return premium_value if getattr(account, 'is_premium', False) else CREDIT_CONFIG[config_key]
 
 
 class CreditService:
@@ -168,7 +177,7 @@ class CreditService:
         # Determine cost and limits
         if activity_type == 'full_interview':
             cost = custom_cost if custom_cost is not None else CREDIT_CONFIG['FULL_MOCK_INTERVIEW_COST']
-            weekly_limit = 20 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_FULL_INTERVIEWS_PER_WEEK']
+            weekly_limit = _premium_limit(account, 20, 'MAX_FULL_INTERVIEWS_PER_WEEK')
             current_count = stats.full_interviews_this_week
             limit_name = "full interviews this week"
             
@@ -179,7 +188,7 @@ class CreditService:
                 }
         elif activity_type == 'micro_session':
             cost = CREDIT_CONFIG['MICRO_SESSION_COST']
-            daily_limit = 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_MICRO_SESSIONS_PER_DAY']
+            daily_limit = _premium_limit(account, 50, 'MAX_MICRO_SESSIONS_PER_DAY')
             current_count = getattr(stats, 'micro_sessions_today', 0)
             limit_name = "micro-sessions today"
             
@@ -190,7 +199,7 @@ class CreditService:
                 }
         elif activity_type == 'coding_question':
             cost = CREDIT_CONFIG['CODING_QUESTION_COST']
-            daily_limit = 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_CODING_QUESTIONS_PER_DAY']
+            daily_limit = _premium_limit(account, 50, 'MAX_CODING_QUESTIONS_PER_DAY')
             current_count = getattr(stats, 'coding_questions_today', 0)
             limit_name = "coding questions today"
             
@@ -201,7 +210,7 @@ class CreditService:
                 }
         elif activity_type == 'project_idea':
             cost = CREDIT_CONFIG['PROJECT_IDEA_COST']
-            weekly_limit = 30 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_PROJECT_IDEAS_PER_WEEK']
+            weekly_limit = _premium_limit(account, 30, 'MAX_PROJECT_IDEAS_PER_WEEK')
             current_count = getattr(stats, 'project_ideas_this_week', 0)
             limit_name = "project ideas this week"
             
@@ -349,13 +358,24 @@ class CreditService:
             CreditUsageStats.account_id == account.id
         ).first()
 
+        # A signed adjustment: credits added lift lifetime earned/bonus totals,
+        # while a deduction counts as spend and must not shrink lifetime earned.
+        updates = {
+            "current_credits": func.coalesce(CreditAccount.current_credits, 0) + amount,
+        }
+        if amount >= 0:
+            updates["total_earned"] = func.coalesce(CreditAccount.total_earned, 0) + amount
+            updates["admin_bonus_credits"] = (
+                func.coalesce(CreditAccount.admin_bonus_credits, 0) + amount
+            )
+        else:
+            updates["total_spent"] = (
+                func.coalesce(CreditAccount.total_spent, 0) + abs(amount)
+            )
+
         self.db.query(CreditAccount).filter(
             CreditAccount.id == account.id
-        ).update({
-            "current_credits": func.coalesce(CreditAccount.current_credits, 0) + amount,
-            "total_earned": func.coalesce(CreditAccount.total_earned, 0) + amount,
-            "admin_bonus_credits": func.coalesce(CreditAccount.admin_bonus_credits, 0) + amount,
-        }, synchronize_session=False)
+        ).update(updates, synchronize_session=False)
         self.db.refresh(account)
 
         # Admin-added credits should be usable immediately. If daily credit usage cap is the
@@ -417,10 +437,10 @@ class CreditService:
             },
             'limits': {
                 'max_daily_credits': CREDIT_CONFIG['MAX_DAILY_CREDITS_USAGE'],
-                'max_full_interviews_weekly': 20 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_FULL_INTERVIEWS_PER_WEEK'],
-                'max_micro_sessions_daily': 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_MICRO_SESSIONS_PER_DAY'],
-                'max_coding_questions_daily': 50 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_CODING_QUESTIONS_PER_DAY'],
-                'max_project_ideas_weekly': 30 if getattr(account, 'is_premium', False) else CREDIT_CONFIG['MAX_PROJECT_IDEAS_PER_WEEK'],
+                'max_full_interviews_weekly': _premium_limit(account, 20, 'MAX_FULL_INTERVIEWS_PER_WEEK'),
+                'max_micro_sessions_daily': _premium_limit(account, 50, 'MAX_MICRO_SESSIONS_PER_DAY'),
+                'max_coding_questions_daily': _premium_limit(account, 50, 'MAX_CODING_QUESTIONS_PER_DAY'),
+                'max_project_ideas_weekly': _premium_limit(account, 30, 'MAX_PROJECT_IDEAS_PER_WEEK'),
             },
             'costs': {
                 'full_interview': CREDIT_CONFIG['FULL_MOCK_INTERVIEW_COST'],
