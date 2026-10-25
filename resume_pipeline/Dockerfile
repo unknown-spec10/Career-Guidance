@@ -1,72 +1,76 @@
-# Multi-stage build for backend
-# Build context: repo root
-# Dockerfile: resume_pipeline/Dockerfile
+# Backend-only image. Build context: repo root (see deploy/docker/build-and-push.sh).
+#   docker build -f resume_pipeline/Dockerfile .
 # All COPY paths are relative to the repo root.
 
 # ─── Stage 1: Builder ─────────────────────────────────────────
 FROM python:3.11-slim AS builder
 
-WORKDIR /app
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# Install system build dependencies
+# gcc is needed only to compile pinned wheels (bcrypt, etc.); dropped after build.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements (path relative to repo root)
-COPY resume_pipeline/requirements.txt .
+# Isolated venv keeps the runtime layer clean and owned by the app user.
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Install CPU-only PyTorch first to prevent CUDA library bloat
-RUN pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
+COPY resume_pipeline/requirements.txt /tmp/requirements.txt
 
-# Install Python dependencies into user dir for clean copy
-RUN pip install --no-cache-dir --user -r requirements.txt
+# CPU-only torch FIRST so sentence-transformers never pulls CUDA wheels.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Pre-download spaCy model en_core_web_sm
-RUN python -m spacy download en_core_web_sm
-
-# Pre-download SentenceTransformer model weights (all-MiniLM-L6-v2) to eliminate cold start latency
-ENV HF_HOME=/root/.cache/huggingface
+# Pre-bake the MiniLM weights so cold starts skip the HuggingFace download.
+# (Lazy RAG still applies: RAG_PRELOAD_ON_STARTUP=false defers index build.)
+ENV HF_HOME=/opt/hf-cache
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────
 FROM python:3.11-slim
 
-WORKDIR /app/resume_pipeline
-
-# Install all runtime system dependencies:
-#   poppler-utils  — pdf2image needs pdftoppm (PDF→image for Vision parsing)
-#   tesseract-ocr  — pytesseract OCR fallback for scanned resumes
-#   libmagic1      — file-type detection used by document parsing libs
+# poppler-utils — pdf2image needs pdftoppm (PDF→image for offline OCR)
+#   + ingest.py pdftotext fallback leg (PdfTextExtractor chain)
+# tesseract-ocr — pytesseract OCR fallback for scanned resumes
+# libmagic1    — retained for native file-type sniffing by parsing libs
+#   (app routing itself uses extension/mimetypes + pdfplumber signals)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     tesseract-ocr \
     libmagic1 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 10001 appuser \
+    && mkdir -p /app/data/raw_files /app/logs /opt/hf-cache \
+    && chown -R appuser:appuser /app /opt/hf-cache
 
-# Copy Python packages and HuggingFace pre-baked models from builder stage
-COPY --from=builder /root/.local /root/.local
-COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/hf-cache /opt/hf-cache
 
-# Set PATH and Python / HuggingFace flags
-ENV PATH=/root/.local/bin:$PATH \
+ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    HF_HOME=/root/.cache/huggingface
+    HF_HOME=/opt/hf-cache \
+    PORT=8000
 
-# Copy application code (all paths relative to repo root build context)
-COPY resume_pipeline/ .
+WORKDIR /app/resume_pipeline
 
-# Create data directory for uploaded files
-RUN mkdir -p /app/data/raw_files
+# Application code only (repo-root build context; tests excluded via .dockerignore).
+COPY --chown=appuser:appuser resume_pipeline/ .
 
-# Expose default port (Cloud Run passes PORT env var, defaults to 8080)
-EXPOSE 8080
+USER appuser
 
-# Lightweight health check — /health never touches DB, responds immediately
+EXPOSE 8000
+
+# /health never touches the DB — safe for fast cold-start probing.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request, os; port=os.getenv('PORT','8080'); urllib.request.urlopen(f'http://localhost:{port}/health', timeout=5)"
+    CMD python -c "import urllib.request, os; port=os.getenv('PORT','8000'); urllib.request.urlopen(f'http://localhost:{port}/health', timeout=5)"
 
-# Start uvicorn — Cloud Run sets PORT automatically (defaults to 8080)
-CMD ["sh", "-c", "uvicorn resume_pipeline.app:app --host 0.0.0.0 --port ${PORT:-8080}"]
-
+# Single worker by default: one model copy in RAM, safe on 2 GB boxes.
+# Compose pins the same; override --workers only on larger hosts.
+# Entrypoint: with GCP_PROJECT set it loads the documented secrets from GCP
+# Secret Manager (VM service account) before exec'ing; unset = straight exec,
+# so local `docker compose` keeps using the repo-root .env unchanged.
+ENTRYPOINT ["python", "docker-entrypoint.py"]
+CMD ["sh", "-c", "uvicorn resume_pipeline.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

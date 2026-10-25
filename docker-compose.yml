@@ -1,88 +1,149 @@
-services:
-  # 1. PostgreSQL Database
-  db:
-    image: postgres:16
-    container_name: career-guidance-db
-    environment:
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-root_password}
-      POSTGRES_DB: ${PG_DB:-resumes}
-      POSTGRES_USER: ${PG_USER:-app_user}
-    volumes:
-      - db_data:/var/lib/postgresql/data
-    networks:
-      - career-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
+# Single deploy compose — backend-only, external Supabase, low-RAM profile.
+# Frontend ships on Vercel (no container). Database is external Supabase
+# (no db service). Folded from deploy/docker/docker-compose.prod.yml +
+# deploy/gcp/docker-compose.gcp.yml (both deleted).
+#
+# Usage (VM repo root, env in root .env):
+#   docker compose --env-file .env pull && docker compose --env-file .env up -d
+#   docker compose logs -f backend
+#   curl -fsS http://localhost:8000/health
+#
+# Images are built on a laptop/CI box via deploy/docker/build-and-push.sh and
+# pushed to Docker Hub — never `up --build` on the VM (see deploy/gcp/).
+# To run a prebuilt Hub image instead of building:
+#   DOCKER_HUB_USERNAME=<you> docker compose pull && docker compose up -d
 
-  # 2. Backend API Service (with in-process background worker threads)
+services:
   backend:
+    image: ${DOCKER_HUB_USERNAME:-yourusername}/career-guidance-backend:latest
     build:
-      context: ./resume_pipeline
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: resume_pipeline/Dockerfile
     container_name: career-guidance-backend
+    # Single uvicorn worker: keeps 2 GB boxes (e2-small) from OOMing.
+    command: uvicorn resume_pipeline.app:app --host 0.0.0.0 --port 8000 --workers 1
     environment:
       PORT: 8000
-      PG_HOST: db
-      PG_PORT: 5432
-      PG_USER: ${PG_USER:-app_user}
-      PG_PASSWORD: ${PG_PASSWORD:-root_password}
-      PG_DB: ${PG_DB:-resumes}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # App settings mirrors (no runtime effect in-container: app.py reads PORT
+      # above; kept in sync so every Settings field is explicitly wired).
+      API_HOST: ${API_HOST:-0.0.0.0}
+      API_PORT: ${API_PORT:-8000}
+      # NOTE: API_HOST / API_PORT have no readers beyond the local __main__ path;
+      # the container listens per PORT/command above.
+      APP_ENV: ${APP_ENV:-production}
+      # --- Database (Supabase pooler; compose has no db service) ---
+      # Secrets stay blank-if-unset (${VAR:-}) so a missing secret fails loudly
+      # at app validation (or at the GCP entrypoint) instead of silently
+      # deploying with a wrong default. On the VM every secret below is filled
+      # by the container entrypoint from Secret Manager before uvicorn starts.
+      PG_HOST: ${PG_HOST:-}
+      PG_PORT: ${PG_PORT:-5432}
+      PG_USER: ${PG_USER:-}
+      PG_PASSWORD: ${PG_PASSWORD:-}
+      PG_DB: ${PG_DB:-postgres}
+      # Alt connection path: explicit DSN wins over PG_* parts (config.py also
+      # accepts DATABASE_URL and normalizes it onto PG_DSN).
+      PG_DSN: ${PG_DSN:-}
+      DATABASE_URL: ${DATABASE_URL:-}
+      # --- JWT auth ---
+      SECRET_KEY: ${SECRET_KEY:-}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      # --- Admin seeding (startup creates/refreshes the verified admin user) ---
+      # Both must be non-empty to seed; on the VM they come from Secret Manager.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # --- Capability-based model slots (single provider per capability; failure raises) ---
+      MODEL_CHAT_PRIMARY_PROVIDER: ${MODEL_CHAT_PRIMARY_PROVIDER:-opencode}
+      MODEL_CHAT_PRIMARY_NAME: ${MODEL_CHAT_PRIMARY_NAME:-deepseek-v4.1-flash}
+      MODEL_EXPLAIN_PRIMARY_PROVIDER: ${MODEL_EXPLAIN_PRIMARY_PROVIDER:-opencode}
+      MODEL_EXPLAIN_PRIMARY_NAME: ${MODEL_EXPLAIN_PRIMARY_NAME:-deepseek-v4.1-flash}
+      MODEL_STT_PROVIDER: ${MODEL_STT_PROVIDER:-groq}
+      MODEL_STT_NAME: ${MODEL_STT_NAME:-}
+      # --- OpenCode (OpenAI-compatible provider; selected via MODEL_* slots) ---
+      OPENCODE_API_BASE_URL: ${OPENCODE_API_BASE_URL:-https://opencode.ai/zen/v1}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      OPENCODE_CHAT_MODEL: ${OPENCODE_CHAT_MODEL:-deepseek-v4.1-flash}
+      # --- Groq (STT only; no chat-model keys) ---
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3}
+      # --- Embeddings + semantic skill matching ---
+      # Defaults mirror config.py so unset == code default.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      EMBEDDING_CACHE_MAX_ITEMS: ${EMBEDDING_CACHE_MAX_ITEMS:-2000}
+      SEMANTIC_MATCHING_ENABLED: ${SEMANTIC_MATCHING_ENABLED:-true}
+      SEMANTIC_SIMILARITY_THRESHOLD: ${SEMANTIC_SIMILARITY_THRESHOLD:-0.70}
+      # --- Skill normalization thresholds ---
+      SKILL_FUZZY_THRESHOLD: ${SKILL_FUZZY_THRESHOLD:-82.0}
+      SKILL_SEMANTIC_THRESHOLD: ${SKILL_SEMANTIC_THRESHOLD:-0.80}
+      # NOTE: SKILL_TAXONOMY_PATH / SKILL_TAXONOMY_METADATA_PATH intentionally
+      # not set here — the image-relative defaults in config.py are correct
+      # inside the container. Override with `docker compose run -e ...` if needed.
+      # --- Google search / OAuth ---
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # GOOGLE_SEARCH_API_KEY is a legacy alias for GOOGLE_API_KEY.
+      GOOGLE_SEARCH_API_KEY: ${GOOGLE_SEARCH_API_KEY:-}
       GOOGLE_SEARCH_ENGINE_ID: ${GOOGLE_SEARCH_ENGINE_ID:-}
+      # GOOGLE_CSE_ID is a legacy alias for GOOGLE_SEARCH_ENGINE_ID.
+      GOOGLE_CSE_ID: ${GOOGLE_CSE_ID:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      BACKEND_URL: ${BACKEND_URL:-}
+      # --- YouTube Data API v3 (single key) ---
+      YOUTUBE_DATA_API_KEY: ${YOUTUBE_DATA_API_KEY:-}
+      # --- Email (Gmail SMTP) + verification ---
       GMAIL_USER: ${GMAIL_USER:-}
       GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
-      SECRET_KEY: ${SECRET_KEY}
+      VERIFICATION_CODE_LENGTH: ${VERIFICATION_CODE_LENGTH:-6}
+      VERIFICATION_CODE_TTL_MINUTES: ${VERIFICATION_CODE_TTL_MINUTES:-30}
+      PASSWORD_RESET_CODE_TTL_MINUTES: ${PASSWORD_RESET_CODE_TTL_MINUTES:-10}
+      # --- Frontend (Vite) passthrough (consumed via Vercel dashboard + build-args) ---
+      VITE_API_URL: ${VITE_API_URL:-}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+      # --- Job recommendation: only MAX_RECOMMENDATIONS is env-read ---
+      # (live weights live in constants.py JOB_RECOMMENDATION_WEIGHTS).
+      MAX_RECOMMENDATIONS: ${MAX_RECOMMENDATIONS:-10}
+      # --- RAG ---
+      # Candidate pool bounds (only read by pgvector-backed retrieval paths).
+      VECTOR_RETRIEVAL_TOP_K: ${VECTOR_RETRIEVAL_TOP_K:-200}
+      VECTOR_RETRIEVAL_MIN_CANDIDATES: ${VECTOR_RETRIEVAL_MIN_CANDIDATES:-20}
+      # --- Storage backends (local | gcs) ---
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-mine-career-guidance-bucket}
+      GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
+      # --- GCP Secret Manager (container entrypoint; VM only) ---
+      # Unset locally: the entrypoint execs straight through and the repo-root
+      # .env values above are used. Set on the GCE VM: resume_pipeline/
+      # docker-entrypoint.py loads the documented secrets before uvicorn starts.
+      GCP_PROJECT: ${GCP_PROJECT:-}
+      # --- Parsing thresholds ---
+      MAX_PARSE_TOKENS: ${MAX_PARSE_TOKENS:-12000}
+      LLM_CONFIDENCE_THRESHOLD: ${LLM_CONFIDENCE_THRESHOLD:-0.7}
+      CGPA_MISMATCH_THRESHOLD: ${CGPA_MISMATCH_THRESHOLD:-0.2}
+      MAX_SUMMARY_SENTENCES: ${MAX_SUMMARY_SENTENCES:-10}
+      MAX_UNKNOWN_SKILLS: ${MAX_UNKNOWN_SKILLS:-5}
+      LONG_DOC_WORD_THRESHOLD: ${LONG_DOC_WORD_THRESHOLD:-2000}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       FILE_STORAGE_PATH: /app/data/raw_files
-      GEMINI_MOCK_MODE: ${GEMINI_MOCK_MODE:-false}
-      GROQ_API_KEY: ${GROQ_API_KEY}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:5173}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      ASYNC_PARSE_ENABLED: ${ASYNC_PARSE_ENABLED:-true}
+      # Skip heavy RAG warm-up on small boxes; RAG lazy-loads on first query.
+      RAG_PRELOAD_ON_STARTUP: "false"
     ports:
       - "8000:8000"
     volumes:
       - ./data/raw_files:/app/data/raw_files
       - ./resume_pipeline/logs:/app/logs
-    networks:
-      - career-network
-    depends_on:
-      db:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/stats', timeout=5)"]
+      # stdlib urllib only — no curl/requests needed inside the image.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
     restart: unless-stopped
-
-  # 3. Frontend UI Static Nginx Server
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: career-guidance-frontend
-    ports:
-      - "80:80"
-    networks:
-      - career-network
-    depends_on:
-      - backend
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-    restart: unless-stopped
-
-volumes:
-  db_data:
-
-networks:
-  career-network:
-    driver: bridge
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

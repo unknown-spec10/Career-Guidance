@@ -83,7 +83,6 @@ jobs:
         working-directory: resume_pipeline
         run: |
           pip install -r requirements.txt
-          python -m spacy download en_core_web_sm
 
       # Unit/regression suites run against an in-memory SQLite stub configured
       # inside resume_pipeline/db.py (CI_SKIP_DB_VALIDATION=true).
@@ -91,7 +90,6 @@ jobs:
         working-directory: resume_pipeline
         env:
           PYTHONPATH: .
-          GEMINI_MOCK_MODE: "true"
           CI_SKIP_DB_VALIDATION: "true"
           SECRET_KEY: "test_secret_key_at_least_32_characters_long_for_signing_jwt"
         run: |
@@ -100,7 +98,7 @@ jobs:
 
       # Migration verification: apply the full additive chain to a fresh
       # PostgreSQL database. test_api.py stays excluded everywhere — it is a
-      # live Gemini API connectivity smoke test, not a deterministic suite.
+      # live OpenCode API connectivity smoke test, not a deterministic suite.
       - name: Verify Alembic Migrations (0001 -> head) on PostgreSQL
         working-directory: resume_pipeline
         env:
@@ -146,12 +144,21 @@ jobs:
           cache-to: type=gha,mode=max
 
   ec2-deploy:
-    name: Deploy Backend to AWS EC2
+    name: Deploy Backend to AWS EC2 (DISABLED — deploy/aws/ removed; see deploy/gcp/BRINGUP.md)
     runs-on: ubuntu-latest
     needs: [docker-build-push]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # DISABLED WITH REASON (deploy-path cleanup): deploy/aws/ (ec2-user-data.sh,
+    # .env.aws.example, apply-ec2-env.ps1) and
+    # deploy/docker/docker-compose.prod.yml were deleted. Single sources are now
+    # root .env, root docker-compose.yml (backend-only), and
+    # resume_pipeline/Dockerfile. There is no automated GCP equivalent — the
+    # documented deploy path is the manual GCE bring-up in
+    # deploy/gcp/BRINGUP.md (startup script deploy/gcp/user-data.sh). Parked
+    # with `if: false` so CI stays green; no new CI infrastructure invented.
+    # The SSH script below is kept updated to the new layout for reference only.
+    if: false
     steps:
-      - name: Deploy via SSH
+      - name: Deploy via SSH (reference only — job disabled, see deploy/gcp/BRINGUP.md)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -170,17 +177,17 @@ jobs:
             git pull --ff-only
             
             echo "Stopping existing backend containers..."
-            sudo docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml down || true
+            sudo docker compose --env-file .env down || true
             
             echo "Cleaning up all unused containers, networks, images, and build cache..."
             sudo docker system prune -a -f
             sudo docker builder prune -a -f || true
             
             echo "Pulling latest Docker image from Docker Hub..."
-            sudo docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
+            sudo docker compose --env-file .env pull
             
             echo "Recreating and restarting backend containers..."
-            sudo docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d --force-recreate
+            sudo docker compose --env-file .env up -d --force-recreate
             
             echo "Cleaning up old/unused images after deployment..."
             sudo docker image prune -af
@@ -189,14 +196,14 @@ jobs:
             sleep 30
             
             echo "Verifying running Docker containers:"
-            sudo docker compose -f deploy/docker/docker-compose.prod.yml ps
+            sudo docker compose ps
             
             echo "Checking container health status:"
             sudo docker inspect --format='{{json .State.Health.Status}}' career-guidance-backend
             
             echo "Displaying backend logs tail:"
-            sudo docker compose -f deploy/docker/docker-compose.prod.yml logs --tail 20 backend
+            sudo docker compose logs --tail 20 backend
             
             echo "Verifying database connection and data status:"
-            sudo docker compose -f deploy/docker/docker-compose.prod.yml exec -T backend python scripts/verify_data.py || echo "Warning: Database verification script was skipped or killed (likely memory limit exceeded on low-RAM instance), but backend container is running."
+            sudo docker compose exec -T backend python scripts/verify_data.py || echo "Warning: Database verification script was skipped or killed (likely memory limit exceeded on low-RAM instance), but backend container is running."
 

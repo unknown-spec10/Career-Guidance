@@ -7,7 +7,6 @@ python-multipart>=0.0.20
 sqlalchemy>=2.0.44
 psycopg2-binary>=2.9.11
 alembic>=1.19.0
-cryptography>=46.0.3
 
 # HTTP & API
 requests>=2.32.5
@@ -24,10 +23,9 @@ passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 python-jose[cryptography]>=3.5.0
 
-# AI & LLM
-groq>=1.4.0
-google-genai>=1.72.0
-spacy>=3.7.0
+# AI & LLM (resume parser is deterministic; interview/recommendation LLM
+# providers are optional and degrade gracefully when not installed)
+# NOTE: no spacy/faiss here — nothing imports them (BM25+TF-IDF RAG, no vectors).
 
 
 # Document Processing
@@ -37,8 +35,7 @@ pdf2image>=1.17.0
 pdfplumber>=0.11.8
 Pillow>=12.0.0
 
-# RAG & Vector Search
-faiss-cpu>=1.13.0
+# RAG & Semantic Search (BM25 + TF-IDF hybrid + MiniLM embeddings; no FAISS)
 sentence-transformers>=5.2.0
 
 # Parse Pipeline Redesign v2.0
@@ -52,10 +49,10 @@ watchdog>=4.0.0
 scikit-learn==1.4.0
 
 # Utilities
-jsonschema>=4.25.1
-boto3>=1.34.0
-botocore>=1.34.0
 google-cloud-storage>=2.14.0
+# Container entrypoint: GCP Secret Manager runtime secret loading (VM service account).
+# Unused (and never imported) when GCP_PROJECT is unset — local compose untouched.
+google-cloud-secret-manager>=2.20.0
 
 # Testing
 pytest>=9.0.1
