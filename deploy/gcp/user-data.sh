@@ -17,9 +17,9 @@ set -euo pipefail
 APP_DIR="/opt/career-guidance"
 # >>> REQUIRED: fill these three before first boot.
 # The script aborts (non-zero exit) while any PLACEHOLDER value remains.
-REPO_URL="https://github.com/PLACEHOLDER_ORG/PLACEHOLDER_REPO.git"
-GCP_PROJECT="PLACEHOLDER_GCP_PROJECT"
-DOCKER_HUB_USERNAME="PLACEHOLDER_DOCKERHUB_USER"
+REPO_URL="https://github.com/unknown-spec10/Career-Guidance.git"
+GCP_PROJECT="gen-lang-client-0977081292"
+DOCKER_HUB_USERNAME="deepdocker2023"
 
 # ---------------------------------------------------------------------------
 # NON-SECRET runtime config (exported; compose `${VAR:-}` interpolation reads it).
