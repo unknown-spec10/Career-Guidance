@@ -59,6 +59,20 @@ OPTIONAL_SECRETS=(OPENCODE_API_KEY GROQ_API_KEY GOOGLE_API_KEY GOOGLE_SEARCH_API
 log() { echo "[startup-script] $*"; }
 fail() { log "FATAL: $*"; exit 1; }
 
+# --- 0a. One-shot sudo repair (idempotent; validates before install) ---
+# Repairs a stale google-sudoers membership by granting this VM's owner an
+# explicit NOPASSWD rule. Safe to keep on every boot.
+if id deeppodder57 >/dev/null 2>&1; then
+    printf '%s\n' 'deeppodder57 ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-deeppodder57
+    chmod 0440 /etc/sudoers.d/90-deeppodder57
+    if visudo -cf /etc/sudoers.d/90-deeppodder57 2>/dev/null; then
+        log "sudo repair rule installed for deeppodder57"
+    else
+        log "sudo repair rule failed validation, removed"
+        rm -f /etc/sudoers.d/90-deeppodder57
+    fi
+fi
+
 # --- 0. Preflight: refuse to boot with template values ---
 for pair in "REPO_URL:${REPO_URL}" "GCP_PROJECT:${GCP_PROJECT}" \
             "DOCKER_HUB_USERNAME:${DOCKER_HUB_USERNAME}"; do
