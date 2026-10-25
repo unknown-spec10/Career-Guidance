@@ -9,12 +9,10 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = [string](Resolve-Path (Join-Path $ScriptDir "..\.."))
 
-# Try loading .env or .env.aws to find DOCKER_HUB_USERNAME if not provided
+# Try loading the single root .env to find DOCKER_HUB_USERNAME if not provided
 if (-not $DockerUsername) {
     $envPaths = @(
-        (Join-Path $RepoRoot ".env"),
-        (Join-Path $RepoRoot ".env.docker"),
-        (Join-Path $RepoRoot "deploy\aws\.env.aws")
+        (Join-Path $RepoRoot ".env")
     )
     foreach ($path in $envPaths) {
         if (Test-Path $path) {

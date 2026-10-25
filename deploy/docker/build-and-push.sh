@@ -10,9 +10,9 @@ TAG="${2:-latest}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Try loading .env or .env.aws to find DOCKER_HUB_USERNAME if not provided
+# Try loading the single root .env to find DOCKER_HUB_USERNAME if not provided
 if [ -z "$DOCKER_USERNAME" ]; then
-    ENV_FILES=("$REPO_ROOT/.env" "$REPO_ROOT/.env.docker" "$REPO_ROOT/deploy/aws/.env.aws")
+    ENV_FILES=("$REPO_ROOT/.env")
     for file in "${ENV_FILES[@]}"; do
         if [ -f "$file" ]; then
             # Parse DOCKER_HUB_USERNAME from env file
