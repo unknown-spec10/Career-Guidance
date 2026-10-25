@@ -4,11 +4,11 @@ Purpose: Equip AI coding agents to be immediately productive in this repo by doc
 
 ## Big Picture
 - **Monorepo**: `resume_pipeline/` (FastAPI backend + MySQL) + `frontend/` (React + Vite + Tailwind).
-- **Core workflow**: Upload resume → Parse via Google Gemini → Store in DB → Generate college/job recommendations → Support interview practice.
+- **Core workflow**: Upload resume → Parse with the rule-based offline engine (no LLMs) → Store in DB → Generate job recommendations → Support interview practice.
 - **Database**: 18 SQLAlchemy tables auto-initialized on startup; includes `Applicant`, `LLMParsedRecord`, `CollegeApplicabilityLog`, `JobRecommendation`, `InterviewSession`, `CreditAccount`, etc.
 - **Key services**: 
   - `ResumeParserService` (resume parsing, skill matching via word-boundary regex)
-  - `InterviewService` (mock interviews, question generation, Gemini-based scoring)
+  - `InterviewService` (mock interviews, question generation, Groq-based scoring via `core/llm_router`)
   - `CreditService` (quota management: 60 initial credits, weekly refill, per-activity costs)
   - Recommendation engine (scoring via `RECOMMENDATION_WEIGHTS`: JEE rank 35%, CGPA 25%, skills 25%, interview score 15%, academic/experience 20% each)
 - **Data flow**:
@@ -19,16 +19,17 @@ Purpose: Equip AI coding agents to be immediately productive in this repo by doc
 
 ## Key Directories & Files
 - **Backend** (`resume_pipeline/resume_pipeline/`):
-  - `app.py` — FastAPI entry point; all routes, CORS, startup DB init, email verification, rate limiting.
+  - `app.py` — Thin composition root: app wiring, CORS, startup/shutdown, router registration (handlers live in `routers/`).
   - `db.py` — SQLAlchemy models (18 tables): User, Applicant, Upload, LLMParsedRecord, College, Employer, Job, Interview*, Credit*, etc.
-  - `config.py` — Settings loaded from `.env` (Gemini key, MySQL DSN, JWT secret, skill taxonomy path, Google API keys).
+  - `config.py` — Settings loaded from `.env` (OpenCode/DeepSeek key, Groq STT key, PG DSN, JWT secret, skill taxonomy path, Google API keys).
   - `constants.py` — File types, API messages, `RECOMMENDATION_WEIGHTS` (35% JEE, 25% CGPA, 25% skills, 15% interview, 20% academic/exp), interview config, credit costs.
   - `schemas.py` — Pydantic models for all request/response types.
   - `auth.py` — Password hashing (bcrypt), JWT creation/verification, role-based guards (`require_role(role)`).
   - `utils.py` — File save/hash (SHA256), XSS sanitization, email validation.
   - `email_verification.py` — Gmail SMTP integration for verification tokens & password reset codes.
-  - `resume/` — Resume parsing: `parse_service.py` (orchestrates parsing), `llm_gemini.py` (Gemini API calls), `preprocessor.py` (PDF/text extraction), `skill_mapper_simple.py` (skill matching via word-boundary regex for names ≥3 chars), `skill_taxonomy_builder.py` (Google Search API for skill discovery).
-  - `interview/` — `interview_service.py`: Question generation (MCQ + short-answer), Gemini-based evaluation, score calculation.
+  - `routers/` — All route handlers (`auth`, `profile`, `resume`, `jobs`, `applications`, `recommendations`, `credits`, `rag`, `misc`) + `deps.py` shared helpers (DB session, auth scoping, rate limiting). No `repos/` layer (deleted).
+  - `resume/` — Rule-based offline parsing: `ingest.py`, `preprocess_ocr.py` (local RapidOCR/Tesseract), `segmenter.py`, `extractors.py`, `rule_parser.py`, with `parse_service.py` as a thin facade; `skill_mapper_simple.py` (offline matching), `skill_taxonomy_builder.py` (Google Search API for skill discovery). No `llm_gemini.py` / `llm_groq.py` / `preprocessor.py` (deleted).
+  - `interview/` — Question generation and DeepSeek-via-OpenCode evaluation/scoring via `core/llm_router` (optional provider; Groq STT only).
   - `core/credit_service.py` — Credit account management, eligibility checks, transaction logging.
   - `recommendation/` — Scoring & filtering logic for colleges & jobs.
 - **Frontend** (`frontend/src/`):
@@ -72,8 +73,8 @@ Purpose: Equip AI coding agents to be immediately productive in this repo by doc
   - `POST /api/applicant/{db_applicant_id}/generate-recommendations` — Calls scoring engine; uses `RECOMMENDATION_WEIGHTS`, skill matching, interview scores.
 - **Interview & Skill Assessment**:
   - `POST /api/interview/start` — Create `InterviewSession`; checks credits via `CreditService.check_eligibility()`. Deducts credits on completion.
-  - `GET /api/interview/{session_id}/question` — Fetches next question (MCQ or short-answer); Gemini-generated or cached.
-  - `POST /api/interview/{session_id}/answer` — Evaluate answer via Gemini; update session score; check for learning path trigger.
+  - `GET /api/interview/{session_id}/question` — Fetches next question (MCQ or short-answer); Groq-generated or cached.
+  - `POST /api/interview/{session_id}/answer` — Evaluate answer via Groq; update session score; check for learning path trigger.
   - `GET /api/interview/history` — List all sessions; includes scores and time spent.
 - **Credit System**:
   - `GET /api/credit/account` — User's balance, usage, next refill; `POST /api/credit/check` — Validate eligibility before activity.
@@ -94,7 +95,7 @@ Purpose: Equip AI coding agents to be immediately productive in this repo by doc
 - **CORS**: Frontend origins: `http://localhost:3000`, `http://localhost:5173`.
 - **Credit flow**: Every premium feature (interview, coding challenge) calls `CreditService.check_eligibility()` first; on success, `spend_credits()` logs transaction.
 - **Recommendation scores**: Calculated in `recommendation/` module; combines parsed data, test scores, interview performance, and manual adjustments.
-- **Interview scoring**: Gemini evaluates short answers via `InterviewService.evaluate_answer()` returning `{ score: 0-100, feedback }`. MCQs auto-graded.
+- **Interview scoring**: Groq evaluates short answers via the interview evaluator returning `{ score: 0-100, feedback }`. MCQs auto-graded.
 - **Email verification**: HTML templates in `email_verification.py`; token expires in 24h; resend via `POST /api/auth/resend-code`.
 
 ## Testing & Debugging
@@ -102,18 +103,18 @@ Purpose: Equip AI coding agents to be immediately productive in this repo by doc
 - **Sample resumes**: In `data/raw_files/*/sample_resume_*.txt` for parser testing.
 - **Common pitfalls**:
   - Using string `applicant_id` where DB id (integer) is needed (e.g., `GET /api/recommendations/{db_id}`).
-  - Missing `.env` values (`GEMINI_API_KEY`, MySQL credentials, `GMAIL_USER`, `GMAIL_APP_PASSWORD`) → DB init fails or features stub.
+  - Missing `.env` values (`OPENCODE_API_KEY` / `GROQ_API_KEY`, PG credentials, `GMAIL_USER`, `GMAIL_APP_PASSWORD`) → DB init fails or features stub.
   - Interview session not checking credits → `CreditService.check_eligibility()` will raise `HTTPException(402)`.
 - **Debug mode**: Set `GEMINI_MOCK_MODE=true` in `.env` to use stub LLM responses (no API calls).
 - **Database reset**: Run `python scripts/init_db.py` to drop/recreate all tables; then `python scripts/seed_database.py` to populate sample data.
 
 ## External Integrations
-- Google Gemini LLM: Configure `GEMINI_API_KEY` in `.env`; client in `resume/llm_gemini.py`.
-- MySQL: Connection via SQLAlchemy; database ensured at startup using PyMySQL.
+- DeepSeek via OpenCode: Configure `OPENCODE_API_KEY` in `.env` for RAG answers and ALL chat workloads (resume parsing is offline and needs no key; interview generation/evaluation uses DeepSeek via `core/llm_router`; Groq serves STT only).
+- PostgreSQL (Supabase): Connection via SQLAlchemy; schema managed by Alembic (`alembic upgrade head`).
 - Optional OCR/pdftotext: System-level tools referenced in README; parsing stubs in `resume/`.
 
 ## When Making Changes
-- **New routes**: Add in `app.py` with proper role guards via `@require_role()`.
+- **New routes**: Add in `resume_pipeline/routers/` (one module per domain, shared helpers in `routers/deps.py`) with proper role guards via `@require_role()`; `app.py` only wires routers.
 - **Database models**: Extend `db.py` and use `joinedload` to avoid N+1 queries.
 - **Constants & weights**: Update `constants.py` for API messages, interview config, recommendation tuning, and credit costs.
 - **File handling**: Keep writes within `data/raw_files/app_<uuid>/`; update `metadata.json` when user-provided fields affect parsing.

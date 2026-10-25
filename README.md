@@ -8,6 +8,13 @@ An advanced, premium AI-powered career guidance platform designed to orchestrate
 
 ## 🌟 What's New
 
+### Student-Only Rebuild (October 2026) — Rule-Based Parser, Router Split, Scope Cut
+
+1. **Resume parser is now fully rule-based and offline**: `resume/` runs a deterministic pipeline (`ingest.py` → `preprocess_ocr.py` → `segmenter.py` → `extractors.py` → `rule_parser.py`, with `parse_service.py` kept as a thin facade). No LLM calls in the parse path, no network access, no `llm_groq.py`/`llm_gemini.py` (deleted), no Vision OCR (scanned pages use local RapidOCR with Tesseract fallback), and no `groq`/`google-genai` pip dependencies. Skill matching is rapidfuzz Pass-1 against a backfilled `skill_taxonomy.json`; unrecognized skills append to a `unrecognized_skills_review.jsonl` curation queue. The retired cloud-embedding Pass-2 in `skill_normalizer.py` was removed.
+2. **Backend split into routers**: the `app.py` monolith is now a thin composition root (app wiring + startup/shutdown only); all route handlers live in `resume_pipeline/routers/` (`auth`, `profile`, `resume`, `jobs`, `applications`, `recommendations`, `credits`, `rag`, `misc`) with shared helpers in `routers/deps.py`.
+3. **Student-scoped cut**: `resume_pipeline/repos/` (orphaned repository pattern) deleted; 15 employer/admin/mentor/analytics frontend pages deleted (Employer*, AdminDashboard, JobModerationPage, UserManagementPage, TalentPool*, ApplicantDetailsPage, JobApplicantsPage, InterviewFeedbackPage, InterviewSchedulerPage, RecruitmentAnalyticsPage, NetworkHubPage); uncalled backend routes removed. Kept set is student-scoped — see `docs_wiki/PAGE_API_AUDIT.md` for the Keep/Cut source list.
+4. **Suites re-measured**: backend `160 passed, 1 skipped` (`pytest tests/ -q --ignore=tests/test_api.py` under mock mode); frontend `88 passed across 14 files` (`npm test`).
+
 ### Completion Cycle (August 2026) — Security, Reliability & Honesty Hardening
 
 A full implementation-gap audit and remediation cycle was completed. Highlights:
@@ -23,10 +30,10 @@ Full per-feature status, known limitations, and deferred backlog: **`docs_wiki/I
 
 ### v0.5 Release — Performance & Cost Optimization
 
-1. **Groq-Gemini Hybrid Parser Pipeline**:
-   - **Groq Parallel Parser**: Swapped core extraction to Groq (`llama-3.3-70b-versatile`) running 6 concurrent parallel requests in an `asyncio.gather` pool. Highly robust, structured JSON extraction with zero Gemini rate-limiting overhead.
-   - **Local OCR Fallback (Type B/C PDFs)**: Scanned/image-based resumes are OCR-processed locally (RapidOCR when installed, Tesseract otherwise) instead of calling Gemini Vision.
-   - **Semantic Embeddings**: Gemini embeddings are used for advanced skill mapping (fuzzy + semantic passes) to ensure high-accuracy profile alignments.
+1. **Rule-Based Offline Parser Pipeline** *(superseded the Groq-Gemini hybrid below in October 2026 — see above)*:
+   - **Deterministic extraction, zero LLM calls**: `ingest.py → preprocess_ocr.py → segmenter.py → extractors.py → rule_parser.py`, exposed through the `parse_service.py` facade.
+   - **Local OCR only (Type B/C PDFs)**: scanned/image-based resumes are OCR-processed locally (RapidOCR primary, Tesseract fallback) — no Gemini Vision.
+   - **Offline skill mapping**: rapidfuzz fuzzy matching (Pass-1 semantics) against the backfilled skill taxonomy; unrecognized skills go to a JSONL review queue.
 
 2. **Recommendation Cooldown & Quota Bypass**:
    - Added a **24-hour refresh cooldown** on AI recommendations to control server and token overhead.
@@ -47,14 +54,17 @@ Full per-feature status, known limitations, and deferred backlog: **`docs_wiki/I
 
 ```
 Career Guidence/
-├── deploy/                     # Deployment & Docker orchestration
+├── deploy/                     # Deployment helpers (manual GCP path; no EC2/AWS files)
 │   ├── docker/
-│   │   ├── docker-compose.prod.yml   # Production orchestrator (pulls prebuilt image)
-│   │   ├── build-and-push.ps1/.sh    # Build & push the backend image
-│   │   └── docker-help.ps1/.bat
-│   ├── aws/                    # EC2 env template + provisioning helpers
-│   └── scripts/                # redeploy, dual-DB setup (legacy Cloud Run scripts included)
-├── docker-compose.yml          # Local dev compose (repo root)
+│   │   └── build-and-push.ps1/.sh    # Build & push the backend image (repo-root context)
+│   ├── gcp/
+│   │   ├── BRINGUP.md                # Manual GCE demo-VM bring-up (Secret Manager only)
+│   │   └── user-data.sh              # GCE startup script (non-secret config; no VM .env)
+│   └── scripts/                      # Empty (legacy redeploy/dual-DB scripts removed)
+├── docker-compose.yml          # Single backend-only compose: backend API on :8000 (Supabase DB, Vercel frontend)
+├── .env / .env.example         # Single env source (root only)
+├── resume_pipeline/Dockerfile  # Backend-only image
+├── .dockerignore               # Single root ignore
 ├── frontend/                   # React 18 + Vite 5 + Tailwind CSS + Framer Motion (JavaScript/JSX)
 │   ├── src/
 │   │   ├── components/         # Reusable UI (CreditWidget, ApplicationTracker, etc. with Portals)
@@ -64,16 +74,17 @@ Career Guidence/
 ├── resume_pipeline/            # FastAPI backend (Python 3.11)
 │   ├── alembic.ini + alembic/  # Migrations (0001–0007, additive/non-destructive)
 │   ├── resume_pipeline/        # Main package
-│   │   ├── app.py              # Entry point; API routes, CORS, startup validation & expiry sweep
-│   │   ├── db.py               # SQLAlchemy models (31 tables, 16 PG enums)
-│   │   ├── config.py           # Pydantic v2 settings (environment-injected; APP_ENV gate)
-│   │   ├── constants.py        # CREDIT_CONFIG, API_MESSAGES, RECOMMENDATION_WEIGHTS
+│   │   ├── app.py              # Thin composition root: app wiring, CORS, startup/shutdown, router registration
+│   │   ├── routers/            # All route handlers: auth, profile, resume, jobs, applications, recommendations, credits, rag, misc, admin (+ deps.py shared helpers)
+│   │   ├── db/                 # SQLAlchemy models (32 tables, 16 PG enums) + session helpers
+│   │   ├── config.py           # Pydantic v2 settings (environment-injected; APP_ENV gate) + tuning constants
+│   │   ├── admin_seed.py       # Idempotent ADMIN_EMAIL/ADMIN_PASSWORD seed on startup
 │   │   ├── auth.py             # JWT (+iat revocation), bcrypt, require_role guard
-│   │   ├── resume/        # Parsing: Groq extractor, local OCR fallback (RapidOCR/Tesseract), skill taxonomy
-│   │   ├── interview/          # Groq-based interview generation/scoring via llm_router
-│   │   ├── core/               # CreditService (atomic spend/refunds), storage, rate limiter
-│   │   ├── rag/                # BM25 + TF-IDF hybrid retrieval over repo docs, Gemini RAG Q&A
-│   │   └── repos/              # Legacy repository pattern — currently orphaned/dead code
+│   │   ├── resume/        # Rule-based offline parsing: ingest, preprocess_ocr (RapidOCR/Tesseract), segmenter, extractors, rule_parser; parse_service.py facade; skill taxonomy + review queue
+│   │   ├── interview/          # DeepSeek (opencode) generation/scoring via llm_router + hardcoded fallback bank
+│   │   ├── core/               # CreditService (atomic spend/refunds), storage, rate limiter, llm_router
+│   │   ├── rag/                # BM25 + TF-IDF hybrid retrieval over repo docs, DeepSeek RAG Q&A via llm_router
+│   │   ├── recommendation/     # Staged student pipeline: retrieval.py (TF-IDF candidates) → ranking.py (heavy scorers) → reranking.py (business rules) → service.py facade (purposes: jobs/skill_gaps/digest); engine.py + recommendation_service.py are compat shims
 │   ├── tests/                  # Pytest suite incl. security/credits/interview regression tests
 │   └── scripts/                # Seeding, verification, legacy one-off migration scripts
 └── README.md
@@ -85,8 +96,9 @@ Career Guidence/
 
 ### Backend
 - **FastAPI**: Asynchronous high-performance web framework
-- **Groq API (`llama-3.3-70b-versatile`)**: High-speed, structured resume section JSON extraction + interview generation/evaluation
-- **Google Gemini API**: Skill embedding generation and RAG answers (via multi-provider `llm_router` with fallbacks); scanned-PDF OCR is now local (RapidOCR/Tesseract)
+- **Rule-based resume parser (offline, zero LLM calls)**: deterministic `ingest → preprocess_ocr → segmenter → extractors → rule_parser` pipeline; scanned PDFs via local RapidOCR/Tesseract; rapidfuzz skill matching against the taxonomy
+- **DeepSeek via OpenCode (required for chat)**: interview question generation/evaluation, learning-path structuring, RAG answers, and recommendation explanations via the single-provider `llm_router` (exactly one attempt per call; failures raise and callers recover via question bank / template / offline paths); the resume parser does not use it
+- **Groq (STT only)**: Whisper transcription via `llm_router.transcribe_audio`
 - **SQLAlchemy 2.0**: Modern database mapper
 - **Alembic**: Additive, non-destructive schema migrations (`alembic upgrade head`)
 - **psycopg2-binary**: PostgreSQL adapter
@@ -133,8 +145,8 @@ PG_PASSWORD=yourpassword
 PG_DB=career_guidance
 
 # AI Services
-GEMINI_API_KEY=your_gemini_api_key
-GROQ_API_KEY=your_groq_api_key
+OPENCODE_API_KEY=your_opencode_api_key
+GROQ_API_KEY=your_groq_api_key    # STT only
 
 # Email (Gmail SMTP App Password)
 GMAIL_USER=your-email@gmail.com
@@ -173,6 +185,32 @@ npm run dev
 
 *   **Frontend Access**: `http://localhost:3000` (Proxies requests to API on port `8000`)
 *   **FastAPI Docs**: `http://localhost:8000/docs`
+
+---
+
+## ☁️ Deployment (GCP VM backend + Vercel frontend)
+
+The documented deploy path is the manual GCE bring-up in
+**`deploy/gcp/BRINGUP.md`** (e2-small, backend-only VM; Supabase stays external;
+frontend stays on Vercel).
+
+**Secrets (firm rule):** the VM keeps **no `.env` file**. Non-secret config is
+exported by `deploy/gcp/user-data.sh`; credentials are read inside the container
+at start by `resume_pipeline/docker-entrypoint.py` from **GCP Secret Manager**
+(`GCP_PROJECT` set → load `projects/$GCP_PROJECT/secrets/<NAME>/versions/latest`
+as the VM service account, fail loudly naming a missing secret). With
+`GCP_PROJECT` unset the entrypoint execs straight through, so local
+`docker compose --env-file .env up` is unchanged.
+
+Secret **names** (values never committed): `PG_PASSWORD`, `SECRET_KEY`,
+`ADMIN_EMAIL`, `ADMIN_PASSWORD` (required) plus optional `OPENCODE_API_KEY`,
+`GROQ_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_SEARCH_API_KEY`,
+`GOOGLE_CLIENT_SECRET`, `YOUTUBE_DATA_API_KEY`, `GMAIL_APP_PASSWORD`.
+
+**Vercel environment variables** (frontend project, Production): `VITE_API_URL`
+= backend origin, optionally `VITE_API_BASE_URL` (takes precedence in
+`frontend/src/config/api.js`). No other `VITE_*` variables are read. Build:
+`npm run build` → `dist`, SPA rewrites from `frontend/vercel.json`.
 
 ---
 
@@ -225,9 +263,9 @@ npm run lint
 npm run build
 ```
 
-Highlights: security perimeter, credit concurrency races, interview lifecycle/abandon beacon, evaluation recovery, Alembic migration chain, plus Vitest coverage of login, protected routes, recommendations/applications, interview session hooks, learning-path streaming, talent search and admin surfaces.
+Highlights: security perimeter, credit concurrency races, interview lifecycle/abandon beacon, evaluation recovery, rule-based parser golden/section/extractor bars, Alembic migration chain, plus Vitest (88 tests, 14 files) coverage of login, protected routes, credit widget, application tracker, interview session hooks, results polling, skill-gap → learning-path flow, and jobs/results pages. The employer/admin talent-search and user-management surfaces and their tests were removed in the October 2026 student-scope cut.
 
-> `tests/test_api.py` is a live Gemini connectivity smoke test — excluded from CI by design. CI additionally validates `alembic upgrade head` against disposable PostgreSQL. See `docs_wiki/operations/testing.md`.
+> `tests/test_api.py` is a live OpenCode connectivity smoke test — excluded from CI by design. CI additionally validates `alembic upgrade head` against disposable PostgreSQL. See `docs_wiki/operations/testing.md`.
 
 ---
 
@@ -242,5 +280,5 @@ Highlights: security perimeter, credit concurrency races, interview lifecycle/ab
 
 ---
 
-**Last Updated**: August 2026  
-**Application Version**: 0.5.0 + Completion Cycle (security hardening, Alembic migrations, durable credits, honest surfaces)
+**Last Updated**: October 2026
+**Application Version**: 0.5.0 + Completion Cycle (security hardening, Alembic migrations, durable credits, honest surfaces) + Student-scope rebuild (rule-based offline parser, routers/ split, employer/admin page cut)

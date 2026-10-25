@@ -28,6 +28,28 @@ pytest tests/test_security_perimeter.py -v
 pytest tests/test_parsing.py::test_skill_mapping -v -s
 ```
 
+### Model Selection & Env-Only Swap Procedure
+
+Chat calls are capability-based: `core/llm_router.py` resolves the
+`MODEL_CHAT_*` / `MODEL_EXPLAIN_*` / `MODEL_STT_*` slots (see
+`operations.md`) to a single provider adapter (one attempt → raise).
+To swap models without code changes:
+
+```powershell
+# Example: make groq the chat provider (env only)
+$env:MODEL_CHAT_PRIMARY_PROVIDER="groq"
+$env:GEMINI_MOCK_MODE="true"; $env:CI_SKIP_DB_VALIDATION="true"; $env:SECRET_KEY="test_secret_key_at_least_32_characters_long_for_signing_jwt"
+pytest tests/test_model_agnostic_swap.py -q   # proves the router follows selection
+pytest tests/ -q --ignore=tests/test_api.py    # full suite must stay green
+```
+
+An empty `MODEL_*_NAME` keeps the provider default, so unset slots
+behave exactly as before. `tests/test_model_agnostic_swap.py` pins this:
+swapping the primary provider and overriding `MODEL_CHAT_PRIMARY_NAME` /
+`MODEL_STT_NAME` changes the adapter called and the model sent, with no code
+changes. Chat + explanation default to `opencode` (DeepSeek) with no
+fallback (failure raises); STT stays Groq Whisper.
+
 ### Database-Backed Suites
 
 Suites such as `test_interview.py` and `test_learning_path.py` exercise real service logic through `SessionLocal`. Under `CI_SKIP_DB_VALIDATION=true` they run against the shared in-memory SQLite database described above — no developer database or credentials involved.

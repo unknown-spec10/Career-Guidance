@@ -58,7 +58,7 @@ Problems:
 
 | Resource | Tool | Notes |
 |---|---|---|
-| Embeddings | Gemini Embedding 2 Preview (`gemini-embedding-2-preview`) | Via `google-genai` SDK, uses existing `GEMINI_API_KEY` |
+| Embeddings | Local `all-MiniLM-L6-v2` via `sentence-transformers` (384-dim, fully offline, no API key) | Lazy-loaded singleton in `recommendation/embedder.py`; vectors stored via the existing pgvector path |
 | LLM reasoning | Gemini 2.5 Flash (`gemini-2.5-flash`) | Via `google-genai` SDK, uses existing `GEMINI_API_KEY` |
 | Database | PostgreSQL (existing) | Add columns/tables only |
 | Background jobs | FastAPI BackgroundTasks | No new infrastructure |
@@ -76,6 +76,9 @@ The engine is organized into three horizontal layers and five vertical tiers.
 ┌─────────────────────────────────────────────────────────┐
 │                    API Layer (FastAPI)                   │
 │  GET /api/recommendations/{applicant_id}  →  reads DB   │
+│    ?purpose=jobs|browse (top 10, or 20 for JobsPage)    │
+│    → recommended (top slice) + paged more_matches       │
+│    (job_recommendations keeps the full list, unchanged) │
 │  POST /api/recommendations/refresh        →  triggers BG │
 │  POST /api/feedback                       →  stores signal│
 └─────────────────────────────────────────────────────────┘
@@ -169,35 +172,46 @@ Embeddings convert words into numbers that capture meaning — so "ML" and "Mach
 
 ### Model
 
-**`gemini-embedding-2-preview`** via Google Gemini API.
-- Google's first natively multimodal embedding model — maps text, images, video, audio, and PDFs into one unified vector space
-- For this project, text is the primary input modality
-- Input context: up to 8,192 tokens per call
-- Output dimensions: 768, 1536, or 3,072 (recommended default: 768 for speed, 3,072 for maximum quality)
-- Uses existing `GEMINI_API_KEY` — no new credentials needed
-- SDK: `google-genai` Python package
-- **Important:** Does NOT support the `task_type` field. Instead, include the task as a natural language instruction in the content prompt itself (e.g., prefix with "Represent this text for semantic similarity matching:")
-- **Important:** Embedding vectors from `gemini-embedding-2-preview` are incompatible with any older Gemini embedding model (`gemini-embedding-001`, `text-embedding-004`). If any existing embeddings exist in the DB from an older model, the entire `job_embeddings_cache` table must be cleared and re-embedded from scratch before using this model.
+**`all-MiniLM-L6-v2`** via the `sentence-transformers` package (already in `requirements.txt`).
+- Lightweight local transformer (~80MB) — no API key, no network calls, no rate limiter
+- Output dimensions: 384 (`EMBEDDING_DIM = 384` in `recommendation/embedder.py`)
+- Lazy-loaded singleton: the model loads once on first `embed()` call, so app
+  startup and non-ranking paths stay fast
+- The task instruction is still prepended to the prompt text (e.g., "Represent this
+  skill set for semantic similarity matching: ...") to preserve the asymmetric
+  retrieval convention and existing cache semantics
+- **Important:** 384-dim local vectors are incompatible with legacy 1536-dim Gemini
+  rows. Stale rows are NOT compared — the Embedder treats a dimension mismatch as a
+  cache miss and re-embeds locally (old rows are replaced on write). A future
+  incremental Alembic migration may alter legacy `vector(1536)` columns to
+  `vector(384)`; until then, fresh databases create `vector(384)` columns
+  (`LOCAL_EMBEDDING_DIM` in `db.py`) while pre-existing tables are untouched.
+  Reads tolerate every stored shape — JSON lists, vector text, ndarrays,
+  pgvector `Vector` objects — via `coerce_embedding_vector()` plus a
+  crash-proof Vector result processor, so legacy rows load (then re-embed on
+  dim mismatch) instead of raising `'list' object has no attribute 'split'`.
 
 ### How It Works
 
-**Step 1 — Startup: embed all job skill lists**
+**Step 1 — Posting time: embed all job skill lists**
 
 ```
 for each job in jobs:
     prompt = "Represent this skill set for semantic similarity matching: " + ", ".join(job.required_skills)
-    vector = gemini_client.embed(model="gemini-embedding-2-preview", content=prompt)
+    vector = embedder.embed(prompt)   # local all-MiniLM-L6-v2, 384-dim
     store in memory dict: job_id → vector
-    persist to job_embeddings_cache table
+    persist to job_embeddings_cache table (precompute.ensure_job_embeddings)
 ```
 
-This runs once at app startup (or loads from DB cache if already computed). The task instruction is embedded in the prompt text directly since `gemini-embedding-2-preview` does not accept a `task_type` parameter.
+This runs once per job at posting time via the precompute path (or loads from DB
+cache if already computed). The task instruction stays embedded in the prompt text,
+preserving the asymmetric retrieval convention.
 
 **Step 2 — At recommendation time: embed user skills**
 
 ```
 prompt = "Represent this skill set for semantic similarity matching: " + ", ".join(applicant.skills)
-user_vector = gemini_client.embed(model="gemini-embedding-2-preview", content=prompt)
+user_vector = embedder.embed(prompt)   # local all-MiniLM-L6-v2, 384-dim
 ```
 
 **Step 3 — Compute cosine similarity**
@@ -230,9 +244,14 @@ Together they handle both precision and recall.
 
 ```
 recommendation/
-    embedder.py           ← wraps google-genai SDK. Exposes: embed(text), cosine_sim(v1, v2).
-                            Handles task instruction prefixing, output dimension config,
-                            and DB cache read/write. Shared by semantic_scorer and document_scorer.
+    embedder.py           ← wraps the local all-MiniLM-L6-v2 model (sentence-transformers).
+                            Exposes the same interface: embed(text), cosine_sim(v1, v2).
+                            Handles task instruction prefixing, 384-dim output,
+                            lazy singleton model load, and DB cache read/write
+                            (stale 1536-dim rows are re-embedded). Raises
+                            GeminiEmbeddingUnavailable (legacy name) only on local
+                            model failure so ranking.py can trigger TF-IDF fallback.
+                            Shared by semantic_scorer and document_scorer.
     scorers/
         semantic_scorer.py ← score(user_skills, job_id) → float.
 ```
@@ -399,20 +418,20 @@ Experience: {experience_summary}. Preferred location: {location}."
 
 ```
 prompt = "Represent this candidate profile for job matching: " + resume_summary_text
-resume_vector = gemini_client.embed(model="gemini-embedding-2-preview", content=prompt)
+resume_vector = embedder.embed(prompt)   # local all-MiniLM-L6-v2, 384-dim
 ```
 
-This uses the same `gemini-embedding-2-preview` model from Tier 2 — same API client, same `GEMINI_API_KEY`. No additional dependency.
+This uses the same local `all-MiniLM-L6-v2` model from Tier 2 — no API client, no `GEMINI_API_KEY`. No additional dependency.
 
 **Step 3 — Embed the full job description**
 
-At startup (or when job is added), embed the full job description:
+At parse/posting time (via `precompute.ensure_job_embeddings`), embed the full job description:
 ```
 prompt = "Represent this job posting for candidate matching: " + job.title + " " + job.description + " " + job.requirements
-job_desc_vector = gemini_client.embed(model="gemini-embedding-2-preview", content=prompt)
+job_desc_vector = embedder.embed(prompt)   # local all-MiniLM-L6-v2, 384-dim
 ```
 
-Store this vector in the `job_embeddings_cache` table so it is computed only once per job. The task instruction prefix is different from Tier 2 (candidate-side vs job-side) — this is the correct asymmetric retrieval pattern for `gemini-embedding-2-preview` since the model does not support `task_type`.
+Store this vector in the `job_embeddings_cache` table so it is computed only once per job. The task instruction prefix is different from Tier 2 (candidate-side vs job-side) — this preserves the asymmetric retrieval convention.
 
 **Step 4 — Compute document-level similarity**
 
@@ -521,23 +540,29 @@ The engine has two distinct fallback concerns — one for embeddings (Tiers 2 an
 
 ---
 
-### 9a. Embedding Fallback — Gemini → TF-IDF
+### 9a. Embedding Fallback — local model → TF-IDF
 
-#### Why not sentence-transformers as fallback?
+The ranking stage is fully offline: Tiers 2 and 5 use the local `all-MiniLM-L6-v2`
+model, so there is no rate limit, network error, or API outage to recover from.
+The TF-IDF fallback remains intact for the only remaining failure mode — the local
+model itself failing to load or encode (missing package/weights, corrupt input).
 
-Using a different embedding model as fallback is not viable. `gemini-embedding-2-preview` and `all-MiniLM-L6-v2` (sentence-transformers) produce vectors in completely different mathematical spaces. A job vector from Gemini compared against a resume vector from sentence-transformers would return a cosine similarity number that is numerically valid but semantically meaningless — the system would silently produce wrong results with no indication anything had failed.
+#### Why the fallback is still TF-IDF only
 
-#### The correct fallback: TF-IDF only
-
-When the Gemini embedding API is unavailable (rate limit hit, network error, API outage), the engine falls back to **Tier 1 TF-IDF scoring exclusively**. TF-IDF runs entirely in-memory with no external calls, is always available, and still produces a meaningful skill match score.
+Legacy 1536-dim Gemini rows must never be compared against 384-dim local vectors:
+cross-model cosine similarity is numerically valid but semantically meaningless.
+The Embedder therefore treats any dimension mismatch as a cache miss and re-embeds
+locally, and the engine falls back to **Tier 1 TF-IDF scoring exclusively** when the
+local model raises. TF-IDF runs entirely in-memory, is always available, and still
+produces a meaningful skill match score.
 
 ```python
 try:
-    semantic_score = gemini_semantic_score(applicant, job_id)   # Tiers 2 + 5
+    semantic_score = local_semantic_score(applicant, job_id)   # Tiers 2 + 5
     skill_score = (0.4 * tfidf_score) + (0.6 * semantic_score) # normal blend
-except GeminiEmbeddingUnavailable:
+except GeminiEmbeddingUnavailable:  # legacy name; raised only by the local model now
     skill_score = tfidf_score                                    # TF-IDF only
-    log_warning("Gemini embedding unavailable — using TF-IDF fallback for job_id={job_id}")
+    log_warning("Embeddings unavailable (using TF-IDF fallback) for job_id={job_id}")
 ```
 
 #### What changes in the final score during fallback
@@ -561,79 +586,84 @@ When fallback was used, it is recorded in the stored score breakdown:
 ```json
 {
   "embedding_fallback": true,
-  "embedding_fallback_reason": "GeminiRateLimitError",
+  "embedding_fallback_reason": "Local embedding failure: ...",
   "combined_skill_score": 0.61,
   "doc_similarity": null
 }
 ```
 
-This lets you identify which recommendations were computed under degraded conditions and recompute them once the API recovers.
+This lets you identify which recommendations were computed under degraded conditions and recompute them once the local model is healthy.
 
 ---
 
-### 9b. LLM Fallback — Gemini 2.5 Flash → Groq → null + retry
+### 9b. LLM Explanation — single opencode attempt → offline
 
-The explainability call (Tier 5b) uses a two-level fallback chain before giving up gracefully.
+The explainability call (Tier 5b) makes exactly one LLM attempt through the
+shared `llm_router` (default `opencode`/DeepSeek, `MODEL_EXPLAIN_*` slots),
+then gives up gracefully to the offline path.
 
-#### Fallback chain
+#### Attempt order
 
 ```
-Primary:   Gemini 2.5 Flash  (google-genai SDK, GEMINI_API_KEY)
-    ↓ fails (rate limit / outage)
-Secondary: Groq LLaMA 3      (groq SDK, GROQ_API_KEY — already in .env)
-    ↓ fails
-Terminal:  Store null, mark for retry on next recompute
+Single attempt: configured explanation provider (opencode/DeepSeek, 6s timeout)
+    ↓ fails (rate limit / outage / missing key)
+Offline: pgvector-aware template explanation (no API calls)
 ```
 
-#### Why Groq works here but not for embeddings
+#### Why one attempt is enough here
 
-LLM calls are pure text in, text out. The same prompt sent to Gemini 2.5 Flash or Groq's LLaMA 3 returns a plain string explanation. There is no vector space incompatibility — the outputs are semantically equivalent for this purpose.
+LLM calls are pure text in, text out, but a second provider attempt only
+delays the inevitable: when the single attempt fails the offline explanation
+(fired immediately, not after cascading retries) already produces a sensible
+2-sentence candidate-facing message from skill overlap, and the
+recommendation itself is still valid and shown with or without LLM text.
 
 #### Implementation pattern
 
 ```python
-def generate_explanation(applicant, job, breakdown) -> str | None:
+def generate_explanation(applicant, job, breakdown, db=None):
     prompt = build_explanation_prompt(applicant, job, breakdown)
 
-    # Primary: Gemini 2.5 Flash
-    try:
-        return gemini_client.generate(model="gemini-2.5-flash", prompt=prompt)
-    except GeminiUnavailable as e:
-        log_warning(f"Gemini LLM unavailable: {e}. Trying Groq fallback.")
+    # Single attempt: the configured explanation provider, exactly once
+    for adapter, _model in llm_router.ordered_adapters("explanation"):
+        result = _try_once(adapter, prompt)  # 6s timeout, per-adapter breaker
+        if result:
+            return result, adapter.name  # 'opencode' | 'groq'
 
-    # Secondary: Groq LLaMA 3
-    try:
-        return groq_client.generate(model="llama3-8b-8192", prompt=prompt)
-    except GroqUnavailable as e:
-        log_warning(f"Groq also unavailable: {e}. Storing null explanation.")
-
-    # Terminal: return None — stored as null in DB, retried on next recompute
-    return None
+    # Offline: pgvector applicant embedding context + string match
+    return _offline_explanation_with_embeddings(applicant, job, db=db), "offline_fallback"
 ```
 
-#### Null-and-retry behavior
+#### Offline behavior
 
-If both APIs fail, `explanation = null` is stored in `job_recommendations`. This is not an error state — the recommendation itself is still valid and shown to the user, just without the explanation text. The frontend handles `null` explanation gracefully (hides the explanation section rather than showing an error).
+If the LLM attempt fails, the offline explanation is served immediately.
+This is not an error state — the recommendation itself is still valid and
+shown to the user, just without LLM-generated text. The frontend handles the
+`offline_fallback` source gracefully.
 
-On the next recompute trigger (resume re-upload, interview completion, admin refresh), the engine checks for `explanation IS NULL` records and attempts generation again before processing already-explained recommendations.
+On the next recompute trigger (resume re-upload, interview completion, admin
+refresh), the engine's null-explanation retry re-attempts the single LLM call
+for records stored with the offline source before processing
+already-explained recommendations.
 
 ```python
-# In engine.py, during recompute — retry null explanations first
-for rec in existing_recommendations_with_null_explanation:
-    explanation = generate_explanation(applicant, rec.job, rec.score_breakdown)
-    update_explanation(rec.id, explanation)
+# In ranking.py, during recompute — retry offline explanations first
+for rec in existing_recommendations_with_offline_explanation:
+    explanation, source = generate_explanation(applicant, rec.job, rec.score_breakdown, db)
+    update_explanation(rec.id, explanation, source)
 ```
 
-#### Fallback flag in score_breakdown
+#### Source flag in score_breakdown
 
 ```json
 {
-  "explanation_source": "groq_fallback",
+  "explanation_source": "opencode",
   "explanation": "Your Python and backend skills are a strong match..."
 }
 ```
 
-Possible values for `explanation_source`: `"gemini"`, `"groq_fallback"`, `null` (both failed).
+Possible values for `explanation_source`: `"opencode"`, `"groq"` (when the
+slots point the single attempt at groq), `"offline_fallback"` (LLM attempt failed).
 
 ---
 
@@ -641,9 +671,9 @@ Possible values for `explanation_source`: `"gemini"`, `"groq_fallback"`, `null` 
 
 | Component | Primary | Fallback | Terminal |
 |---|---|---|---|
-| Skill embeddings (Tier 2) | Gemini Embedding 2 Preview | TF-IDF score only | TF-IDF (always available) |
-| Document embeddings (Tier 5) | Gemini Embedding 2 Preview | Skip doc_similarity | Use TF-IDF-only skill score |
-| Explanation (Tier 5b) | Gemini 2.5 Flash | Groq LLaMA 3 | Store null, retry on recompute |
+| Skill embeddings (Tier 2) | Local all-MiniLM-L6-v2 (384-dim, offline) | TF-IDF score only | TF-IDF (always available) |
+| Document embeddings (Tier 5) | Local all-MiniLM-L6-v2 (384-dim, offline) | Skip doc_similarity | Use TF-IDF-only skill score |
+| Explanation (Tier 5b) | Configured provider (opencode/DeepSeek), one attempt | Offline template explanation | Served with `offline_fallback` source |
 
 ---
 
@@ -717,25 +747,34 @@ final_score = clamp(final_score, 0.0, 1.0)
 ```
 Event                          → Action
 ─────────────────────────────────────────────────────
-Resume parsed (first time)     → compute_recommendations(applicant_id)
-Resume re-parsed               → recompute_recommendations(applicant_id)
-New job added by recruiter     → compute_recommendations_for_new_job(job_id)
-Interview completed            → refresh_recommendations(applicant_id)
-Admin manual refresh           → recompute_recommendations(applicant_id)
+Resume parsed (first time)     → service.request_recommendations_async(applicant_id)
+Resume re-parsed               → recompute via service.get_recommendations(applicant_id, db)
+New job added by recruiter     → ranking.compute_recommendations_for_new_job(job_id, db)
+Interview completed            → refresh via service.get_recommendations(applicant_id, db)
+Admin manual refresh           → recompute via service.get_recommendations(applicant_id, db)
 ```
 
 ### FastAPI BackgroundTasks Flow
 
 ```
 POST /parse/{applicant_id}
-    → parse resume (blocking)
-    → background_tasks.add_task(compute_recommendations, applicant_id, db)
+    → parse resume (blocking) + precompute applicant embeddings (best-effort)
+    → background_tasks.add_task(request_recommendations_async, applicant_id)
     → return parse result immediately to user
 
-# In background (non-blocking):
-compute_recommendations(applicant_id):
+# In background (non-blocking), staged pipeline:
+service.get_recommendations(applicant_id, db, purpose="jobs"):
+    1. retrieval.retrieve_candidate_jobs: hard filters + TF-IDF over active jobs (~100 IDs)
+    2. ranking.rank_candidates: heavy scorers + aggregator over the retrieved set only
+    3. reranking.rerank_scored: purpose weights, freshness boost, diversity cap
+    4. reranking.attach_explanations: cached-or-generated text for the top 5 only
+    5. reranking.persist_recommendations: upsert into job_recommendations table
+    6. Log completion
+
+# Legacy per-pair scoring detail (unchanged math, now runs per retrieved job):
+run_pipeline_for_applicant_job(applicant, job, ...):
     1. Fetch applicant profile from DB
-    2. For each active job:
+    2. For each retrieved job:
         a. Tier 1: tfidf_score
         b. Tier 2: semantic_skill_score
         c. Tier 4: temporal_score, opportunity_multiplier
@@ -827,23 +866,56 @@ resume_pipeline/
         │
         ├── __init__.py
         │
-        ├── engine.py               ← Orchestrator. Calls all scorers, aggregates score,
-        │                             writes to DB. Entry point for background task.
-        │                             Handles embedding fallback detection and
-        │                             null-explanation retry logic.
+        ├── retrieval.py          ← Stage 1: candidate generation over ALL active jobs.
+        │                           Lenient location/experience hard filters + TF-IDF
+        │                           skill overlap only. No embeddings, no network.
+        │                           Output: ranked list of ~100 job IDs (RETRIEVAL_TOP_K).
+        │                           Owns the TF-IDF corpus cache (moved out of ranking).
         │
-        ├── embedder.py             ← Wraps google-genai SDK for Gemini Embedding 2 Preview.
-        │                             Exposes: embed(text), cosine_sim(v1, v2).
-        │                             Handles task instruction prefixing, DB cache
-        │                             read/write, and raises GeminiEmbeddingUnavailable
-        │                             on failure so engine.py can trigger TF-IDF fallback.
+        ├── ranking.py            ← Stage 2: slimmed successor of engine.py. Heavy scorers
+        │                           (semantic, personalization, temporal, document) +
+        │                           aggregator over the retrieved ~100 only, with
+        │                           unchanged scoring logic. TF-IDF arrives as input.
+        │                           Uniform entry points: score_pair() → rank_candidates()
+        │                           → compute_ranked_for_applicant(). Also hosts the
+        │                           new-job backfill, null-explanation retry, and the
+        │                           single-pair ensure helper. scorers/ untouched.
+        │
+        ├── reranking.py          ← Stage 3: business rules live here, not in scorers.
+        │                           Purpose weights (jobs / skill_gaps / digest),
+        │                           freshness boost, diversity cap (3 per employer),
+        │                           interview-blend flag, explanation attach
+        │                           (top 5; digest = cached/offline only),
+        │                           persistence, read-only cooldown view.
+        │
+        ├── service.py            ← Shared facade: get_recommendations(applicant_id,
+        │                           db, purpose=...). Same pipeline, different rerank
+        │                           weights, no forks. All backend callers go through it.
+        │                           Exposes RecommendationFacade (canonical) and
+        │                           RecommendationService (legacy alias).
+        │
+        ├── precompute.py         ← Embed-once helpers: applicant vectors at parse time,
+        │                           job vectors at posting time, via the existing
+        │                           Embedder + pgvector path. Best-effort, never raises.
+        │
+        ├── engine.py               ← Backward-compatible shim: re-exports the ranking API
+        │                             (compute_recommendations, run_pipeline_for_applicant_job,
+        │                             backfill/retry/ensure helpers) so existing callers
+        │                             keep working. New code imports ranking/service directly.
+        │
+        ├── embedder.py             ← Wraps the local all-MiniLM-L6-v2 model (sentence-transformers).
+        │                             Exposes the same interface: embed(text), cosine_sim(v1, v2).
+        │                             Lazy singleton load, 384-dim output, task instruction
+        │                             prefixing, DB cache read/write (stale 1536-dim rows
+        │                             are re-embedded). Raises GeminiEmbeddingUnavailable
+        │                             (legacy name) only on local model failure so
+        │                             ranking.py can trigger TF-IDF fallback.
         │                             Shared by semantic_scorer and document_scorer.
         │
-        ├── explainer.py            ← Gemini 2.5 Flash primary, Groq LLaMA 3 fallback.
-        │                             Takes (applicant, job, breakdown) → str | None.
-        │                             Implements full fallback chain. Records
-        │                             explanation_source in breakdown. Returns None
-        │                             if both APIs fail (null-and-retry pattern).
+        ├── explainer.py            ← Single LLM attempt (opencode/DeepSeek via llm_router).
+        │                             Takes (applicant, job, breakdown, db) → (str, source).
+        │                             Records explanation_source in breakdown. Serves the
+        │                             offline template immediately if the attempt fails.
         │
         ├── scorers/
         │   ├── __init__.py
@@ -855,7 +927,8 @@ resume_pipeline/
         │   │
         │   ├── semantic_scorer.py  ← Tier 2. Uses embedder. Skill-level semantic match.
         │   │                         Exposes: score(user_skills, job_id) → float.
-        │   │                         Raises GeminiEmbeddingUnavailable on API failure.
+        │   │                         Raises GeminiEmbeddingUnavailable (legacy name)
+        │   │                         only on local model failure.
         │   │
         │   ├── personalization_scorer.py  ← Tier 3. Reads user_feedback table.
         │   │                               Exposes: get_multiplier(applicant_id, job) → float.
@@ -879,55 +952,52 @@ resume_pipeline/
 
 ## 14. Dependency Summary
 
-### Python Packages to Add
+### Python Packages
 
 ```
-google-genai           # Gemini Embedding 2 Preview + Gemini 2.5 Flash (one SDK for both)
+sentence-transformers>=5.2.0  # Tier 2 + Tier 5 local embeddings (all-MiniLM-L6-v2, 384-dim)
 scikit-learn==1.4.0    # Tier 1 TF-IDF (TfidfVectorizer) + cosine similarity math
 numpy==1.26.0          # Vector math (likely already installed)
 ```
 
-`google-genai` covers both embedding and LLM generation via a single `GEMINI_API_KEY`.
-`groq` SDK is already installed (used elsewhere in the project) — no new package needed for the LLM fallback.
+`sentence-transformers` covers Tier 2 + Tier 5 fully offline — no API key, no rate
+limiter, no network. `groq` SDK is already installed (used for the
+single-attempt chat path when the slots point at groq, and for STT).
+`google-genai` was never a declared dependency in `requirements.txt` and is
+not needed by the ranking stage (the explainer's optional per-skill semantic
+path and `tests/test_api.py` import it guardedly and degrade gracefully
+without it).
 
-### API Usage Pattern
+### Usage Pattern
 
 ```python
-from google import genai
+from resume_pipeline.recommendation.embedder import Embedder
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+embedder = Embedder(db)  # no keys, no client, no limiter
 
-# Embeddings (Tier 2 + Tier 5)
-result = client.models.embed_content(
-    model="gemini-embedding-2-preview",
-    contents="Represent this skill set for semantic similarity matching: Python, FastAPI, PostgreSQL"
+# Embeddings (Tier 2 + Tier 5) — local, offline, 384-dim
+vector = embedder.embed(
+    "Python, FastAPI, PostgreSQL",
+    instruction="Represent this skill set for semantic similarity matching:",
 )
-vector = result.embeddings[0].values  # list of floats
 
-# LLM text generation — primary (Tier 5b)
-response = client.models.generate_content(
-    model="gemini-2.5-flash",
-    contents="Your explanation prompt here..."
+# LLM text generation — single attempt (Tier 5b), then offline
+res = llm_router.generate_chat_completion(
+    messages=[{"role": "user", "content": "Your explanation prompt here..."}],
+    provider=None,
+    capability="explanation",
+    temperature=0.7,
+    max_tokens=150,
 )
-explanation = response.text
-
-# LLM text generation — fallback (Tier 5b)
-from groq import Groq
-groq_client = Groq(api_key=GROQ_API_KEY)
-response = groq_client.chat.completions.create(
-    model="llama3-8b-8192",
-    messages=[{"role": "user", "content": "Your explanation prompt here..."}]
-)
-explanation = response.choices[0].message.content
+explanation = res["content"]  # raises on failure; caller serves offline text
 ```
 
 ### What Is NOT Needed
 
-- No `sentence-transformers` package (replaced by Gemini Embedding API)
-- No local model download (~80MB saved)
+- No API key or network for Tier 2 / Tier 5 (local `all-MiniLM-L6-v2` model)
 - No Redis (in-memory dict is sufficient at free tier scale)
 - No Celery (FastAPI BackgroundTasks is enough)
-- No vector database like Pinecone or Weaviate (PostgreSQL BYTEA for embeddings)
+- No vector database like Pinecone or Weaviate (PostgreSQL pgvector columns for embeddings)
 
 ---
 
@@ -937,8 +1007,9 @@ Build and test each tier independently before moving to the next.
 
 ```
 Step 1:  Build embedder.py
-         Test: embed a list of skills via Gemini API, verify vector shape,
-               test GeminiEmbeddingUnavailable exception is raised on failure
+         Test: embed a list of skills via the local all-MiniLM-L6-v2 model,
+               verify 384-dim vector shape, determinism, and that
+               GeminiEmbeddingUnavailable is raised only on local model failure
 
 Step 2:  Build tfidf_scorer.py (Tier 1)
          Test: build corpus from seed jobs, score a sample applicant, verify 0.0–1.0 output
@@ -946,14 +1017,14 @@ Step 2:  Build tfidf_scorer.py (Tier 1)
 
 Step 3:  Build semantic_scorer.py (Tier 2)
          Test: "ML" vs "Machine Learning" should score > 0.85
-         Test: simulate Gemini failure → verify TF-IDF fallback activates
+         Test: simulate local model failure → verify TF-IDF fallback activates
 
 Step 4:  Build temporal_scorer.py (Tier 4)
          Test: job posted today → multiplier ~1.0, job posted 90 days ago → multiplier ~0.52
 
 Step 5:  Build document_scorer.py (Tier 5)
          Test: embed resume summary vs job description, verify similarity is sensible
-         Test: simulate Gemini failure → verify None is returned cleanly
+         Test: simulate local model failure → verify None is returned cleanly
 
 Step 6:  Build aggregator.py
          Test: feed normal scorer outputs, verify formula and 0.0–1.0 range
@@ -965,9 +1036,9 @@ Step 7:  Build personalization_scorer.py (Tier 3)
          Note: Build this last because it requires the feedback table and real user data
 
 Step 8:  Build explainer.py
-         Test: call Gemini 2.5 Flash with a sample breakdown, verify natural language output
-         Test: simulate Gemini failure → verify Groq fallback activates
-         Test: simulate both APIs failing → verify None returned, explanation_source=null
+         Test: call the configured provider with a sample breakdown, verify natural language output
+         Test: simulate LLM failure → verify the offline explanation is served with source=offline_fallback
+         Test: simulate LLM failure → verify the recommendation is still stored and shown
 
 Step 9:  Build engine.py (orchestrator)
          Test: run full pipeline on one applicant against seed jobs, check DB output
@@ -994,12 +1065,12 @@ Step 11: Add DB migrations
 |---|---|---|---|---|
 | Baseline | Structured Signals | Location, experience, CGPA, interview | Pure Python | — |
 | 1 | TF-IDF Skill Weighting | Importance-aware skill matching | scikit-learn | — (always available) |
-| 2 | Semantic Skill Matching | Synonym/context-aware skill matching | Gemini Embedding 2 Preview | TF-IDF (Tier 1) |
+| 2 | Semantic Skill Matching | Synonym/context-aware skill matching | Local all-MiniLM-L6-v2 (offline) | TF-IDF (Tier 1) |
 | 3 | Personalization | User-specific re-ranking via behavior | PostgreSQL (feedback table) | — |
 | 4 | Temporal Decay | Job freshness + demand awareness | Pure Python (math) | — |
-| 5 | Document Semantics | Full resume vs full job description | Gemini Embedding 2 Preview | TF-IDF-only skill score |
-| 5b | Explainability | Human-readable reason per recommendation | Gemini 2.5 Flash | Groq LLaMA 3 → null + retry |
+| 5 | Document Semantics | Full resume vs full job description | Local all-MiniLM-L6-v2 (offline) | TF-IDF-only skill score |
+| 5b | Explainability | Human-readable reason per recommendation | Configured provider (opencode/DeepSeek), one attempt | Offline template (`offline_fallback`) |
 
 ---
 
-*Document version: 1.1 | Project: unknown-spec10/Career-Guidance | Scope: Recommendation Engine Redesign*
+*Document version: 1.2 | Project: unknown-spec10/Career-Guidance | Scope: Recommendation Engine Redesign (Tier 2/5 embeddings now local all-MiniLM-L6-v2, offline)*

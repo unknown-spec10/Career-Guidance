@@ -22,7 +22,7 @@ When working in this repository, read the OpenWiki quickstart first, then follow
 
 Monorepo: Python FastAPI backend (`resume_pipeline/`) + React/Vite frontend (`frontend/`).
 
-Core workflow: Upload resume → Parse via Google Gemini → Store in PostgreSQL → Generate college/job recommendations → Support interview practice → Credit-gated premium features.
+Core workflow: Upload resume → Parse with the rule-based offline engine (no LLMs) → Store in PostgreSQL → Generate job recommendations → Support interview practice → Credit-gated premium features.
 
 ---
 
@@ -30,37 +30,37 @@ Core workflow: Upload resume → Parse via Google Gemini → Store in PostgreSQL
 
 ```
 Career Guidence/
-├── deploy/                # Deployment + Docker orchestration
+├── deploy/                # Deployment helpers (no env files, no compose overlays)
 │   ├── docker/
-│   │   ├── docker-compose.yml
-│   │   ├── docker-compose.aws-dev.yml
-│   │   ├── docker-help.sh
-│   │   └── docker-help.bat
-│   ├── scripts/
-│   │   ├── redeploy.ps1
-│   │   └── setup_dual_db.sh
-│   └── aws/
-│       └── .env.aws.example
-├── frontend/              # React 18 + Vite 5 + Tailwind CSS (JavaScript/JSX)
+│   │   ├── build-and-push.ps1
+│   │   └── build-and-push.sh    # Backend image → Docker Hub (repo-root context, resume_pipeline/Dockerfile)
+│   ├── gcp/
+│   │   ├── BRINGUP.md           # Manual GCE demo-VM bring-up (the documented deploy path)
+│   │   └── user-data.sh         # GCE startup script (non-secret config; container entrypoint loads Secret Manager; NO VM .env)
+│   └── scripts/                 # Empty (legacy redeploy/dual-DB scripts removed)
+├── docker-compose.yml     # Single backend-only compose (Supabase DB, Vercel frontend)
+├── .env / .env.example    # Single env source (no .env.docker, frontend/.env*, deploy/aws/*.env.*)
+├── resume_pipeline/Dockerfile  # Backend-only image (repo-root build context)
+├── .dockerignore          # Single root ignore (frontend/resume_pipeline variants removed)
+├── frontend/              # React 18 + Vite 5 + Tailwind CSS (JavaScript/JSX) — student-scoped pages only (employer/admin/mentor/analytics pages removed; see docs_wiki/PAGE_API_AUDIT.md)
 ├── resume_pipeline/       # FastAPI backend (Python 3.11)
 │   ├── resume_pipeline/   # Main package
-│   │   ├── app.py         # Entry point; all routes, CORS, startup
-│   │   ├── db.py          # SQLAlchemy models (31 tables, 16 PG enums)
+│   │   ├── app.py         # Thin composition root: app wiring, CORS, startup/shutdown, router registration
+│   │   ├── routers/       # Route handlers: auth/ package (session, oauth, password_reset, verification), profile, resume, jobs, applications, recommendations, credits, rag, misc (+ deps.py shared helpers)
+│   │   ├── db/            # SQLAlchemy models (32 tables, 16 PG enums) + session helpers
 │   │   ├── config.py      # Settings from .env via pydantic-settings
-│   │   ├── constants.py   # RECOMMENDATION_WEIGHTS, CREDIT_CONFIG, API_MESSAGES
 │   │   ├── schemas.py     # Pydantic v2 request/response models
 │   │   ├── auth.py        # JWT + bcrypt; require_role() guard
 │   │   ├── utils.py       # File save/hash, XSS sanitization
-│   │   ├── resume/        # Parsing: Groq parallel extraction + local OCR fallback, skill mapping
-│   │   ├── interview/     # Interview service (Groq-based generation/scoring via llm_router)
-│   │   ├── core/          # CreditService, abstract interfaces
-│   │   ├── recommendation/# Scoring engine for jobs
-│   │   ├── rag/           # BM25 + TF-IDF hybrid retrieval over repo docs (no FAISS), Gemini RAG Q&A
-│   │   └── repos/         # Repository pattern (PostgreSQL impl) — currently orphaned/dead code
+│   │   ├── resume/        # Rule-based offline parsing: ingest, preprocess_ocr, segmenter, extractors, rule_parser; parse_service.py is a thin facade; skill taxonomy + unrecognized-skills review queue (no llm_groq.py / llm_gemini.py / preprocessor.py)
+│   │   ├── interview/     # Lifecycle routes in sessions.py (start/answer/state/results/finish/abandon/active/history/candidate-intelligence) + streaming routes in streaming.py (hint/feedback/skill-gap SSE, Whisper transcribe, session questions) + shared helpers in common.py; router.py is a thin aggregator re-exporting the combined router. generator.py / evaluator.py / service.py boundaries unchanged (DeepSeek-via-OpenCode generation/scoring via llm_router + hardcoded fallback bank). interview/learning_path_generator.py is a backward-compat shim.
+│   │   ├── learning/        # Top-level learning paths: generator.py (YouTube + DeepSeek-via-OpenCode planning, credit-capped) + router.py (`/api/learning-paths/*` CRUD and the `/api/interview/generate-learning-path/{session_id}` trigger, same paths as before)
+│   │   ├── core/          # CreditService, abstract interfaces, llm_router
+│   │   ├── recommendation/# Staged student pipeline: retrieval.py (TF-IDF candidates over active jobs) → ranking.py (heavy scorers + aggregator over retrieved ~100) → reranking.py (diversity/freshness/interview/explanations) → service.py facade get_recommendations(applicant_id, purpose=...); engine.py + recommendation_service.py are backward-compatible shims
+│   │   ├── rag/           # BM25 + TF-IDF hybrid retrieval over repo docs (no FAISS), DeepSeek RAG Q&A via llm_router
 │   ├── tests/             # pytest test suite
 │   └── scripts/           # DB init/seed/verify helpers
 ├── data/raw_files/        # Per-applicant file storage (app_<uuid>/)
-├── docs/                  # Architecture, database, deployment docs
 └── README.md
 ```
 
@@ -141,9 +141,15 @@ pytest tests/test_parsing.py::test_cgpa_normalization -v -s
 - `test_interview.py`, `test_learning_path.py`, `test_recommendation_fallback.py`,
   `test_recommendation_system.py` — restored to CI; run against the in-memory SQLite stub
   created by `db.py` when `CI_SKIP_DB_VALIDATION=true` (shared DB, schema auto-created).
-- `test_api.py` — a single live-key Gemini connectivity smoke test only; it is NOT an
+- `test_retrieval_rerank.py` — staged-pipeline tests: TF-IDF retrieval (rank order,
+  lenient hard filters, top-100 bound, no network), reranking (diversity cap,
+  freshness, gap signals), and the `purpose` parameter (`jobs`/`skill_gaps`/`digest`).
+  Golden proof scripts: `scripts/golden_capture.py` (saves pre-refactor full-ranking
+  output to `tests/golden_recommendations.json`) + `scripts/golden_verify.py`
+  (retrieval recall ≥95%, stable ranking order).
+- `test_api.py` — a single live-key OpenCode connectivity smoke test only; it is NOT an
   integration suite and is the ONLY module excluded from CI.
-- `test_semantic_indexing_strategy.py` and `test_smtp_password_reset.py` are interactive
+- `probe_semantic_indexing_strategy.py` and `probe_smtp_password_reset.py` (in `resume_pipeline/tests/`) are interactive
   CLI probe scripts (collect zero pytest tests); run manually, never via pytest.
 - CI additionally verifies `alembic upgrade head` twice against a disposable PostgreSQL 16
   service container (idempotency + real PG DDL coverage). See `.github/workflows/ci-cd.yml`.
@@ -183,10 +189,9 @@ from typing import Optional, List, Dict, Any, Tuple
 from fastapi import HTTPException, Depends
 import sqlalchemy
 
-from ..config import settings
+from ..routers.deps import get_db
 from ..db import User, Applicant
 from ..constants import CREDIT_CONFIG
-from .llm_gemini import GeminiLLMClient
 ```
 
 Always use **relative imports** within the `resume_pipeline` package.
@@ -222,9 +227,9 @@ Always use **relative imports** within the `resume_pipeline` package.
 ### Database patterns
 
 - Use `joinedload` to avoid N+1 queries when accessing related models.
-- New routes go in `app.py` with `@require_role('student'|'employer'|'college')` guard.
-- Extend `db.py` for new models; update `schemas.py` for new Pydantic shapes.
-- Tune weights/costs in `constants.py`, not inline.
+- New routes go in `resume_pipeline/routers/` (one module per domain, shared helpers in `routers/deps.py`) with `@require_role('student'|'employer'|'college')` guard; `app.py` only wires routers and startup/shutdown.
+- Extend `resume_pipeline/db/` for new models; update `schemas.py` for new Pydantic shapes.
+- Tune weights/costs in `config.py` module constants (the former `constants.py` was merged there), not inline.
 
 ---
 
@@ -284,13 +289,14 @@ import StatusBadge from '../components/StatusBadge'
 
 | Variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` | Required for resume parsing and interview evaluation |
-| `GEMINI_MOCK_MODE=true` | Stub LLM — use for testing without API calls |
+| `OPENCODE_API_KEY` | All chat/explanation workloads (interview, learning paths, RAG answers) via `llm_router`; parsing is offline and needs no key |
+| `GCP_PROJECT` | Container entrypoint switch: set on GCP → load secrets from Secret Manager; unset → local `.env` passthrough |
+| `GEMINI_MOCK_MODE=true` | Stub LLM calls (interview/RAG) — use for testing without API calls |
 | `PG_DSN` | Full DB connection string (`postgresql+psycopg2://...`); falls back to SQLite in-memory if `PG_HOST` not set |
 | `PG_HOST` / `PG_PORT` / `PG_USER` / `PG_PASSWORD` / `PG_DB` | Discrete PostgreSQL connection fields (alternative to `PG_DSN`) |
 | `SECRET_KEY` | JWT signing (min 32 chars) |
 | `GMAIL_USER` / `GMAIL_APP_PASSWORD` | Email verification via Gmail SMTP |
-| `GROQ_API_KEY` | RAG Q&A system |
+| `GROQ_API_KEY` | Interview generation/evaluation + learning-path structuring via `llm_router` (optional; degrades gracefully when unset) |
 | `VITE_API_URL` | Frontend production API base URL |
 
 ---
@@ -303,7 +309,7 @@ import StatusBadge from '../components/StatusBadge'
 - **Credits**: Always call `CreditService.check_eligibility()` before executing premium features; call `spend_credits()` only after success.
 - **File storage**: All file writes go under `data/raw_files/app_<uuid>/`; update `metadata.json` when user-provided fields affect parsing.
 - **CORS origins**: `http://localhost:3000`, `http://localhost:5173`, `https://career-guidance-frontend-pcjn.onrender.com` — keep Vite proxy config and Render `CORS_ORIGINS` env var aligned when adding new domains.
-- **Recommendation weights**: Defined in `constants.py` as `RECOMMENDATION_WEIGHTS` — do not hardcode inline.
+- **Recommendation weights**: Tuned constants live in `config.py` (the former `constants.py` was merged there); do not hardcode new weights inline.
 
 ---
 
@@ -339,7 +345,7 @@ import StatusBadge from '../components/StatusBadge'
 ### Key Deployment Conventions
 
 - **`config.py`** uses `model_config = SettingsConfigDict(env_file=None)` — pydantic-settings loads from OS environment variables injected into the container/shell on production.
-- **`db.py`** uses `SQLAlchemy URL.create()` for Supabase connections to avoid string-parsing issues with special characters in passwords.
+- **`db/`** uses `SQLAlchemy URL.create()` for Supabase connections to avoid string-parsing issues with special characters in passwords.
 - **`IS_SUPABASE`** flag in `config.py` is auto-detected from `PG_HOST` containing `supabase.co` or `supabase.com`; controls SSL mode and startup behaviour.
 - **Docker build context** is the repo root (`Dockerfile` at `resume_pipeline/Dockerfile`); all `COPY` paths must use the `resume_pipeline/` prefix.
 - **Do not bake `.env` into the Docker image** — `.dockerignore` at repo root excludes it.
@@ -355,7 +361,7 @@ import StatusBadge from '../components/StatusBadge'
 ## Common Pitfalls
 
 - Passing string `applicant_id` where an integer DB id is expected.
-- Missing `.env` values (`GEMINI_API_KEY`, PostgreSQL credentials) — DB init fails silently or stubs features.
+- Missing `.env` values (`OPENCODE_API_KEY` for chat/RAG/interview, PostgreSQL credentials) — DB init fails silently or stubs features. Resume parsing itself is offline and needs no API key.
 - Running integration tests without the backend server — use `GEMINI_MOCK_MODE=true` and start `uvicorn` first.
 - N+1 queries — always use `joinedload` when loading relations in SQLAlchemy.
-- Rate limiting is in-memory (`defaultdict(list)` in `app.py`) — not safe for multi-process deployments.
+- Rate limiting is in-memory (`defaultdict(list)` in `routers/deps.py`) — not safe for multi-process deployments.

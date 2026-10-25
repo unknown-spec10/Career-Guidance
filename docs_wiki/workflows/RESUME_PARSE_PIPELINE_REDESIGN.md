@@ -1,4 +1,11 @@
 ================================================================================
+> SUPERSEDED (October 2026): this proposal's Groq/Gemini-Vision pipeline was
+> NOT built. The parser was instead rebuilt as a fully rule-based offline
+> engine (`resume/`: `ingest → preprocess_ocr → segmenter → extractors →
+> rule_parser`, `parse_service.py` facade; local RapidOCR/Tesseract only).
+> `llm_groq.py`, `llm_gemini.py`, and `preprocessor.py` were deleted. Kept
+> below as a historical record — do not implement from it.
+================================================================================
 RESUME PARSE PIPELINE — RECONSTRUCTION DESIGN DOCUMENT
 Career Guidance AI System | unknown-spec10/Career-Guidance
 Date: May 2026

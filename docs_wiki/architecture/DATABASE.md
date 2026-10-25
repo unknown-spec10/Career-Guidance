@@ -10,7 +10,7 @@ The active role model is:
 - `employer`
 - `admin`
 
-Legacy college-domain tables and enum values should be removed from existing databases with [resume_pipeline/scripts/drop_college_domain.py](../resume_pipeline/scripts/drop_college_domain.py).
+Legacy college-domain tables and enum values should be removed from existing databases with [resume_pipeline/scripts/drop_college_domain.py](../../resume_pipeline/scripts/drop_college_domain.py).
 
 ## Core Tables
 
@@ -44,7 +44,7 @@ The schema currently defines **31 tables / 16 native PG enums** (verify against 
 - `mentors`, `mentor_requests`, `interview_schedules`, `interview_feedbacks`
 - `canonical_skills`, `system_configurations`
 
-Exact table names and ORM definitions are in [resume_pipeline/resume_pipeline/db.py](../resume_pipeline/resume_pipeline/db.py).
+Exact table names and ORM definitions are in [resume_pipeline/resume_pipeline/db/](../../resume_pipeline/resume_pipeline/db/).
 
 ## Primary Relationships
 
@@ -110,7 +110,7 @@ python scripts/drop_college_domain.py
 
 ## Data Integrity Checks
 
-Use [resume_pipeline/scripts/verify_data.py](../resume_pipeline/scripts/verify_data.py) for a quick sanity check of:
+Use [resume_pipeline/scripts/verify_data.py](../../resume_pipeline/scripts/verify_data.py) for a quick sanity check of:
 
 - total users
 - student count
@@ -121,6 +121,6 @@ Use [resume_pipeline/scripts/verify_data.py](../resume_pipeline/scripts/verify_d
 
 ## Notes for Future Changes
 
-- Keep schema changes aligned with [resume_pipeline/resume_pipeline/db.py](../resume_pipeline/resume_pipeline/db.py).
+- Keep schema changes aligned with [resume_pipeline/resume_pipeline/db/](../../resume_pipeline/resume_pipeline/db/).
 - Keep role changes aligned across ORM, auth logic, and cleanup scripts.
 - Add new premium workflows through the credit tables and service layer instead of bypassing them.

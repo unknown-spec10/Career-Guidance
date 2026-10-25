@@ -64,9 +64,9 @@ frontend/
 The frontend connects to your FastAPI backend at `http://localhost:8000`
 
 Endpoints used:
-- `POST /api/upload` - Upload resume with metadata
-- `POST /api/parse/{applicant_id}` - Parse uploaded resume
-- `GET /api/results/{applicant_id}` - Fetch results (optional)
+- `POST /upload` (also `POST /api/upload/resume`) - Upload resume with metadata
+- `POST /parse/{applicant_id}` - Trigger the offline rule-based parse
+- `GET /api/applicant/{applicant_id}` - Fetch parsed profile and scorecard
 
 ## Customization
 

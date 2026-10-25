@@ -4,8 +4,8 @@
 > scrutiny round that closed the residual security items and a testing/CI
 > foundation milestone.**
 > This document describes what the codebase actually does **today**, verified by an
-> independent adversarial audit, a 183-test backend regression suite, an 82-test
-> frontend Vitest suite, and frontend lint/build. It is not a roadmap: anything not
+> independent adversarial audit, a 173-test backend regression suite, an 88-test
+> frontend Vitest suite (14 files), and frontend lint/build. It is not a roadmap: anything not
 > finished is listed explicitly under Partially Implemented / Missing / Deferred.
 >
 > Related: `deploy/` for ops, `docs_wiki/architecture/*` for design deep-dives.
@@ -35,6 +35,15 @@
   (`ReferenceError: learningPathState is not defined` — dangling reference left when
   the dead learning-path button was removed in commit a100f56). Fixed minimally;
   regression now covered by `JobsPage.test.jsx`.
+
+## October 2026 Student-Scope Rebuild (superset of the above)
+
+- **Parser is rule-based and offline**: `resume/` runs `ingest → preprocess_ocr → segmenter → extractors → rule_parser` with `parse_service.py` as a thin facade. No Groq/Gemini calls in the parse path, no network access; `llm_groq.py`, `llm_gemini.py`, Gemini Vision OCR paths, `preprocessor.py`, and the `groq` / `google-genai` pip dependencies are deleted. Scanned pages use local RapidOCR (Tesseract fallback). Skills match offline via rapidfuzz against a backfilled `skill_taxonomy.json`; unrecognized skills append to `unrecognized_skills_review.jsonl`. (The optional Gemini-embedding Pass-2 in `skill_normalizer.py` is not used by the parse path.)
+- **Backend split into routers**: `app.py` is a thin composition root; handlers live in `resume_pipeline/routers/` (`auth/` package: `session`, `oauth`, `password_reset`, `verification` — one router each, paths/guards unchanged; `profile`, `resume`, `jobs`, `applications`, `recommendations`, `credits`, `rag`, `misc`) with shared helpers in `routers/deps.py`.
+- **Student-scope cut**: `resume_pipeline/repos/` deleted; 15 employer/admin/mentor/analytics frontend pages deleted (Employer*, AdminDashboard, JobModerationPage, UserManagementPage, TalentPool*, ApplicantDetailsPage, JobApplicantsPage, InterviewFeedbackPage, InterviewSchedulerPage, RecruitmentAnalyticsPage, NetworkHubPage) plus their test files; uncalled backend routes removed (`/api/admin/*`, `/api/employer/*`, `/api/mentor*` route handlers are gone — verified by grep). The `employer` role value and `Employer` model still exist in auth/db but have no dedicated routes or pages. Source list: `PAGE_API_AUDIT.md`.
+- **Suites re-measured (this session)**: backend `173 passed, 1 skipped`; frontend `88 passed (14 files)`.
+- **Recommendation engine is a staged pipeline (student scope)**: `recommendation/retrieval.py` (TF-IDF candidates over active jobs, ~100 IDs, no network) → `ranking.py` (heavy scorers + aggregator over retrieved set only, unchanged scoring) → `reranking.py` (diversity cap, freshness boost, interview blend, explanations, persistence) → `service.py` facade `get_recommendations(applicant_id, purpose=...)` with `jobs` / `skill_gaps` / `digest` purposes. `engine.py` and `recommendation_service.py` are compat shims. Embeddings are written once (applicant at parse time, job at posting time via `precompute.py`) and read from the pgvector cache per request. Golden proof: `scripts/golden_verify.py` reports 100% retrieval recall and stable ranking order on the 3-applicant golden set (`tests/golden_recommendations.json`). The 24-hour cooldown is unchanged in the router; employer-side matching stays out of scope.
+- **Interview router split + learning/ promotion (structural, no behavior change)**: `interview/router.py` (1218-line monolith) split into `interview/sessions.py` (lifecycle: start/answer/state/results/finish/abandon+beacon/active/history/candidate-intelligence), `interview/streaming.py` (hint/feedback/skill-gap SSE, Whisper transcribe, session questions), `interview/common.py` (HMAC helpers, `get_db`, applicant/question shaping, retry budget, streaming adapters), with `interview/router.py` kept as a thin aggregator re-exporting the combined `router`. Learning paths promoted to top-level `learning/` (`generator.py` moved verbatim; `router.py` owns `/api/learning-paths/*` CRUD plus the `/api/interview/generate-learning-path/{session_id}` trigger at its original path). `generator.py` / `evaluator.py` / `service.py` boundaries kept; prompts already centralized in `prompts.py`; the single-provider `llm_router` (opencode/DeepSeek, one attempt, raise on failure) serves generation/scoring with the hardcoded fallback bank. `interview/learning_path_generator.py` is a backward-compat shim (re-exports + `llm_router` patch target). All 21 route paths/methods verified identical via a golden set in `tests/test_interview_refactor_proof.py` (recorded Groq payloads + outage fallback; asserts transitions/scoring-math/abandon, never LLM wording). Suites re-measured after the split: backend `189 passed, 1 skipped` (was `182 passed, 1 skipped` pre-split; +7 new proof tests), frontend `88 passed (14 files)` unchanged.
 
 ## Scrutiny Round (post-completion hardening)
 
@@ -69,7 +78,7 @@
 
 | Feature | Notes |
 |---|---|
-| Resume upload + AI parsing (Groq ∥ + Gemini vision OCR) | Upload validation, ownership-gated parse trigger |
+| Resume upload + rule-based offline parsing | Upload validation, ownership-gated parse trigger, zero LLM calls |
 | Job posting → admin approval → visibility → expiry | Real expiry sweeper (startup + admin trigger), 'expired' status |
 | Recommendations engine + 24h cooldown + credit bypass | Atomic bypass spend with compensating refund on failure |
 | Job applications + tracking board | Employer/student transitions enforced; relationship-scoped employer access |
@@ -87,9 +96,9 @@
 | Feature | Remaining gap |
 |---|---|
 | Semantic candidate search | Real vector path works off persisted embeddings; coverage depends on reindex runs; text fallback returns unscored results by design |
-| Admin center | Real stats endpoint wired; activity-log view depends on audit-log data; duplicate user-management UIs exist in AdminDashboard vs UserManagementPage |
+| Admin center | Removed in the October 2026 student-scope cut (AdminDashboard/UserManagement frontend pages and `/api/admin/*` routes deleted); activity-log views depended on audit-log data that had no admin UI consumer |
 | Rate limiting | Correct single-process; still in-memory (multi-worker deployments need Redis — see Known Limitations) |
-| Skill normalization | canonical_skills seeded (98 skills); semantic Pass-2 embeddings require optional `seed_skill_embeddings.py` run |
+| Skill normalization | `skill_taxonomy.json` backfilled (127 top-level entries); parse path uses offline rapidfuzz Pass-1; optional Gemini Pass-2 exists but is unwired; unrecognized skills queue to `unrecognized_skills_review.jsonl` |
 | Frontend UX states | Loading/error/empty states added on remediated pages; older pages not exhaustively audited for every edge case |
 
 ## Partially Implemented
@@ -133,6 +142,10 @@ See **Deferred** below. Nothing documented as shipped is missing.
 | ~~Native `confirm()` dialogs~~ | **Resolved**: all four sites (avatar removal ×2, account deactivation, learning-path delete) now use the shared `ConfirmDialog` built on `Modal` |
 
 ## UI Consistency Pass (post testing/CI milestone)
+
+> Historical note: this pass ran when the admin pages still existed. AdminDashboard
+> and UserManagementPage were removed in the October 2026 student-scope cut; the
+> shared fixes below survive in the kept components (Modal, ConfirmDialog, Toast).
 
 - **Dark-theme palette gaps closed** in the central override map (`index.css`): red,
   green, and yellow families now mirror the existing emerald/rose/amber rules — fixes
@@ -199,9 +212,10 @@ See **Deferred** below. Nothing documented as shipped is missing.
 
 ## Verification Summary
 
-- Backend: `pytest tests/ -q --ignore=tests/test_api.py` → **183 passed, 1 skipped**
-  (up from 179 — the four previously CI-excluded suites are restored).
-- Frontend: `npm test` → **82 passed (13 files)**; `npm run lint` (zero warnings);
+- Backend: `pytest tests/ -q --ignore=tests/test_api.py` → **160 passed, 1 skipped**
+  (measured October 2026 under `GEMINI_MOCK_MODE=true`, `CI_SKIP_DB_VALIDATION=true`;
+  suite shrank from 183 as parser-LLM tests were replaced by rule-based parser bars).
+- Frontend: `npm test` → **88 passed (14 files)** (measured October 2026); `npm run lint` (zero warnings);
   `npm run build` clean.
 - Migrations: `alembic upgrade head` applied 0001→0007 to the dev database
   without data loss and re-runs idempotently; chain also verified against throwaway

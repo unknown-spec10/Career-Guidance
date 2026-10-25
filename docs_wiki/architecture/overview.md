@@ -9,7 +9,7 @@ This page summarizes the overall monorepo structure, detailing how the backend a
 The repository is structured as follows:
 
 - **`docs_wiki/`**: Reorganized project documentation portal.
-- **`deploy/`**: Docker Compose configuration and production environment configurations.
+- **`deploy/`**: Docker build/push helpers and GCE bring-up notes (the only compose file lives at root `docker-compose.yml`; the database is external Supabase).
 - **`frontend/`**: Single Page Application (SPA) built with React 18 and Vite 5.
 - **`resume_pipeline/`**: REST API backend built with FastAPI (Python 3.11).
 - **`data/raw_files/`**: Local filesystem storage holding uploaded applicant resumes and parsing metadata.
@@ -21,17 +21,18 @@ The repository is structured as follows:
 ```mermaid
 graph TD
     Client[React Frontend /frontend] -->|REST API over HTTPS| API[FastAPI Backend /resume_pipeline]
-    API -->|LLM / Parsing / Scoring| Gemini[Google Gemini API]
+    API -->|Offline rule-based parse| Parser[resume/ rule_parser]
+    API -->|Interview + RAG answers| LLM[DeepSeek via OpenCode, Groq STT via llm_router]
     API -->|Audit logs & Profiles| PostgreSQL[(PostgreSQL / Supabase)]
     API -->|Local File Cache| Disk[File Storage /data/raw_files]
 ```
 
 ### 1. Backend (`resume_pipeline/`)
-The FastAPI application implements a standard model-schema-repository architecture:
-- **`app.py`**: Declares REST endpoints, CORS policies, rate limits, and routes.
-- **`db.py`**: Defines the SQLAlchemy database classes (18 database tables).
-- **`config.py`**: Reads configuration variables from the environment and local `.env` files.
-- **`repos/`**: Implements repositories to query PostgreSQL database tables using SQLAlchemy.
+The FastAPI application implements a standard model-schema-router architecture:
+- **`app.py`**: thin composition root — app wiring, CORS, startup/shutdown, router registration (handlers live in `routers/`).
+- **`db.py`**: Defines the SQLAlchemy database classes.
+- **`config.py`**: Reads configuration variables from the environment.
+- **`resume/`**: Rule-based offline parsing (`ingest`, `preprocess_ocr`, `segmenter`, `extractors`, `rule_parser`; `parse_service.py` facade). No `repos/` layer (deleted).
 
 ### 2. Frontend (`frontend/`)
 The React application acts as the client-facing user interface:

@@ -4,7 +4,7 @@ Welcome to the **Career Guidance AI System** Docs Wiki! This repository contains
 
 ## System Overview
 
-The **Career Guidance AI System** is a platform designed to parse resumes using Google Gemini, store parsed data in a PostgreSQL schema, calculate recommendations for jobs and colleges, and simulate practice interview sessions.
+The **Career Guidance AI System** is a platform designed to parse resumes with a rule-based offline engine, store parsed data in a PostgreSQL schema, calculate job recommendations, and simulate practice interview sessions.
 
 ---
 
@@ -17,8 +17,8 @@ Introduction to the monorepo design, database schema, and component layout.
 
 *Detailed architectural guides:*
 * **[System Architecture Guide](architecture/ARCHITECTURE.md)**: Diagrams and workflow specifications.
-* **[Database Schema Reference](architecture/DATABASE.md)**: Explicit definitions for all 18 SQLAlchemy models.
-* **[Interview System Design](architecture/INTERVIEW_SYSTEM_ARCHITECTURE.md)**: Gemini-powered mock interview service architecture.
+* **[Database Schema Reference](architecture/DATABASE.md)**: Explicit definitions for all 31 tables / 16 PG enums.
+* **[Interview System Design](architecture/INTERVIEW_SYSTEM_ARCHITECTURE.md)**: DeepSeek-via-OpenCode mock interview service architecture.
 * **[Learning Path Generation](architecture/LEARNING_PATH_ARCHITECTURE.md)**: Algorithms for generating candidate learning roadmaps.
 * **[Real-time Live Interview Prep](architecture/LIVE_INTERVIEW_ARCHITECTURE.md)**: WebSockets and realtime connection layer design.
 * **[Voice Layer Specifications](architecture/VOICE_LAYER_DESIGN.md)**: Architecture for real-time audio and voice synthesis.

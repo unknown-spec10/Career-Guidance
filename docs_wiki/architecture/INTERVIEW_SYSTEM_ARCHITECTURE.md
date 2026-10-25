@@ -91,7 +91,13 @@ PostgreSQL reads 5KB in ~5-15ms. The Groq API call takes 800-2000ms. Adding Redi
 
 Redis would make sense later if you add a global leaderboard or a stats dashboard that thousands of users hit simultaneously. That is a cache-worthy problem. Per-session interview state is not.
 
-### Why Groq (LLaMA 3)?
+### Why DeepSeek via OpenCode for chat (Groq kept for STT)?
+
+Chat workloads (question generation, evaluation, hints, profiles) moved to
+DeepSeek via OpenCode as the single configured chat provider (one attempt per
+call; failures raise and the hardcoded question bank / error paths recover).
+Groq remains for speech-to-text only (Whisper transcription). The original
+Groq rationale is kept below as historical context:
 
 - Already in your `.env.example` — zero new setup
 - Free tier is generous enough for question generation and evaluation
@@ -100,13 +106,13 @@ Redis would make sense later if you add a global leaderboard or a stats dashboar
 - Supports streaming natively
 - Supports multi-turn conversation history natively
 
-Gemini is kept only for resume parsing where it already works well. Enabling Gemini billing removes free tier access entirely, so all new features route to Groq.
+DeepSeek (via OpenCode) now serves ALL chat workloads — interview generation/scoring, RAG answers, learning paths, explanations — through `core/llm_router` (resume parsing is rule-based offline since October 2026 and uses no LLM). Groq serves STT only (Whisper transcription).
 
 ### Why pre-generate all questions upfront?
 
-The naive approach calls Groq twice per question: once to generate the next question, once to evaluate the previous answer. For a 10-question interview that is 20 Groq API calls.
+The naive approach calls the chat provider twice per question: once to generate the next question, once to evaluate the previous answer. For a 10-question interview that is 20 chat API calls.
 
-The smarter approach calls Groq once at session start to generate all questions, then once per answer for evaluation. That is 11 Groq calls total — nearly half.
+The smarter approach calls the chat provider once at session start to generate all questions, then once per answer for evaluation. That is 11 chat calls total — nearly half.
 
 Pre-generation also means showing the next question is instant — it just reads from the database. No API latency mid-interview.
 
@@ -122,6 +128,17 @@ FastAPI BackgroundTasks runs tasks in the same process, after the HTTP response 
 - You do not need tasks to survive a server crash
 
 Evaluation tasks take 1-2 seconds and are per-session. BackgroundTasks is exactly right here. Celery would be the correct choice when you have hundreds of concurrent users all submitting answers simultaneously. That is a scale problem you do not have yet.
+
+> **Scale guard (implemented 2026-10-24, verified in `interview/evaluator.py`):**
+> BackgroundTasks are in-process and unbounded, so a cohort burst would pile
+> up workers against the Groq rate limit. `run_evaluation` now runs under a
+> `threading.BoundedSemaphore(MAX_CONCURRENT_EVALS=8,
+> INTERVIEW_CONFIG_V2)`; when the cap is hit the evaluation sheds load by
+> returning early and leaving the answer `pending_evaluation`, which the
+> existing retry-on-poll in `GET /results/{id}` re-queues. Groq 429/timeout
+> errors back off with jitter inside the unchanged 3-attempt budget
+> (`eval_backoff_delay`, `MAX_EVAL_RETRIES`), then surface honestly as
+> `evaluation_failed`. Same API contracts, same UI.
 
 ---
 
@@ -548,6 +565,25 @@ async def stream_study_plan(session_id: str, db: Session = Depends(get_db)):
         headers={"Cache-Control": "no-cache"}
     )
 ```
+
+### SSE hygiene: timeouts, heartbeats, cached-replay-first (implemented 2026-10-24)
+
+Idle SSE streams used to pin a uvicorn worker indefinitely. Verified in
+`interview/common.py` (`wrap_sse_with_heartbeat`) and `interview/streaming.py`:
+
+- Every hint/feedback/skill-gap stream is wrapped with an idle timeout
+  (`SSE_STREAM_TIMEOUT_SECONDS=120`) and `: ping` heartbeat comments
+  (`SSE_HEARTBEAT_INTERVAL_SECONDS=15`). The heartbeat wait never cancels
+  the upstream LLM generator, so a slow-but-alive stream is not killed.
+- The skill-gap loop additionally enforces the timeout itself before
+  accumulating tokens.
+- Cached-replay-first: the hint endpoint serves the persisted
+  `answer.hint_for_next` and the feedback endpoint serves the persisted
+  `answer.feedback` via `_stream_cached_plan` when present, instead of
+  spending a second LLM call on refresh/reconnect. Skill-gap already served
+  its `session.study_plan` cache first.
+- Frontend contract unchanged: all fetch-loop parsers only react to
+  `data: ` lines, so `: ping` comments are a no-op for the UI.
 
 ### Frontend Streaming Consumer
 
@@ -1089,15 +1125,15 @@ const [totalQuestions, setTotalQuestions] = useState(10);
 
 GET /api/interview/session/:id returns current state. Frontend restores to the correct question. Any answers already submitted are safe in DB.
 
-### Groq API failure during question generation
+### Chat-provider failure during question generation
 
 ```python
 try:
-    questions = generate_questions_with_groq(context)
+    questions = generate_questions_with_chat_provider(context)
 except Exception as e:
     # Fall back to a curated question bank for the candidate's role
     questions = get_fallback_questions(target_role, difficulty, num_questions)
-    logger.warning(f"Groq failed, using fallback questions: {e}")
+    logger.warning(f"Chat provider failed, using fallback questions: {e}")
 ```
 
 Have a small hardcoded bank of generic questions per role as fallback. The session starts regardless.
@@ -1138,16 +1174,31 @@ Backend marks session as `abandoned`. This session will appear in the "resume?" 
 ```
 resume_pipeline/
 └── resume_pipeline/
-    └── interview/
+    ├── interview/
+    │   ├── __init__.py
+    │   ├── sessions.py        # Lifecycle routes: start, answer, session state,
+    │   │                      # results, abandon (+beacon), active-session,
+    │   │                      # history, finish, candidate-intelligence
+    │   ├── streaming.py       # hint/feedback/skill-gap SSE, Whisper
+    │   │                      # transcription, session questions
+    │   ├── common.py          # HMAC helpers, get_db, applicant/question
+    │   │                      # shaping, retry budget, streaming adapters
+    │   ├── router.py          # Thin aggregator re-exporting the combined router
+    │   ├── service.py         # Core business logic
+    │   ├── evaluator.py       # Background evaluation + streaming generators
+    │   ├── generator.py       # Question generation logic (chat provider + fallback bank)
+    │   ├── prompts.py         # All chat-provider prompt templates
+    │   ├── schemas.py         # Pydantic request/response models
+    │   ├── limiter.py         # Session/answer rate limits + daily caps
+    │   ├── candidate_intelligence.py  # Longitudinal candidate profile
+    │   ├── learning_path_generator.py # Backward-compat shim → learning.*
+    │   └── fallback_questions.py  # Hardcoded fallback question bank
+    └── learning/
         ├── __init__.py
-        ├── router.py          # All 5 API endpoints
-        ├── service.py         # Core business logic
-        ├── evaluator.py       # Background evaluation logic
-        ├── generator.py       # Question generation logic
-        ├── prompts.py         # All Groq prompt templates
-        ├── schemas.py         # Pydantic request/response models
-        ├── voice.py           # Whisper transcription endpoint
-        └── fallback_questions.py  # Hardcoded fallback question bank
+        ├── generator.py       # Learning-path engine (moved from interview/)
+        └── router.py          # /api/learning-paths/* CRUD + the
+                               # /api/interview/generate-learning-path trigger
+```
 
 frontend/
 └── src/

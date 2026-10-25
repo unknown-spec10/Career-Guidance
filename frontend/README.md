@@ -1,141 +1,80 @@
-# Career Guidance AI - Frontend
+# Career Guidance AI - Frontend (Student Scope)
 
-Modern, responsive frontend for the AI-powered resume parsing and career guidance platform.
+Student-facing SPA for resume upload/parsing, job browsing and applications, recommendations, interview practice, learning paths, and credit-gated premium features. Built with React 18 + Vite 5 + Tailwind CSS (JavaScript/JSX).
 
-## Design Inspiration
-
-Inspired by x.ai's clean, modern design principles:
-- Dark theme with gradient accents
-- Smooth animations and transitions
-- Clear call-to-actions
-- Responsive grid layouts
-- Focus on user experience
+> Scope note: employer/admin/mentor/analytics pages (Employer*, AdminDashboard, JobModerationPage, UserManagementPage, TalentPool*, ApplicantDetailsPage, JobApplicantsPage, InterviewFeedbackPage, InterviewSchedulerPage, RecruitmentAnalyticsPage, NetworkHubPage) were removed in the October 2026 student-scope cut. The kept page set is listed in `docs_wiki/PAGE_API_AUDIT.md`.
 
 ## Features
 
-- **Modern UI/UX**: Built with React and Tailwind CSS
-- **Smooth Animations**: Powered by Framer Motion
-- **Drag & Drop Upload**: Intuitive file upload interface
-- **Real-time Analysis**: Live status updates during parsing
-- **Responsive Design**: Works on all devices
-- **Results Dashboard**: Comprehensive visualization of parsed data
+- **Resume upload & parse**: drag-and-drop upload with polling for parse status and a parsed-results view
+- **Jobs & applications**: public listings, job details, apply flow, application tracking board
+- **Recommendations**: AI recommendations with 24h cooldown + credit bypass, save/track actions
+- **Interview practice**: session start/answer/finish lifecycle, results, skill-gap → learning-path flow
+- **Learning paths**: session-generated roadmaps with progress tracking
+- **Credits**: balance widget, transaction history, upgrade/downgrade toggles
+- **RAG assistant**: docs-grounded Q&A (`AskPage`)
 
 ## Tech Stack
 
-- **React 18**: Modern React with hooks
-- **Vite**: Fast build tool and dev server
-- **Tailwind CSS**: Utility-first CSS framework
-- **Framer Motion**: Animation library
-- **Axios**: HTTP client for API calls
-- **Lucide React**: Beautiful icon library
-- **React Router**: Client-side routing
+- **React 18**: functional components + hooks
+- **Vite 5**: dev server (port 3000, proxies `/api` to `:8000`) and build
+- **Tailwind CSS**, **Framer Motion**, **React Router**, **Lucide React**, **Axios**
+- **Vitest + React Testing Library**: 88 tests across 14 files, mocked at the HTTP (`api`) boundary
 
 ## Getting Started
-
-### Prerequisites
-
-- Node.js 18+ and npm/yarn
-- Backend API running on `http://localhost:8000`
-
-### Installation
 
 ```bash
 # Install dependencies
 npm install
 
-# Start development server
+# Start development server (http://localhost:3000)
 npm run dev
 
-# Build for production
+# Single test run (matches CI) / watch mode
+npm test
+npm run test:watch
+
+# Lint + production build
+npm run lint
 npm run build
-
-# Preview production build
-npm run preview
 ```
-
-### Development
-
-The dev server runs on `http://localhost:3000` with hot module replacement.
-
-API requests to `/api/*` are automatically proxied to `http://localhost:8000`.
 
 ## Project Structure
 
 ```
 frontend/
 ├── src/
-│   ├── components/      # Reusable UI components
-│   │   ├── Navbar.jsx
-│   │   ├── Hero.jsx
-│   │   ├── Features.jsx
-│   │   ├── UploadSection.jsx
-│   │   └── Footer.jsx
-│   ├── pages/          # Page components
-│   │   └── ResultsPage.jsx
-│   ├── App.jsx         # Main app component
-│   ├── main.jsx        # Entry point
-│   └── index.css       # Global styles
-├── public/             # Static assets
-├── index.html          # HTML template
-├── vite.config.js      # Vite configuration
-├── tailwind.config.js  # Tailwind configuration
-└── package.json        # Dependencies
+│   ├── components/      # Reusable UI (CreditWidget, ApplicationTracker, Modal, SkillGapModal, ProtectedRoute, …)
+│   ├── pages/           # Student views: StudentDashboard, StudentProfile, JobsPage, JobDetailsPage,
+│   │                    #   ResultsPage, MyApplicationsPage, InterviewPage/Session/Results,
+│   │                    #   LearningPathPage, MyLearningPathsPage, CandidateIntelligencePage,
+│   │                    #   AskPage, TransactionHistoryPage, UpgradePage, auth pages, DashboardRouter
+│   ├── hooks/           # useAuth, useInterviewSession, useResultsPolling, useToast, …
+│   ├── utils/           # apiRetry (exponential backoff), secureStorage, …
+│   └── config/          # api (axios instance / base URL), constants
+├── vite.config.mjs / vitest.config.mjs
+└── package.json
 ```
-
-## Key Components
-
-### Hero Section
-- Animated gradient background
-- Call-to-action buttons
-- Statistics display
-- Smooth scroll indicator
-
-### Upload Section
-- Drag & drop file upload
-- File validation (PDF, DOCX, TXT)
-- Optional metadata form (JEE rank, location, preferences)
-- Real-time upload and parsing status
-
-### Results Page
-- Personal information card
-- Education timeline
-- Skills visualization
-- Experience and projects display
-- Confidence score meter
-- Export functionality
-
-## Customization
-
-### Colors
-
-Edit `tailwind.config.js` to customize the color scheme:
-
-```js
-colors: {
-  primary: { /* your colors */ },
-  dark: { /* your colors */ }
-}
-```
-
-### Animations
-
-Modify animations in `tailwind.config.js` under `theme.extend.animation`.
 
 ## API Integration
 
-The frontend expects these API endpoints:
+The frontend talks to the FastAPI backend (`VITE_API_URL`, default `http://localhost:8000`). Representative endpoints actually called by the kept pages:
 
-- `POST /api/upload` - Upload resume file
-- `POST /api/parse/{applicant_id}` - Parse uploaded resume
-- `GET /api/results/{applicant_id}` - Fetch analysis results
+- `POST /upload`, `POST /api/upload/resume` — upload resume file
+- `POST /parse/{applicant_id}` — trigger offline parse
+- `GET /api/applicant/{applicant_id}` — parsed profile + scorecard data
+- `GET /api/jobs`, `GET /api/job/{jobId}`, `POST /api/jobs/{id}/apply`
+- `POST /api/auth/register|login|verify-code|forgot-password|reset-password|…`, `GET /api/auth/me`
+- `GET /api/credits/balance`, `GET /api/credits/transactions`
+- `POST /api/interview/start|answer|finish/{id}`, `GET /api/interview/results/{id}`, learning-path + RAG endpoints
 
 ## Environment Variables
 
-Create a `.env` file if needed:
-
 ```env
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8000
 ```
+
+(`VITE_API_BASE_URL` is also honored; see `src/config/api.js`.)
 
 ## Building for Production
 
@@ -143,8 +82,4 @@ VITE_API_BASE_URL=http://localhost:8000
 npm run build
 ```
 
-The build output will be in the `dist/` directory, ready for deployment.
-
-## License
-
-Private project for internal use.
+The build output goes to `dist/`, ready for deployment (Vercel SPA with `vercel.json` rewrites).

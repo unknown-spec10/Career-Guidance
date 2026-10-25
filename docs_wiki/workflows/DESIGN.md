@@ -183,8 +183,8 @@ The shape language is **Rounded**, favoring 12px (rounded-xl) for main container
 
 ### Buttons
 - **Primary:** Solid `#2557a7` with white text. High-intent, semibold, `rounded-lg`.
-- **Secondary:** White background with `#2557a7` border and text.
-- **Nav Pill:** `rounded-full`, white/90 background with a subtle slate border. Transitions to a primary blue wash on hover.
+- **Secondary:** Off-white (`bg-surface-container-lowest`, `#FAF7F2`) background with `#2557a7` border and text.
+- **Nav Pill:** `rounded-full`, off-white (`bg-surface-container-lowest`) background with a subtle beige border (`border-border-subtle`). Transitions to a primary blue wash on hover.
 
 ### Cards
 - **Action Cards:** Feature a top-border accent matching the status color (e.g., a green top border for "Approved").
@@ -201,11 +201,23 @@ The shape language is **Rounded**, favoring 12px (rounded-xl) for main container
 ### Credit Wallet
 - A glassmorphic panel in the sidebar. It features a horizontal progress bar that changes color (Green → Amber → Red) based on the remaining credit percentage.
 
-## Dark Mode Implementation
+## Light Theme Token System
+
+All light surfaces resolve through semantic tokens (`tailwind.config.js` +
+`:root` vars in `index.css`). Hardcoded surface utilities are banned (see below).
+
+### 1. Palette & Surface Elevations (light: off-white/beige scale)
+- **Cards / modals / header (`bg-surface-container-lowest`, `#FAF7F2`)**: Primary off-white surface. Never use raw `bg-white` — it is banned by lint.
+- **Page wash (`bg-surface-muted`, `#F3EDE3`)**: Warm beige page background. Never use raw `bg-gray-50` / `bg-slate-50` — banned by lint.
+- **Wells / sidebar (`bg-surface-container-low` `#EFE7D9` / `bg-surface-container` `#E8DFD3`)**, **hovers (`bg-surface-container-high` `#DED2BE`)**, **emphasis (`bg-surface-container-highest` `#D5C7B0` / `bg-surface-dim` `#CBBFA9`)**.
+- **Borders (`border-border-subtle` `#D9CDB8` / `border-outline-variant` `#C4B49A`)**: Beige borders; do not leave cold gray (`border-gray-*`/`border-slate-*`) on cream cards.
+- **Non-standard shades** (`slate-150/350/450/650/750`, `indigo-150/650/750`, `bg-slate-105`, `bg-indigo-55`, …) are defined once in `tailwind.config.js` (interpolated hex) and remapped for dark mode by the `index.css` blanket — never redefine them per file.
+- **Ban on hardcoded colors**: `.eslintrc.cjs` (`no-restricted-syntax`) rejects `bg-white`, `bg-gray-50`, `bg-slate-50` in `src` (including opacity/prefixed forms). Use the tokens above. `bg-slate-500`-style longer names are not flagged (boundary-aware).
+## Dark Mode Implementation (values frozen — light remaps must not touch `.dark`)
 
 The dark mode design strategy departs from pure black, utilizing a professional **Charcoal & Navy** palette derived from the primary brand color to deliver a sleek, premium experience.
 
-### 1. Palette & Surface Elevations
+### 1. Palette & Surface Elevations (dark)
 - **Base Canvas Layer (`#0a0e14`)**: Main canvas background (`bg-surface-muted` in `.dark`).
 - **Container Surfaces (`#161c24`)**: Default background for dashboard cards, list items, and sidebar components.
 - **Elevated Surfaces (`#1c252e`)**: Used for modal dialogs, popovers, dropdown lists, and focus states.

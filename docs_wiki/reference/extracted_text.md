@@ -19,7 +19,7 @@ LangChain, LlamaIndex, LangGraph (agents & workflows), multimodal embeddings, pr
 engineering & chaining, hallucination mitigation, context window optimization
 Tools & Practices: Git, Docker (containers, images, Dockerfile), Streamlit, environment variable
 management
-Cloud & Infrastructure: AWS (EC2, S3, Bedrock, boto3), horizontal vs vertical scaling concepts, load
+Cloud & Infrastructure: GCP (Compute Engine, Cloud Storage, Vertex AI), horizontal vs vertical scaling concepts, load
 balancing basics, monolith vs microservices architecture fundamentals
 Data & Visualization: pandas, matplotlib, PDF parsing, data validation
 PROJECTS

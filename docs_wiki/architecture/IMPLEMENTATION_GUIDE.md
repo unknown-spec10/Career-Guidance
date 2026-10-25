@@ -14,15 +14,14 @@ The supported implementation model is:
 
 ### New endpoints
 
-- Add routes in [resume_pipeline/resume_pipeline/app.py](../resume_pipeline/resume_pipeline/app.py).
+- Add routes in [resume_pipeline/resume_pipeline/routers/](../resume_pipeline/resume_pipeline/routers/) (one module per domain, shared helpers in `deps.py`); `app.py` is only the composition root.
 - Protect role-specific endpoints with the existing auth and role checks.
 - Keep request and response shapes aligned with [resume_pipeline/resume_pipeline/schemas.py](../resume_pipeline/resume_pipeline/schemas.py).
 
 ### New persistence changes
 
 - Add or update SQLAlchemy models in [resume_pipeline/resume_pipeline/db.py](../resume_pipeline/resume_pipeline/db.py).
-- Keep repository interfaces aligned in [resume_pipeline/resume_pipeline/repos](../resume_pipeline/resume_pipeline/repos).
-- Do not add alternative storage backends.
+- Do not add alternative storage backends or repository layers (the legacy `repos/` layer was deleted).
 
 ### Recommendation features
 
@@ -37,7 +36,7 @@ The supported implementation model is:
 ## Frontend Change Rules
 
 - Add pages and components under [frontend/src](../frontend/src).
-- Keep routing aligned with the active student, recruiter, and admin flows.
+- Keep routing aligned with the active student-only flows (employer/admin pages and routes were removed in October 2026; see `PAGE_API_AUDIT.md`).
 - Do not add routes, dashboards, or navigation items for the removed college role.
 
 ## Scripts and Maintenance

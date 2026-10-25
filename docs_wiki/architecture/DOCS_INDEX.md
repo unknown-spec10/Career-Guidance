@@ -21,9 +21,9 @@ Welcome to the documentation vault for the Career Guidance AI platform. This dir
 - **[RECOMMENDATION_ENGINE_ARCHITECTURE.md](./RECOMMENDATION_ENGINE_ARCHITECTURE.md)**: Exhaustive breakdown of the applicant-to-job matching pipeline, weighting parameters, and pgvector cosine similarities.
 - **[VOICE_LAYER_DESIGN.md](./VOICE_LAYER_DESIGN.md)**: Decision matrix and design of the browser-native (Web Speech API) and backend-cloud (Groq Whisper large-v3) hybrid latency-hidden STT loop.
 - **[LEARNING_PATH_ARCHITECTURE.md](./LEARNING_PATH_ARCHITECTURE.md)**: Dynamic skill-gap roadmaps, timeline planning, and YouTube Data API v3 trusted channel search integrations.
-- **[RESUME_PARSE_PIPELINE_REDESIGN.txt](./RESUME_PARSE_PIPELINE_REDESIGN.txt)**: Original specifications for the Groq-Gemini hybrid extraction and two-pass skill normalization process.
+- **[RESUME_PARSE_PIPELINE_REDESIGN.md](../workflows/RESUME_PARSE_PIPELINE_REDESIGN.md)**: Historical proposal for Groq-Gemini hybrid extraction — SUPERSEDED; the parser is now rule-based offline (see banner in that doc).
 - **[LIVE_INTERVIEW_ARCHITECTURE.md](./LIVE_INTERVIEW_ARCHITECTURE.md)**: Bidirectional, server-to-server WebSocket proxy using Google's Gemini Live API for real-time conversational interviews.
-- **[LIVE_INTERVIEW_ROADMAP.md](./LIVE_INTERVIEW_ROADMAP.md)**: Multi-phase planning document detailing milestones to deliver the real-time live interview layer.
+- **[LIVE_INTERVIEW_ROADMAP.md](../workflows/LIVE_INTERVIEW_ROADMAP.md)**: Multi-phase planning document detailing milestones to deliver the real-time live interview layer.
 
 ---
 
@@ -31,6 +31,4 @@ Welcome to the documentation vault for the Career Guidance AI platform. This dir
 
 These documents reflect the current supported product boundaries:
 - **Student Workflows**: Profile parsing, job matching, applications, skill roadmaps, and mock interview practice.
-- **Recruiter/Employer Workflows**: Job postings, status controls, and applicant tracking pipelines.
-- **Admin Workflows**: Global stats audit, manual review logs, and credit allocation policies.
 - **PostgreSQL-Only Runtime**: The historical college portal and older multi-database (MySQL + Firestore) configurations have been deprecated and dropped.

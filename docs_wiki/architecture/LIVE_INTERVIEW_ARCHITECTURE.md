@@ -135,7 +135,7 @@ CREATE TABLE interview_session_live (
     gemini_session_id VARCHAR(255),   -- Gemini Live API session ID
     
     -- Audio & Transcription
-    audio_url VARCHAR(500),           -- S3/storage path
+    audio_url VARCHAR(500),           -- GCS/storage path
     user_transcript TEXT,             -- Full user transcription
     model_transcript TEXT,            -- Full model responses
     

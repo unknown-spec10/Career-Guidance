@@ -13,14 +13,14 @@ sequenceDiagram
     participant App as Frontend
     participant API as FastAPI Backend
     participant FS as Local FileStorage
-    participant LLM as Gemini API
+    participant LLM as DeepSeek (OpenCode) via llm_router
     participant DB as SQL Database
 
     App->>API: POST /api/v1/resume/upload
     API->>FS: Save file to data/raw_files/app_<uuid>/
     API->>FS: Update metadata.json (hash & format)
     API->>API: Extract Text (OCR/PyPDF/pdfplumber)
-    API->>LLM: Prompt Gemini with raw text & structure schema
+    API->>LLM: Prompt chat provider with raw text & structure schema (RESUME PARSE IS OFFLINE — no LLM call; rule-based rule_parser only)
     LLM-->>API: Returns JSON (skills, experiences, education)
     API->>API: Normalize Skills & Match Taxonomy
     API->>DB: Save User, Applicant, Experience, Education, Resume records
@@ -38,10 +38,29 @@ sequenceDiagram
 The recommendation engine matches applicants to jobs and colleges based on multi-dimensional scores.
 
 ### Job Recommendation Scoring
-Candidates are scored against jobs based on:
-1. **Skill Match Score**: Percentage of job-required skills possessed by the applicant.
-2. **Experience Alignment**: Match between the job's target roles and the applicant's experience records.
-3. **Weights**: Final score is calculated using `RECOMMENDATION_WEIGHTS` defined in `constants.py`.
+
+Student recommendations run a staged pipeline (`resume_pipeline/recommendation/`):
+
+1. **Retrieval** (`retrieval.py`): candidate generation over ALL active jobs —
+   existing `active_job_criteria` SQL filters plus lenient location/experience
+   gates, then TF-IDF skill overlap only (no embeddings, no network). Output is
+   a ranked list of ~100 job IDs.
+2. **Ranking** (`ranking.py`): the heavy scorers (semantic skill match,
+   personalization multiplier from `user_feedback`, temporal freshness/demand,
+   document similarity) plus the weighted aggregator run over the retrieved set
+   only. Scoring math is unchanged from the previous engine.
+3. **Reranking** (`reranking.py`): business rules — purpose weights, freshness
+   boost, diversity cap (3 per employer), interview-score blend, explanation
+   attach for the top 5, persistence.
+4. **Facade** (`service.py`): `get_recommendations(applicant_id, purpose=...)`
+   with `jobs` (default), `skill_gaps` (adds `missing_skills` + `gap_signal`),
+   `digest` (lightweight top 5), and `browse` (same weights as `jobs`, top-20
+   slice for JobsPage) purposes. The response splits the ranked list into
+   `recommended` (top slice) + paged `more_matches` (`more_offset`/`more_limit`);
+   `job_recommendations` mirrors `recommended` for backward compatibility.
+   Job vectors are embedded once at
+   posting time and applicant vectors once at parse time (`precompute.py`);
+   requests read the stored pgvector cache.
 
 > [!IMPORTANT]
 > **Job Visibility Constraints**: A job listing is only visible and eligible for recommendations if it has `status = 'approved'` AND its `expires_at` timestamp is in the future (`expires_at > now()`).
@@ -55,11 +74,11 @@ Students are recommended courses based on:
 
 ## 3. Interactive Interview Practice Workflow
 
-Provides mock interviews where Gemini acts as an interviewer and scores candidate responses.
+Provides mock interviews where DeepSeek (via OpenCode/llm_router) acts as an interviewer and scores candidate responses.
 
-1. **Initialization**: Gemini reviews candidate profile/skills and generates custom questions for the target job role.
-2. **Chat Loop**: Candidate sends answers, Gemini generates natural conversation replies, asking follow-up questions.
-3. **Scoring**: At the end of the session, Gemini evaluates responses on:
+1. **Initialization**: The chat provider reviews candidate profile/skills and generates custom questions for the target job role.
+2. **Chat Loop**: Candidate sends answers, the provider generates natural conversation replies, asking follow-up questions.
+3. **Scoring**: At the end of the session, the provider evaluates responses on:
    * Technical accuracy
    * Communication skills
    * Job alignment
@@ -69,7 +88,7 @@ Provides mock interviews where Gemini acts as an interviewer and scores candidat
 
 ## 4. Credit Gating Workflow
 
-All premium features (e.g., Gemini-powered OCR, full recommendations, mock interview sessions) are guarded by the `CreditService`.
+All premium features (e.g., full recommendations, mock interview sessions) are guarded by the `CreditService`. (Resume parsing itself is a free offline operation — local OCR, no LLM calls.)
 
 > [!CAUTION]
 > Always enforce credit checks **before** running the premium operation, and only deduct credits **after** the operation completes successfully to prevent charging users for failed API calls.

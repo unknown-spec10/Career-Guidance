@@ -2,7 +2,7 @@
 
 **Project:** Career Guidance AI  
 **Scope:** Replace Gemini/Google Custom Search with a free, self-contained stack for YouTube resource discovery  
-**Status:** Implemented — `resume_pipeline/resume_pipeline/interview/learning_path_generator.py` + `/api/learning-paths/*` routes (this document is the original design spec; where it conflicts with code, the code is authoritative, e.g. credit cost)
+**Status:** Implemented — `resume_pipeline/resume_pipeline/learning/generator.py` + `resume_pipeline/resume_pipeline/learning/router.py` serving `/api/learning-paths/*` and `POST /api/interview/generate-learning-path/{session_id}` (moved out of `interview/` in the router-split refactor; `interview/learning_path_generator.py` remains only as a backward-compat shim). This document is the original design spec; where it conflicts with code, the code is authoritative, e.g. credit cost.
 
 ---
 
@@ -30,7 +30,7 @@
 | Backend route `GET /api/learning-paths/applicant/{applicant_id}` | `MyLearningPathsPage.jsx` already calls this |
 | `learning_path_generator.py` | Core generation logic — Groq + YouTube API |
 | YouTube Data API v3 integration | Free video search with quality metadata |
-| `YOUTUBE_API_KEY` in `.env.example` | New environment variable |
+| `YOUTUBE_DATA_API_KEY` in `.env.example` | New environment variable |
 
 The frontend is already built and waiting. The backend generation pipeline is what needs to be created from scratch.
 
@@ -129,7 +129,7 @@ InterviewAnswer scores + missing_concepts populated by Groq evaluator
       &videoDuration=medium      ← filters 4–20 min; use "long" for full courses
       &order=viewCount
       &maxResults=5
-      &key=YOUTUBE_API_KEY
+      &key=YOUTUBE_DATA_API_KEY
   
   Returns: video_id, title, channelTitle, publishedAt, thumbnail URL
          │
@@ -139,7 +139,7 @@ InterviewAnswer scores + missing_concepts populated by Groq evaluator
     GET https://www.googleapis.com/youtube/v3/videos
       ?part=statistics,contentDetails
       &id=id1,id2,id3,...
-      &key=YOUTUBE_API_KEY
+      &key=YOUTUBE_DATA_API_KEY
   
   Returns per video: viewCount, likeCount, duration (ISO 8601 format)
          │
@@ -188,8 +188,10 @@ InterviewAnswer scores + missing_concepts populated by Groq evaluator
 
 ## 5. New Files to Create
 
-### `resume_pipeline/resume_pipeline/interview/learning_path_generator.py`
+### `resume_pipeline/resume_pipeline/learning/generator.py`
 
+(moved here from `interview/learning_path_generator.py` during the router-split
+refactor; the old path is now a backward-compat shim re-exporting this module).
 This is the core engine. It contains four functions called in sequence:
 
 **`generate_search_queries(weak_skills, missing_concepts, target_role, experience_level) → list[dict]`**  
@@ -212,7 +214,10 @@ Orchestrator. Calls the four functions above in order. Handles caching (checks i
 
 ---
 
-### New routes in `resume_pipeline/resume_pipeline/interview/router.py`
+### Routes in `resume_pipeline/resume_pipeline/learning/router.py`
+
+(moved here from `interview/router.py` during the router-split refactor; all
+paths, methods, and guards unchanged)
 
 **`POST /api/interview/generate-learning-path/{session_id}`**  
 Protected: `require_role("student")`  
@@ -405,7 +410,7 @@ One new variable added to `.env.example`:
 #   → Credentials → Create API Key
 # Restrict the key to "YouTube Data API v3" to prevent misuse
 # =============================================================================
-YOUTUBE_API_KEY=YOUR_YOUTUBE_DATA_API_KEY
+YOUTUBE_DATA_API_KEY=YOUR_YOUTUBE_DATA_API_KEY
 ```
 
 This is completely separate from the old `GOOGLE_API_KEY` / `GOOGLE_SEARCH_ENGINE_ID` pair (which was for Google Custom Search). Those can remain in `.env.example` for the skill taxonomy builder that uses them, but are no longer needed for learning path generation.
@@ -442,6 +447,17 @@ No changes needed. It calls `GET /api/learning-paths/{applicant_id}` which is on
 
 Fall back to Groq generating course recommendations from its own training data — without real video URLs. Mark these entries with `"source": "llm_generated"` instead of `"source": "youtube_api"`. The frontend shows them without thumbnails and with a note that the link may need verification.
 
+> **Quota guard (single key, updated 2026-10-25, verified in `learning/generator.py`):**
+> a single `YOUTUBE_DATA_API_KEY` (`get_youtube_keys`) serves discovery;
+> a 403-quota/429 response raises `YouTubeQuotaExhausted` so
+> `search_youtube_with_rotation` / `fetch_video_stats_with_rotation`
+> fall through to the fallback. Successful search results
+> are cached per query for 7 days (in-memory + `SystemConfiguration`
+> `yt_cache:*` rows — no schema change). Only when the key is exhausted does
+> generation keep the LLM-template fallback, labelled `"source":
+> "llm_generated"` in the returned path (`"youtube"` when live videos were
+> used). Response shape is otherwise unchanged.
+
 ### If Groq fails on query generation
 
 Use a simple template-based fallback: for each weak skill, construct a query as `"{skill} full tutorial for beginners"`. Less intelligent but always works.
@@ -459,16 +475,26 @@ Return a pre-built "maintenance path" — a standard set of general resources fo
 ## 14. Module File Structure After Implementation
 
 ```
+resume_pipeline/resume_pipeline/learning/
+├── __init__.py                    (exports router + interview_learning_router)
+├── generator.py                   (moved from interview/ — core of this feature)
+└── router.py                      (owns /api/learning-paths/* CRUD and the
+                                     POST /api/interview/generate-learning-path/{session_id}
+                                     trigger at its original path)
+
 resume_pipeline/resume_pipeline/interview/
 ├── __init__.py                    (existing — exports router)
-├── router.py                      (existing + 3 new routes added)
-├── evaluator.py                   (existing — no changes)
+├── sessions.py                    (lifecycle routes, split out of router.py)
+├── streaming.py                   (streaming/voice routes, split out of router.py)
+├── common.py                      (shared route helpers, split out of router.py)
+├── router.py                      (thin aggregator re-exporting the combined router)
+├── evaluator.py                   (bounded eval semaphore + rate-limit backoff, §4.1)
 ├── generator.py                   (existing — no changes)
 ├── service.py                     (existing — no changes)
-├── prompts.py                     (existing — 2 new prompt strings added)
+├── prompts.py                     (existing)
 ├── schemas.py                     (existing — no changes, LearningPathResponse is in root schemas.py)
 ├── fallback_questions.py          (existing — no changes)
-└── learning_path_generator.py     (NEW — core of this feature)
+└── learning_path_generator.py     (backward-compat shim → learning.generator)
 ```
 
 No existing files are deleted or broken. The new file slots in cleanly alongside the existing module.

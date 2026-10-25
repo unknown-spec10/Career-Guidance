@@ -1,5 +1,22 @@
 # LLM Telemetry & System Health Diagnostics Architecture
 
+> SUPERSEDED in part (October 2026): the `/api/admin/llm-status`, `/api/embeddings/*`,
+> and `/api/rag/stats` endpoints and the `AdminDashboard.jsx` visual dashboard were
+> removed in the student-scope cut (verified: no such routes remain in
+> `resume_pipeline/routers/`).
+>
+> SUPERSEDED in full (October 2026 router slim): the OpenRouter third path and the
+> in-memory provider stats/telemetry block (`provider_stats`, token counters,
+> rate-limit header parsing, 429 cooldown epochs, `get_stats`/`reset_stats`) were
+> deleted from `resume_pipeline/core/llm_router.py` — verified: no live caller
+> reads them.
+>
+> SUPERSEDED again (October 2026 LLM cutover + fallback removal): Gemini was fully removed. The
+> router is now a thin single-provider switch (one configured opencode/DeepSeek
+> primary per capability; any failure raises). The Groq/OpenCode circuit breakers in
+> `resume_pipeline/core/rate_limiter.py` are retained and still gate calls.
+> Everything below is a historical record of the removed machinery.
+
 This document provides a detailed technical overview of the real-time LLM Telemetry and System Health diagnostics suite. It explains how metrics are harvested on the backend, routed through API endpoints, and visualized on the administrative dashboard.
 
 ---
@@ -16,10 +33,9 @@ graph TD
         Router -->|2c. Calculate DB Coverages| DB[Postgres database / SQLAlchemy]
     end
 
-    subgraph LLM Providers
-        LLMR -->|Intercept Headers & Latency| Groq[Groq API]
-        LLMR -->|Intercept Tokens & Latency| Gemini[Google Gemini API]
-        LLMR -->|Intercept Tokens & Latency| OpenRouter[OpenRouter Backup]
+    subgraph LLM Providers (historical; live: opencode single provider, Groq STT only)
+        LLMR -->|Primary| Groq[Groq API]
+        LLMR -->|Single attempt, else raise| Gemini[Google Gemini API]
     end
 
     subgraph DB Relations
@@ -32,8 +48,27 @@ graph TD
 
 ## 2. Backend Data Harvesting Pipelines
 
-### A. In-Memory LLM Router Telemetry (`llm_router.py`)
-All LLM requests are routed through a thread-safe singleton, [LLMRouter](file:///d:/Career%20Guidence/resume_pipeline/resume_pipeline/core/llm_router.py). Telemetry is captured inline during request execution:
+### A. Current LLM Router (`llm_router.py`) — opencode-primary switch (October 2026 cutover)
+All LLM requests are routed through the thread-safe singleton, [LLMRouter](file:///d:/Career%20Guidence/resume_pipeline/resume_pipeline/core/llm_router.py). The removed telemetry machinery (request/token counters, rate-limit header interception, 429 cooldown epochs, `get_stats`/`reset_stats`) is described in the historical note below and no longer exists:
+
+1. **Routing**: capability slots (`chat` / `explanation`) each resolve to a
+   single configured provider — default `opencode` (DeepSeek). Exactly one
+   adapter attempt is made; a failure raises (caller banks engage:
+   interview question bank, evaluator error path, learning-path template
+   fallback, RAG error return, offline explanation). There is no fallback
+   provider to configure. Named providers try once and raise.
+   Unknown providers raise `ValueError`. The global mock toggle serves offline
+   mock completions with no HTTP. STT stays on Groq Whisper via
+   `transcribe_audio`.
+2. **Rate limiting (retained)**: the Groq/OpenCode circuit breakers in
+   `rate_limiter.py` still gate calls (`allow_call`/`acquire_sync`,
+   `report_success`/`report_failure`; client 4xx errors do not trip the breaker).
+   They are also used directly by `recommendation/explainer.py`.
+3. **Streaming**: the serving adapter streams natively (Groq) or via SSE
+   (OpenCode); in mock mode the mock completion streams word-by-word; then raises.
+
+### Historical note: removed telemetry harvesting (pre-October 2026)
+The following no longer exists in code. Previously, telemetry was captured inline during request execution:
 
 1. **Request Tracking**:
    - Every invocation increments `total_requests`.

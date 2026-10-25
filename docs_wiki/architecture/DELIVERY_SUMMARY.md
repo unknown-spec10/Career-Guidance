@@ -1,5 +1,11 @@
 # Delivery Summary
 
+> Scope update (October 2026): a later student-scope cut removed the recruiter
+> (`employer`) and admin frontend pages and their backend routes
+> (`/api/employer/*`, `/api/admin/*`, `/api/mentor*`). Active scope is now
+> student-only; see `PAGE_API_AUDIT.md`. The college-removal notes below are
+> retained as history.
+
 ## Current State
 
 The repository now targets a single active product scope:

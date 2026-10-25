@@ -1,7 +1,7 @@
 # Project: Career Guidance Performance Audit and Optimization
 
 ## Architecture
-- **Backend (FastAPI)**: Python 3.11 web service with SQLAlchemy ORM using PostgreSQL/SQLite. Uses repositories in `resume_pipeline/repos/` and database configuration in `resume_pipeline/db.py`.
+- **Backend (FastAPI)**: Python 3.11 web service with SQLAlchemy ORM using PostgreSQL/SQLite. Route handlers live in `resume_pipeline/routers/` (the legacy `repos/` layer was deleted) with database configuration in `resume_pipeline/db.py`.
 - **Frontend (React/Vite)**: React SPA with routes, components (like `JobsPage`, `StudentProfile`), styling with Tailwind CSS, and global state/hooks.
 
 ## Milestones

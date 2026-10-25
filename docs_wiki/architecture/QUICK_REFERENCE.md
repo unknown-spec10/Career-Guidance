@@ -54,7 +54,6 @@ POST /api/auth/reset-password
 POST /upload
 POST /parse/{applicant_id}
 GET  /api/applicant/{id}
-GET  /api/applicants
 ```
 
 ### Jobs and Recommendations

@@ -37,9 +37,25 @@ The backend loads settings dynamically from OS environment variables. In local d
 - `ACCESS_TOKEN_EXPIRE_MINUTES`: Expiration window (defaults to `1440` minutes / 24 hours).
 
 ### AI & LLM Services
-- `GEMINI_API_KEY`: Required for scanned resume OCR-Vision preprocessing and generating skill embeddings.
-- `GROQ_API_KEY`: Required for rapid structured JSON parsing and interview scoring.
-- `GEMINI_MOCK_MODE`: Set to `true` to stub out external LLM API calls with deterministic mock data during testing/development (defaults to `false`).
+- `OPENCODE_API_KEY`: Credential for ALL chat/explanation workloads (interview generation/scoring, learning paths, RAG answers, recommendation explanations) via `core/llm_router` → OpenCode/DeepSeek. Resume parsing is offline and needs no key; recommendation embeddings are local MiniLM.
+- `GROQ_API_KEY`: Credential for the speech-to-text provider only (Whisper transcription via `llm_router.transcribe_audio`).
+- `GEMINI_MOCK_MODE`: Legacy name of the global mock toggle. Set to `true` to serve deterministic offline mock completions with no HTTP and no credentials during testing/development (defaults to `false`). Gemini itself is fully removed.
+
+### Model Selection (capability-based, env-only swap)
+Chat callers never name a provider or model directly — `core/llm_router.py`
+resolves each capability slot to its single configured primary provider
+(one attempt, then raise). To swap models with no code changes, set these
+env vars and restart:
+- `MODEL_CHAT_PRIMARY_PROVIDER` / `MODEL_CHAT_PRIMARY_NAME` (default `opencode` / `deepseek-v4.1-flash`)
+- `MODEL_EXPLAIN_PRIMARY_PROVIDER` / `MODEL_EXPLAIN_PRIMARY_NAME` (default `opencode` / `deepseek-v4.1-flash`; failure → offline explanation)
+- `MODEL_STT_PROVIDER` / `MODEL_STT_NAME` (default `groq` / `whisper-large-v3`)
+
+An empty `*_NAME` keeps the provider default (`OPENCODE_CHAT_MODEL`,
+`GROQ_CHAT_MODEL`, `GROQ_STT_MODEL`), so existing
+deployments behave identically until the slots are set. Removed (Oct 2026
+cutover): `GEMINI_API_KEY`, `GEMINI_API_URL`, `GEMINI_SMALL_MODEL`,
+`GEMINI_LARGE_MODEL`, `GEMINI_INTERVIEW_MODEL`, `GROQ_TTS_*`, `NVIDIA_NIM_*`,
+`OPENROUTER_*`, `GOOGLE_EMBEDDING_ENABLED`, `EMBEDDING_TIMEOUT_SECONDS`.
 
 ### Email Integration (Gmail SMTP)
 - `GMAIL_USER`: The sender Gmail address (required for registration code verification).
@@ -53,46 +69,57 @@ The backend loads settings dynamically from OS environment variables. In local d
 
 ## ⚡ Local Deployment (Single-Command Docker)
 
-The easiest way to run the entire stack locally is using the root `docker-compose.yml`.
+The easiest way to run the backend locally is using the root `docker-compose.yml`
+(backend-only; the frontend runs via `npm run dev`, the database is external
+PostgreSQL/Supabase).
 
 ### Prerequisites
-Make sure Docker and Docker Compose are installed. Ensure port `80` (frontend) and `8000` (backend API) are not bound by other services.
+Make sure Docker and Docker Compose are installed. Ensure port `8000` (backend API)
+is not bound by another service. (The frontend dev server uses port `3000` via
+`npm run dev` in `frontend/` — it is not containerized.)
 
 ### Steps
 1. Copy the environment template:
    ```cmd
-   cp .env.docker .env
+   cp .env.example .env
    ```
-2. Build and start the containers:
+   then fill in `PG_*`, `SECRET_KEY`, and any AI/SMTP keys.
+2. Build and start the backend:
    ```cmd
-   docker compose up -d --build
+   docker compose --env-file .env up -d --build
    ```
-3. Seed the sample database (run this once):
+3. Seed the sample database (run this once, from `resume_pipeline/`):
    ```cmd
-   ./deploy/docker/docker-help.sh seed
+   alembic upgrade head
+   python scripts/seed_database.py
+   ```
+   or against the running container:
+   ```cmd
+   docker compose exec backend python scripts/seed_database.py
    ```
 4. Access the applications:
-   - **Frontend UI**: `http://localhost`
+   - **Frontend UI (dev)**: `http://localhost:3000` (`npm run dev` in `frontend/`)
    - **Backend API**: `http://localhost:8000`
    - **FastAPI Docs**: `http://localhost:8000/docs`
 
 ---
 
-## ☁️ Production Cloud Deployment (Supabase, AWS EC2 & Vercel)
+## ☁️ Production Cloud Deployment (Supabase, GCP VM & Vercel)
 
-Our production deployment environment is split across **Supabase** (database), **AWS EC2** (FastAPI backend), and **Vercel** (React frontend SPA).
+Our production deployment environment is split across **Supabase** (database), a **GCP VM** (FastAPI backend, manual bring-up per `deploy/gcp/BRINGUP.md`), and **Vercel** (React frontend SPA).
 
 ### 1. Database Setup (Supabase)
 1. Provision a PostgreSQL instance on [Supabase](https://supabase.com) in your closest region.
 2. Go to **Project Settings → Database → Connection string → URI tab** and copy the connection URI.
    > [!CRITICAL]
    > **Special Characters in Database Passwords**:
-   > If your Supabase password contains special characters (e.g. `@`, `&`, `#`), you **must percent-encode** them in the DSN string (e.g. `@` -> `%40`, `&` -> `%26`) to prevent SQLAlchemy/psycopg2 parsing failures.
-3. Apply SQL database tables by running the initialization script pointing to the Supabase connection string, or paste the schemas inside the Supabase SQL editor:
+   > Prefer the discrete `PG_*` fields in the root `.env` (config.py derives the DSN with `quote_plus`) instead of pasting a raw DSN — this avoids SQLAlchemy/psycopg2 parsing failures on special characters (e.g. `@`, `&`, `#`). If you must use `PG_DSN`, percent-encode them (e.g. `@` -> `%40`, `&` -> `%26`).
+3. Apply the schema with Alembic (from `resume_pipeline/`), then seed:
    ```cmd
-   python scripts/init_db.py
+   alembic upgrade head
    python scripts/seed_database.py
    ```
+   > `scripts/init_db.py` **drops and recreates the entire schema** — development only, never against a real database.
 
 ---
 
@@ -111,15 +138,23 @@ Set this variable in the **Vercel Project Dashboard → Settings → Environment
 
 | Variable Key | Suggested Placeholder Value | Description |
 |---|---|---|
-| `VITE_API_BASE_URL` | `http://<your-ec2-public-ip-or-domain>:8000` | The URL of your active AWS EC2 backend service (do not include a trailing `/`). |
+| `VITE_API_BASE_URL` | `http://<your-vm-ip-or-domain>:8000` | The URL of your active backend VM service (do not include a trailing `/`). |
 
 ---
 
-## ☁️ Production EC2 Deployment (Docker Hub & AWS EC2)
+## ☁️ Production VM Deployment (Docker Hub + GCP manual path)
 
-For teams utilizing managed services, the platform is structured to run the database on **Supabase**, the React frontend SPA on **Vercel**, and the FastAPI backend API on an **Amazon EC2** instance. 
+> **EC2 automation removed.** `deploy/aws/` (`ec2-user-data.sh`, `.env.aws.example`,
+> `apply-ec2-env.ps1`) and `deploy/docker/docker-compose.prod.yml` were deleted in the
+> deploy-path cleanup, and the `ec2-deploy` CI job is parked (`if: false` in
+> `.github/workflows/ci-cd.yml`). The documented deploy path is the **manual GCE
+> bring-up**: `deploy/gcp/BRINGUP.md` (startup script `deploy/gcp/user-data.sh`),
+> the single root `docker-compose.yml` (backend-only), and
+> `resume_pipeline/Dockerfile`.
 
-Using prebuilt Docker images from Docker Hub bypasses the need to build resource-heavy Python images directly on the EC2 instance, making it fully compatible with low-memory `t2.micro` or `t3.micro` instances.
+For teams utilizing managed services, the platform is structured to run the database on **Supabase**, the React frontend SPA on **Vercel**, and the FastAPI backend API on a small **GCP e2-small VM** (see `deploy/gcp/BRINGUP.md` for the console click path, IP, start/stop, and warm-up checklist).
+
+Using prebuilt Docker images from Docker Hub bypasses the need to build resource-heavy Python images directly on the VM, making it fully compatible with low-memory `e2-small` instances.
 
 ### 1. Build and Push Backend Image to Docker Hub
 
@@ -127,7 +162,7 @@ Since the frontend is built and served statically by Vercel directly from Git, a
 
 * **Windows (PowerShell)**:
   ```powershell
-  .\deploy\docker\build-and-push.ps1 -DockerUsername "yourusername"
+  .\deploy\dockeruild-and-push.ps1 -DockerUsername "yourusername"
   ```
 * **Linux/macOS (Bash)**:
   ```bash
@@ -138,74 +173,91 @@ Since the frontend is built and served statically by Vercel directly from Git, a
 This tags the backend image with `:latest` and a unique `:yyyyMMdd-HHmmss` timestamp, then pushes it to:
 - `yourusername/career-guidance-backend`
 
-### 2. Launch EC2 Instance
+### 2. Launch the VM (GCP — see deploy/gcp/BRINGUP.md)
 
-1. Create a `t2.micro` or `t3.micro` instance running **Ubuntu Server 24.04 LTS / 22.04 LTS**.
-2. Configure **Security Groups** to allow:
-   - Port `22` (SSH) for administrative access.
-   - Port `8000` (HTTP) for frontend UI API requests to the backend.
-3. In **Advanced Details**, paste the contents of [ec2-user-data.sh](file:///d:/Career%20Guidence/deploy/aws/ec2-user-data.sh) into the **User data** field. This automatically installs Docker, Docker Compose, clones the codebase, and prepares the workspace at `/opt/career-guidance`.
+Follow the console click path in `deploy/gcp/BRINGUP.md`: `e2-small` (2 vCPU,
+2 GB), Ubuntu 22.04 LTS, 30 GB disk, network tags `http-server`/`https-server`,
+plus a VPC firewall rule allowing `tcp:8000`. Paste the contents of
+`deploy/gcp/user-data.sh` into the GCE **Automation > Startup script** field.
+Edit its config block (`REPO_URL`, `GCP_PROJECT`, `DOCKER_HUB_USERNAME`, plus the
+non-secret `PG_HOST`/`PG_USER`/`CORS_ORIGINS`/`FRONTEND_URL` values) before boot.
+**Do not create a `.env` on the VM** — there is no `--env-file` path.
 
-### 3. Setup Environment Variables on EC2
+### 3. Secrets on the VM: GCP Secret Manager only (no `.env`)
 
-1. Copy [deploy/aws/.env.aws.example](file:///d:/Career%20Guidence/deploy/aws/.env.aws.example) to `.env.aws` on the host machine.
-2. Edit the `.env.aws` file to supply the actual production environment values:
-   - Set `DOCKER_HUB_USERNAME` to your Docker Hub username.
-   - Set `PG_HOST` to your Supabase pooler host (e.g. `aws-1-ap-south-1.pooler.supabase.com`).
-   - Fill in your sensitive keys: `SECRET_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, and `GMAIL_APP_PASSWORD`.
-   - Update `FRONTEND_URL` and `CORS_ORIGINS` to point to the Vercel site (e.g. `https://your-site.vercel.app`).
+The VM keeps **no `.env` file**. At container start,
+`resume_pipeline/docker-entrypoint.py` sees `GCP_PROJECT`, reads each documented
+secret from `projects/$GCP_PROJECT/secrets/<NAME>/versions/latest` as the VM
+service account (Application Default Credentials), exports it into the process
+environment, and then execs uvicorn. A missing required secret aborts the
+container naming the exact secret path; there are no silent defaults.
+
+Documented secret names (env-var name == secret name):
+
+* **Required:** `PG_PASSWORD`, `SECRET_KEY`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`.
+* **Optional (feature keys, may stay absent):** `OPENCODE_API_KEY`,
+  `GROQ_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_SEARCH_API_KEY`,
+  `GOOGLE_CLIENT_SECRET`, `YOUTUBE_DATA_API_KEY`, `GMAIL_APP_PASSWORD`.
+
+Non-secret config (`PG_HOST`, `PG_PORT`, `PG_USER`, `PG_DB`, `APP_ENV`,
+`CORS_ORIGINS`, `FRONTEND_URL`, `BACKEND_URL`, `GOOGLE_CLIENT_ID`, `GMAIL_USER`,
+storage flags) is exported by the startup script and passed through by compose.
+Creation commands, the per-secret `roles/secretmanager.secretAccessor` binding
+(least privilege — never project-wide), and the no-`.env` verification sequence
+live in `deploy/gcp/BRINGUP.md` §6.
+
+With `GCP_PROJECT` unset (local development) the entrypoint execs straight
+through and the repo-root `.env` via `docker compose --env-file .env up` works
+exactly as before.
 
 ### 4. Deploy and Manage Backend Service
 
-From `/opt/career-guidance` on the EC2 instance, use the following commands:
+From the repo root on the VM (e.g. `/opt/career-guidance`), using the single
+root compose (no `--env-file`; non-secret config comes from the exported
+startup-script variables and secrets from Secret Manager):
 
 * **Start backend service**:
   ```bash
-  docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml pull
-  docker compose --env-file .env.aws -f deploy/docker/docker-compose.prod.yml up -d
+  docker compose pull
+  docker compose up -d
   ```
 * **Verify running containers**:
   ```bash
-  docker compose -f deploy/docker/docker-compose.prod.yml ps
+  docker compose ps
   ```
 * **View backend logs**:
   ```bash
-  docker compose -f deploy/docker/docker-compose.prod.yml logs -f backend
+  docker compose logs -f backend
   ```
-* **Database Seeding**:
+* **Database Seeding** (schema itself is managed by Alembic — `alembic upgrade head` from `resume_pipeline/`; legacy `init_db.py` is dev-only and must never run against a real database):
   ```bash
-  docker compose -f deploy/docker/docker-compose.prod.yml exec backend python scripts/seed_database.py
+  docker compose exec backend python scripts/seed_database.py
   ```
 
-### 6. Production Logging (AWS CloudWatch Integration)
+### 5. Frontend on Vercel
 
-The production Docker Compose configuration routes container logs directly to Amazon CloudWatch Logs, so you do not need to SSH into the EC2 instance for troubleshooting.
+`VITE_API_URL` (and optionally `VITE_API_BASE_URL`, which wins in
+`frontend/src/config/api.js`) must point at the VM's public origin; no other
+`VITE_*` variables are read. See `deploy/gcp/BRINGUP.md` §7.
 
-#### AWS Prerequisites:
-1. **IAM Role**: Create or update your EC2 instance's IAM role to include the AWS-managed **`CloudWatchAgentServerPolicy`** policy (this grants write access to CloudWatch Logs).
-2. **Assign Role**: Assign the role to your EC2 instance from the EC2 console under **Actions -> Security -> Modify IAM role**.
+### 6. Production Logging
 
-#### Log Driver Details:
-* **Driver**: `awslogs`
-* **Log Group**: Defaults to `career-guidance-backend` (automatically created by the driver if it doesn't exist).
-* **Stream Prefix**: Dynamically tagged as `"backend"`.
-* **AWS Region**: Defaults to `ap-south-1`.
+The single root `docker-compose.yml` uses the `json-file` log driver (10 MB × 3
+files rotation) — read logs with `docker compose logs`. To customize log
+retention, edit the `logging:` block in the root `docker-compose.yml`.
 
-If you need to customize the region or log group, you can define the following environment variables in your `.env.aws` file:
-```ini
-AWS_REGION=ap-south-1
-AWS_LOGS_GROUP=career-guidance-backend
+### 7. Applying Updates on the VM (manual — no CI SSH deploy)
+
+The `ec2-deploy` CI job is disabled (see above). To update the VM, SSH in and
+run from the repo root:
+
+```bash
+git pull --ff-only
+docker compose pull
+docker compose up -d --force-recreate
 ```
 
-### 7. Automated Updates from Dev Machine
-
-You can apply environment variable changes or force-recreate the remote backend container directly from your development machine using the provided PowerShell deploy script:
-
-```powershell
-.\deploy\aws\apply-ec2-env.ps1 -InstanceIp "your-ec2-public-ip" -PemPath "path-to-your-ssh-key.pem" -SourceEnvPath "path-to-local-env"
-```
-
-This will automatically securely upload your new configurations, pull the updated Docker Hub image, and restart the backend service cleanly.
+This pulls the updated Docker Hub image and restarts the backend service cleanly.
 
 ---
 
@@ -225,17 +277,23 @@ We have established a fully automated CI/CD pipeline at `.github/workflows/ci-cd
 
 #### Pipeline Flow:
 1. **Frontend CI (Tests, Lint & Build)**: Verifies frontend changes on all Pull Requests and Pushes targeting `main` by installing dependencies, running the Vitest suite (`npm test`), checking code quality (`eslint`), and verifying compilation (`vite build`).
-2. **Backend CI (Tests & Migrations)**: Sets up Python 3.11, caches packages, downloads CPU-optimized PyTorch, and runs the pytest suite under mock LLM conditions (`GEMINI_MOCK_MODE=true`) with the in-memory SQLite stub (`CI_SKIP_DB_VALIDATION=true`). Only `test_api.py` is excluded — it is a live Gemini API connectivity smoke test, not a deterministic suite. A second step then verifies the full Alembic migration chain (`0001 → head`, run twice for idempotency) against a disposable PostgreSQL 16 service container, exercising PG-specific DDL that SQLite cannot.
+2. **Backend CI (Tests & Migrations)**: Sets up Python 3.11, caches packages, downloads CPU-optimized PyTorch, and runs the pytest suite under mock LLM conditions (`GEMINI_MOCK_MODE=true`) with the in-memory SQLite stub (`CI_SKIP_DB_VALIDATION=true`). Only `test_api.py` is excluded — it is a live OpenCode API connectivity smoke test, not a deterministic suite. A second step then verifies the full Alembic migration chain (`0001 → head`, run twice for idempotency) against a disposable PostgreSQL 16 service container, exercising PG-specific DDL that SQLite cannot.
 3. **Docker Build & Push**: On merging/pushing to the `main` branch, it builds the backend Docker image and pushes it to Docker Hub under two tags: `:latest` and a unique commit SHA tag `:${{ github.sha }}`.
-4. **AWS EC2 SSH Deploy**: Connects securely to the EC2 instance, checks out the latest code to pull Docker Compose config changes, triggers a remote `docker compose pull`, and restarts the containers using the environment variables inside `.env.aws`. Finally, it waits 30 seconds for the backend service to fully initialize and executes `verify_data.py` as a non-fatal check to ensure database connectivity (preventing OOM errors on low-memory hosts from failing the deployment).
+4. **EC2 SSH Deploy (DISABLED)**: The `ec2-deploy` job is parked with `if: false`
+   in `.github/workflows/ci-cd.yml` — `deploy/aws/` and
+   `deploy/docker/docker-compose.prod.yml` were deleted, and there is no
+   automated GCP equivalent (no new CI infrastructure invented). The documented
+   deploy path is the manual GCE bring-up in `deploy/gcp/BRINGUP.md` (root
+   `.env` + root `docker-compose.yml` + `resume_pipeline/Dockerfile`). The
+   disabled job's reference script is kept updated to that layout
+   (`docker compose --env-file .env pull` / `up -d --force-recreate`, 30 s
+   wait, non-fatal `verify_data.py` check).
 
 #### Required GitHub Secrets:
 To activate this pipeline, navigate to your GitHub Repository -> **Settings -> Secrets and variables -> Actions** and create the following **Repository Secrets**:
 * `DOCKER_HUB_USERNAME`: Your Docker Hub username.
 * `DOCKER_HUB_TOKEN`: A Personal Access Token (PAT) generated in Docker Hub settings.
-* `EC2_HOST`: The public IP or domain of your EC2 instance (e.g. `13.235.51.86`).
-* `EC2_USERNAME`: The SSH login username (e.g. `ubuntu`).
-* `EC2_SSH_KEY`: The complete private key PEM file content (starting with `-----BEGIN OPENSSH PRIVATE KEY-----` or `-----BEGIN RSA PRIVATE KEY-----`).
+* `EC2_HOST` / `EC2_USERNAME` / `EC2_SSH_KEY` (+ `EC2_DEPLOY_DIR`): Only consumed by the **disabled** `ec2-deploy` reference job and the keep-alive ping — not needed for the GCP manual path.
 
 ---
 
@@ -255,17 +313,17 @@ Before promoting any build to production, ensure:
 After deployment, hit the following endpoints to verify system integrity:
 
 1. **API Welcome Status**:
-   - Query: `GET http://<your-ec2-public-ip>:8000/`
+   - Query: `GET http://<your-vm-ip>:8000/`
    - Expected: HTTP `200` returning `{"status": "online", "message": "Welcome to the Career Guidance AI API"}`.
 2. **API Docs Check**:
-   - Query: `GET http://<your-ec2-public-ip>:8000/docs`
+   - Query: `GET http://<your-vm-ip>:8000/docs`
    - Expected: Swagger UI loads successfully.
 3. **Health Check Endpoint**:
-   - Query: `GET http://<your-ec2-public-ip>:8000/health`
+   - Query: `GET http://<your-vm-ip>:8000/health`
    - Expected: HTTP `200` returning `{"status": "ok"}`.
 4. **Stats Overview**:
-   - Query: `GET http://<your-ec2-public-ip>:8000/api/stats`
+   - Query: `GET http://<your-vm-ip>:8000/api/stats`
    - Expected: HTTP `200` with parsed record metrics.
 5. **Approved Jobs Retrieval**:
-   - Query: `GET http://<your-ec2-public-ip>:8000/api/jobs`
+   - Query: `GET http://<your-vm-ip>:8000/api/jobs`
    - Expected: A list of active, non-expired recruiting jobs.

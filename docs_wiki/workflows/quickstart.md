@@ -9,16 +9,16 @@ The **Career Guidance AI System** is a credit-gated platform that helps students
 ```mermaid
 graph TD
     A[User Resume Upload] --> B[FastAPI Backend /resume_pipeline]
-    B --> C[Google Gemini Parser]
+    B --> C[Offline Rule-Based Parser]
     C --> D[(PostgreSQL / Supabase)]
     D --> E[Recommendation Engine]
-    D --> F[Gemini Interview Prep]
-    E --> G[College & Job Recs]
+    D --> F[Groq Interview Prep]
+    E --> G[Job Recs]
     F --> H[Interview Performance Score]
 ```
 
 ## Core Features
-1. **Resume Parsing**: OCR + LLM extraction via Google Gemini to build detailed profiles of skills, education, and work experience.
+1. **Resume Parsing**: Offline rule-based pipeline (local OCR + regex/rapidfuzz extraction, no LLMs) to build detailed profiles of skills, education, and work experience.
 2. **Recommendation Engine**: Custom scoring algorithm mapping parsed resumes to relevant job positions and college courses.
 3. **Interview Practice**: LLM-driven chat simulator scoring candidate responses for specific roles.
 4. **Credit System**: Premium actions (RAG Q&A, mock interviews, advanced parser) require credits, validated and spent via `CreditService`.
