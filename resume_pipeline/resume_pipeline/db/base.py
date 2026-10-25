@@ -18,8 +18,8 @@ except ImportError:
         stacklevel=1,
     )
 
-# Local sentence-transformers model (all-MiniLM-L6-v2, see
-# recommendation/embedder.py::EMBEDDING_DIM) emits 384-dim vectors, which is
+# Local ONNX Runtime MiniLM model (all-MiniLM-L6-v2, see
+# core/minilm_onnx.py::EMBEDDING_DIM) emits 384-dim vectors, which is
 # what is actually written today.
 LOCAL_EMBEDDING_DIM = 384
 

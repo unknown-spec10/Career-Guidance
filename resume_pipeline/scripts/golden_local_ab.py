@@ -15,11 +15,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-# NOTE (Windows dev box only): torch must be imported before sklearn, or the
-# torch DLL init fails (sklearn's vcomp140 vs torch's libiomp5md conflict).
-# Linux CI/Docker is unaffected. Preloading here keeps the A/B offline-capable.
-import torch  # noqa: F401  pylint: disable=unused-import,wrong-import-position
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 

@@ -7,6 +7,7 @@ ranking without the TF-IDF fallback flag.
 """
 import sys
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -237,3 +238,60 @@ def test_ranking_uses_local_model_without_fallback():
     assert breakdown["semantic_skill_score"] is not None
     assert breakdown["semantic_skill_score"] > 0.5
     assert breakdown["doc_similarity"] is not None
+
+
+def test_single_shared_encoder_is_the_only_embedding_path():
+    """Both call sites must use the one ONNX encoder from core/minilm_onnx."""
+    from resume_pipeline.core import minilm_onnx
+    from resume_pipeline.core.semantic_matching import SemanticMatcher
+    from resume_pipeline.recommendation import embedder as embedder_module
+
+    encoder = minilm_onnx.get_encoder()
+    assert embedder_module._get_model() is encoder
+
+    matcher = SemanticMatcher()
+    matcher._ensure_model()
+    assert matcher.model is encoder
+
+    vec = encoder.encode("Python, Django, PostgreSQL")
+    assert vec.shape == (EMBEDDING_DIM,)
+    # The model pipeline ends in Normalize (modules.json), so vectors are unit length.
+    import numpy as np
+
+    assert np.isclose(float(np.linalg.norm(vec)), 1.0, atol=1e-5)
+
+
+def test_embedding_parity_with_pre_onnx_reference_vectors():
+    """ONNX vectors must match the vectors the previous backend produced.
+
+    The fixture holds MiniLM vectors captured from the old embedding stack on
+    fixed sample texts (skills, job blurbs, a resume paragraph, a >256-token
+    document, and an empty string). Parity is the swap's acceptance bar: any
+    drift here would move recommendation rankings.
+    """
+    import json
+
+    import numpy as np
+
+    from resume_pipeline.core.minilm_onnx import get_encoder
+
+    fixture_path = Path(__file__).parent / "minilm_parity_vectors.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    encoder = get_encoder()
+
+    worst_cos = 1.0
+    worst_delta = 0.0
+    compared = 0
+    for text, expected in zip(fixture["texts"], fixture["vectors"]):
+        if expected is None:  # empty input: the embedder rejects it upstream
+            continue
+        got = encoder.encode(text).astype(float)
+        exp = np.asarray(expected, dtype=float)
+        cos = float(got @ exp / (np.linalg.norm(got) * np.linalg.norm(exp)))
+        worst_cos = min(worst_cos, cos)
+        worst_delta = max(worst_delta, float(np.max(np.abs(got - exp))))
+        compared += 1
+
+    assert compared >= 10
+    assert worst_cos >= 0.9999, f"worst cosine {worst_cos:.9f}"
+    assert worst_delta <= 1e-4, f"worst element delta {worst_delta:.2e}"

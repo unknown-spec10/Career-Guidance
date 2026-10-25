@@ -1,8 +1,9 @@
 """
 Semantic skill matching service using embeddings + skill taxonomy.
 
-Uses sentence-transformers (local MiniLM) for embedding generation and cosine
-similarity to find canonical skill matches from the pre-built taxonomy.
+Uses the shared ONNX Runtime MiniLM encoder (core/minilm_onnx.py) for
+embedding generation and cosine similarity to find canonical skill matches
+from the pre-built taxonomy.
 Fully offline: no embedding API keys, no network calls.
 """
 import json
@@ -12,15 +13,14 @@ from pathlib import Path
 import numpy as np
 
 from ..config import settings
+from .minilm_onnx import MODEL_NAME as EMBEDDING_MODEL_NAME, get_encoder, is_available
 
 logger = logging.getLogger(__name__)
 
-try:
-    from sentence_transformers import SentenceTransformer
-    EMBEDDING_AVAILABLE = True
-except ImportError:
-    EMBEDDING_AVAILABLE = False
-    logger.warning("sentence-transformers not available; MiniLM fallback disabled")
+# The ONNX stack is importable; weights load lazily on first encode.
+EMBEDDING_AVAILABLE = is_available()
+if not EMBEDDING_AVAILABLE:
+    logger.warning("ONNX Runtime embedding stack not available; MiniLM matching disabled")
 
 
 class SemanticMatcher:
@@ -125,19 +125,19 @@ class SemanticMatcher:
             logger.error(f"Error loading taxonomy: {e}")
     
     def _ensure_model(self):
-        """Lazy load embedding model on first use"""
+        """Lazy load the shared ONNX encoder on first use"""
         if not self.local_model_available:
-            raise RuntimeError("MiniLM fallback is not available")
+            raise RuntimeError("MiniLM embeddings are not available")
 
         if self.model is None:
             try:
-                self.model = SentenceTransformer("all-MiniLM-L6-v2")
-                logger.info("Loaded embedding model: all-MiniLM-L6-v2")
+                self.model = get_encoder()
+                logger.info("Loaded embedding model: %s (ONNX Runtime)", EMBEDDING_MODEL_NAME)
             except Exception as e:
                 logger.error(f"Failed to load embedding model: {e}")
                 self.local_model_available = False
                 raise
-    
+
     def _precompute_embeddings(self):
         """Pre-compute embeddings for all canonical skills (called once)"""
         if self.canonical_embeddings:
@@ -148,13 +148,14 @@ class SemanticMatcher:
         
         try:
             self._ensure_model()
-            if self.model is None:
+            if self.model is None or not self.taxonomy:
                 return
-            
-            for skill_name in self.taxonomy.keys():
-                embedding = self.model.encode(skill_name.lower())
-                self.canonical_embeddings[skill_name] = embedding
-            
+
+            skill_names = list(self.taxonomy.keys())
+            vectors = self.model.encode_batch([name.lower() for name in skill_names])
+            for skill_name, vector in zip(skill_names, vectors):
+                self.canonical_embeddings[skill_name] = vector
+
             logger.info(f"Pre-computed embeddings for {len(self.canonical_embeddings)} canonical skills")
         
         except Exception as e:

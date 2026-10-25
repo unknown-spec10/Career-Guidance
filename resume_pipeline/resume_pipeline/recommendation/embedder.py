@@ -8,15 +8,15 @@ from typing import Optional
 import numpy as np
 
 from sqlalchemy.orm import Session
+from ..core.minilm_onnx import EMBEDDING_DIM, MODEL_NAME, get_encoder
 from ..db import JobEmbeddingsCache, ApplicantEmbedding
 
 logger = logging.getLogger(__name__)
 
-# Local sentence-transformers model. all-MiniLM-L6-v2 emits 384-dim vectors.
+# Shared local ONNX MiniLM encoder (core/minilm_onnx.py). Emits 384-dim vectors.
 # Previously this module wrapped the Gemini embedding API (1536-dim); cached
 # rows from that era are treated as stale misses (see _is_fresh) and re-embedded.
-EMBEDDING_DIM = 384
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL_NAME = MODEL_NAME
 EMBEDDING_PROVIDER = "local"
 
 
@@ -34,7 +34,7 @@ EmbeddingUnavailable = GeminiEmbeddingUnavailable
 
 
 # ---------------------------------------------------------------------------
-# Lazy singleton model — import + weights load once, on first embed() call.
+# Lazy singleton encoder — import + weights load once, on first embed() call.
 # Keeps startup and non-ranking paths fast.
 # ---------------------------------------------------------------------------
 _model = None
@@ -42,7 +42,7 @@ _model_lock = threading.Lock()
 
 
 def _get_model():
-    """Load (once) and return the shared SentenceTransformer model."""
+    """Load (once) and return the shared ONNX MiniLM encoder."""
     global _model
     if _model is not None:
         return _model
@@ -50,18 +50,12 @@ def _get_model():
         if _model is not None:
             return _model
         try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as e:
-            raise GeminiEmbeddingUnavailable(
-                "sentence-transformers is not installed; cannot embed locally"
-            ) from e
-        try:
-            _model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+            _model = get_encoder()
         except Exception as e:
             raise GeminiEmbeddingUnavailable(
                 f"Failed to load local embedding model '{EMBEDDING_MODEL_NAME}': {e}"
             ) from e
-        logger.info("Loaded local embedding model: %s", EMBEDDING_MODEL_NAME)
+        logger.info("Loaded local embedding model: %s (ONNX Runtime)", EMBEDDING_MODEL_NAME)
         return _model
 
 
@@ -128,7 +122,7 @@ def coerce_embedding_vector(value) -> Optional[list[float]]:
 
 
 class Embedder:
-    """Generate and cache text embeddings with a local sentence-transformers model.
+    """Generate and cache text embeddings with the shared ONNX MiniLM encoder.
 
     Fully offline: no API keys, no rate limiter, no network calls.
 
@@ -159,7 +153,7 @@ class Embedder:
 
         model = _get_model()
         try:
-            vector = model.encode(prompt, convert_to_numpy=True, show_progress_bar=False)
+            vector = model.encode(prompt)
         except Exception as e:
             logger.error(f"Local embedding encode failed: {e}", exc_info=True)
             raise GeminiEmbeddingUnavailable(f"Local embedding failure: {str(e)}") from e

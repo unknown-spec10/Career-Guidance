@@ -58,7 +58,7 @@ Problems:
 
 | Resource | Tool | Notes |
 |---|---|---|
-| Embeddings | Local `all-MiniLM-L6-v2` via `sentence-transformers` (384-dim, fully offline, no API key) | Lazy-loaded singleton in `recommendation/embedder.py`; vectors stored via the existing pgvector path |
+| Embeddings | Local `all-MiniLM-L6-v2` ONNX export via `onnxruntime` (384-dim, fully offline, no API key) | Lazy-loaded singleton in `core/minilm_onnx.py`, shared by `recommendation/embedder.py`; vectors stored via the existing pgvector path |
 | LLM reasoning | Gemini 2.5 Flash (`gemini-2.5-flash`) | Via `google-genai` SDK, uses existing `GEMINI_API_KEY` |
 | Database | PostgreSQL (existing) | Add columns/tables only |
 | Background jobs | FastAPI BackgroundTasks | No new infrastructure |
@@ -172,9 +172,10 @@ Embeddings convert words into numbers that capture meaning — so "ML" and "Mach
 
 ### Model
 
-**`all-MiniLM-L6-v2`** via the `sentence-transformers` package (already in `requirements.txt`).
-- Lightweight local transformer (~80MB) — no API key, no network calls, no rate limiter
-- Output dimensions: 384 (`EMBEDDING_DIM = 384` in `recommendation/embedder.py`)
+**`all-MiniLM-L6-v2`** via the pre-exported ONNX graph run by `onnxruntime`
+(loaded once through the shared `core/minilm_onnx.py` helper).
+- Lightweight local transformer (~90MB fp32 ONNX graph) — no API key, no network calls, no rate limiter
+- Output dimensions: 384 (`EMBEDDING_DIM = 384` in `core/minilm_onnx.py`)
 - Lazy-loaded singleton: the model loads once on first `embed()` call, so app
   startup and non-ranking paths stay fast
 - The task instruction is still prepended to the prompt text (e.g., "Represent this
@@ -244,7 +245,7 @@ Together they handle both precision and recall.
 
 ```
 recommendation/
-    embedder.py           ← wraps the local all-MiniLM-L6-v2 model (sentence-transformers).
+    embedder.py           ← wraps the local all-MiniLM-L6-v2 ONNX encoder (core/minilm_onnx.py).
                             Exposes the same interface: embed(text), cosine_sim(v1, v2).
                             Handles task instruction prefixing, 384-dim output,
                             lazy singleton model load, and DB cache read/write
@@ -903,7 +904,7 @@ resume_pipeline/
         │                             backfill/retry/ensure helpers) so existing callers
         │                             keep working. New code imports ranking/service directly.
         │
-        ├── embedder.py             ← Wraps the local all-MiniLM-L6-v2 model (sentence-transformers).
+        ├── embedder.py             ← Wraps the local all-MiniLM-L6-v2 ONNX encoder (core/minilm_onnx.py).
         │                             Exposes the same interface: embed(text), cosine_sim(v1, v2).
         │                             Lazy singleton load, 384-dim output, task instruction
         │                             prefixing, DB cache read/write (stale 1536-dim rows
@@ -955,12 +956,14 @@ resume_pipeline/
 ### Python Packages
 
 ```
-sentence-transformers>=5.2.0  # Tier 2 + Tier 5 local embeddings (all-MiniLM-L6-v2, 384-dim)
+onnxruntime>=1.20.0     # Tier 2 + Tier 5 local embeddings (all-MiniLM-L6-v2 ONNX, 384-dim)
+tokenizers>=0.21.0     # BERT word-piece tokenizer for the ONNX graph
+huggingface_hub>=0.30.0  # HF cache resolution for the pre-baked ONNX export
 scikit-learn==1.4.0    # Tier 1 TF-IDF (TfidfVectorizer) + cosine similarity math
 numpy==1.26.0          # Vector math (likely already installed)
 ```
 
-`sentence-transformers` covers Tier 2 + Tier 5 fully offline — no API key, no rate
+`onnxruntime` covers Tier 2 + Tier 5 fully offline — no API key, no rate
 limiter, no network. `groq` SDK is already installed (used for the
 single-attempt chat path when the slots point at groq, and for STT).
 `google-genai` was never a declared dependency in `requirements.txt` and is

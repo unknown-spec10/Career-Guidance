@@ -102,7 +102,7 @@ Authentication (login success/failure, role routing, protected routes, session e
 ## CI Pipeline (`.github/workflows/ci-cd.yml`)
 
 * **Frontend CI**: `npm ci` → `npm test` → `npm run lint` → `npm run build`.
-* **Backend CI**: installs deps (CPU torch, spacy model) → runs `pytest tests/ -q --ignore=tests/test_api.py` under mock mode with the SQLite stub → verifies `alembic upgrade head` (twice, idempotency included) against a disposable PostgreSQL service.
+* **Backend CI**: installs deps (ONNX Runtime embedding backend — no deep-learning framework) → runs `pytest tests/ -q --ignore=tests/test_api.py` under mock mode with the SQLite stub → verifies `alembic upgrade head` (twice, idempotency included) against a disposable PostgreSQL service.
 * Docker build/push and EC2 deploy stages run only on pushes to `main` after both test jobs pass.
 
 Previously skipped meaningful suites (`test_interview.py`, `test_learning_path.py`, `test_recommendation_fallback.py`, `test_recommendation_system.py`) were investigated, fixed where needed, and re-enabled — see `IMPLEMENTATION_STATUS.md`.

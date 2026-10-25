@@ -1,8 +1,8 @@
 """Proof script for the embedding repair (embedfix).
 
 Verifies, in one process against the throwaway SQLite schema:
-  Part 2 — torch/CRT: `import sklearn` first, then torch + SentenceTransformer
-           still import, and the local MiniLM model embeds one sentence.
+  Part 2 — encoder:  the shared ONNX MiniLM encoder loads and embeds one
+           sentence without any deep-learning framework installed.
   Part 1 — loader:   one sentence embedded locally, persisted through
            Embedder.get_applicant_embedding (write), then re-loaded through
            Embedder.get_cached_applicant_embedding_raw (load); plus the
@@ -19,19 +19,13 @@ import os
 
 os.environ.setdefault("CI_SKIP_DB_VALIDATION", "true")
 
-# Part 2 first: poison the DLL load order on purpose. If the sklearn CRT
-# shadowing regresses, the torch import below dies with WinError 1114.
-import sklearn  # noqa: F401  (must stay before the torch import)
-
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
-import torch
-from sentence_transformers import SentenceTransformer
-
+from resume_pipeline.core.minilm_onnx import MODEL_NAME, get_encoder
 from resume_pipeline.db import Applicant, SessionLocal
 from resume_pipeline.recommendation.embedder import (
     EMBEDDING_DIM,
@@ -55,10 +49,10 @@ def close_enough(a, b):
         return False
 
 
-# --- Part 2: local MiniLM embeds one sentence (torch loaded after sklearn) ---
-model = SentenceTransformer("all-MiniLM-L6-v2")
-vec = model.encode("Career Guidance helps students find jobs.", convert_to_numpy=True)
-check("torch-after-sklearn", True, f"torch={torch.__version__}")
+# --- Part 2: the shared ONNX encoder embeds one sentence ---
+encoder = get_encoder()
+vec = encoder.encode("Career Guidance helps students find jobs.")
+check("onnx-encoder-load", True, f"model={MODEL_NAME}")
 check("local-minilm-embed", len(vec) == EMBEDDING_DIM, f"dim={len(vec)}")
 
 # --- Part 1: write-then-load round trip through the Embedder + DB ---

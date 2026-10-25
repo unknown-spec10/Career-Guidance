@@ -38,7 +38,9 @@ Pillow>=12.0.0
 
 # RAG & Vector Search
 faiss-cpu>=1.13.0
-sentence-transformers>=5.2.0
+onnxruntime>=1.20.0
+tokenizers>=0.21.0
+huggingface_hub>=0.30.0
 
 # Parse Pipeline Redesign v2.0
 pgvector>=0.4.2

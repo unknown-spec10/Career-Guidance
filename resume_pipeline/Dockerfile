@@ -19,14 +19,14 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 COPY resume_pipeline/requirements.txt /tmp/requirements.txt
 
-# CPU-only torch FIRST so sentence-transformers never pulls CUDA wheels.
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Pre-bake the MiniLM weights so cold starts skip the HuggingFace download.
+# Pre-bake the MiniLM ONNX graph + tokenizer into the HF cache so cold starts
+# skip the HuggingFace download. Runs the same loader the app uses.
 # (Lazy RAG still applies: RAG_PRELOAD_ON_STARTUP=false defers index build.)
 ENV HF_HOME=/opt/hf-cache
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+COPY resume_pipeline/resume_pipeline/core/minilm_onnx.py /tmp/minilm_onnx.py
+RUN python /tmp/minilm_onnx.py
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────
 FROM python:3.11-slim
