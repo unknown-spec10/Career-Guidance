@@ -47,7 +47,10 @@ jobs:
     # SQLite-based tests cannot exercise.
     services:
       postgres:
-        image: postgres:16-alpine
+        # pgvector/pgvector:pg16 = stock PostgreSQL 16 + the `vector` extension
+        # that the embedding tables require (baseline creates it via
+        # CREATE EXTENSION IF NOT EXISTS vector).
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -75,9 +78,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y poppler-utils tesseract-ocr libmagic1
-
-      - name: Install PyTorch (CPU-only optimization)
-        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install Python Dependencies
         working-directory: resume_pipeline

@@ -28,8 +28,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        # Embedding tables use pgvector's ``vector`` column type; the extension
+        # must exist before create_all emits those columns. Supabase already has
+        # it enabled, so IF NOT EXISTS is a no-op there; CI runs the pgvector
+        # image (pgvector/pgvector:pg16) so the check exercises real DDL.
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     # checkfirst=True makes this an idempotent, data-preserving operation.
-    Base.metadata.create_all(bind=op.get_bind(), checkfirst=True)
+    Base.metadata.create_all(bind=bind, checkfirst=True)
 
 
 def downgrade() -> None:
