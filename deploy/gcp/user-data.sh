@@ -31,14 +31,14 @@ export GCP_PROJECT
 export DOCKER_HUB_USERNAME
 export APP_ENV="production"
 # PostgreSQL / Supabase pooler parts (password is a Secret Manager secret).
-export PG_HOST=""                 # e.g. aws-1-ap-south-1.pooler.supabase.com
+export PG_HOST="aws-1-ap-northeast-2.pooler.supabase.com"  # Supabase pooler host
 export PG_PORT="5432"
-export PG_USER=""                 # e.g. postgres.<project-ref>
+export PG_USER="postgres.nzmgknwblgeiijxgtobx"  # pooler user for this project
 export PG_DB="postgres"
 # Public URLs (frontend stays on Vercel).
-export FRONTEND_URL=""            # e.g. https://<app>.vercel.app
-export BACKEND_URL=""             # e.g. http://<vm-ip>:8000
-export CORS_ORIGINS=""            # e.g. https://<app>.vercel.app
+export FRONTEND_URL="https://career-guidance-flame.vercel.app"
+export BACKEND_URL="http://35.232.79.105:8000"
+export CORS_ORIGINS="https://career-guidance-flame.vercel.app"
 export GOOGLE_CLIENT_ID=""        # OAuth client id (public identifier, not a secret)
 export GOOGLE_SEARCH_ENGINE_ID="957a8463ab6f24e38"  # Custom Search engine id (public identifier)
 export GMAIL_USER=""              # sender address (identifier; app password is a secret)
