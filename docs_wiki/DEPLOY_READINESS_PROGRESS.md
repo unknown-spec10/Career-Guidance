@@ -13,7 +13,7 @@ Values are never recorded here — key names only.
 | 3 | GCP Secret Manager entrypoint + BRINGUP §6 + user-data.sh | done |
 | 4 | Build + migration checks | done (compose config, image build, alembic head/parity, vite build) |
 | 5 | Backend pytest / frontend vitest+eslint | done (294 passed/1 skipped; 167 passed; lint + build clean) |
-| 6 | Logical commits + push | in progress |
+| 6 | Logical commits + push | done (main pushed; CI run 40220655367 green) |
 
 ## 1. Deletion verdicts (99 paths, all intentional — no restore needed)
 
@@ -78,6 +78,37 @@ Values are never recorded here — key names only.
 | Frontend vitest | **29 files / 167 tests passed** (first run hit worker timeouts under Docker-build CPU contention; clean rerun) |
 | Frontend eslint (`--max-warnings 0`) | pass |
 | Frontend vite build | pass (`dist/`, 2116 modules) |
+
+## 6. Commits pushed to origin/main
+
+| SHA | Message |
+|---|---|
+| `edec925` | chore(repo): drop design mockups, dead AWS deploy path, merged dockerignores |
+| `898d641` | refactor(backend): router/db split, offline parser, staged recommendations, admin API |
+| `45da2ad` | feat(frontend): student-only flows, admin console, premium UI, hooks/services split |
+| `6bf0a30` | feat(deploy): GCP Secret Manager entrypoint and no-.env VM wiring |
+| `2f45974` | docs: deploy-readiness report, audit notes, and source-of-truth updates |
+| `0e4c575` | build(deploy): read DOCKER_HUB_USERNAME only from the single root .env |
+| `be66048` | fix(ci): sync lockfile for npm 10 and make route proof lazy-router aware |
+| `ae1dcbc` | fix(migrations): create the vector extension before baseline create_all |
+
+CI (run 40220655367, push of `ae1dcbc`): **success** — Backend CI (pytest +
+`alembic upgrade head` twice on pgvector PG16), Frontend CI (`npm ci`, vitest,
+eslint, vite build), and Docker Build & Push. The `ec2-deploy` job stays parked
+(`if: false`).
+
+CI fixes found during the push cycle:
+1. `npm ci` failed on Node 20/npm 10 — the lockfile produced by npm 11 was
+   missing nested `esbuild` entries; regenerated with npm 10 and verified with
+   `npm ci --dry-run`.
+2. Route-proof tests assumed FastAPI flattens `include_router`; newer FastAPI
+   (0.162, installed by CI) uses lazy `_IncludedRouter` wrappers. The test now
+   reads the contract from `app.openapi()` and flattens wrappers; verified on
+   fastapi 0.122.0 **and** 0.162.0.
+3. Fresh PostgreSQL without pgvector failed at baseline (`type "vector" does not
+   exist`). Baseline now runs `CREATE EXTENSION IF NOT EXISTS vector` and CI
+   migrations run on `pgvector/pgvector:pg16`; verified locally on a throwaway
+   PG16 (0001→0007, idempotent rerun, 32 tables + alembic_version).
 
 ## Notes / risks
 
