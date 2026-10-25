@@ -40,6 +40,7 @@ export FRONTEND_URL=""            # e.g. https://<app>.vercel.app
 export BACKEND_URL=""             # e.g. http://<vm-ip>:8000
 export CORS_ORIGINS=""            # e.g. https://<app>.vercel.app
 export GOOGLE_CLIENT_ID=""        # OAuth client id (public identifier, not a secret)
+export GOOGLE_SEARCH_ENGINE_ID="957a8463ab6f24e38"  # Custom Search engine id (public identifier)
 export GMAIL_USER=""              # sender address (identifier; app password is a secret)
 # Storage (local by default; gcs + bucket when using Cloud Storage).
 export STORAGE_BACKEND="local"
