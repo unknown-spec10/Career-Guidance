@@ -3,21 +3,22 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Briefcase, Calendar, Sparkles, CheckCircle, XCircle,
   Send, PartyPopper, ChevronRight, BrainCircuit, Clock,
-  MoreVertical, ArrowRight, Zap, User, TrendingUp
+  ArrowRight, Zap, User, TrendingUp
 } from 'lucide-react'
 import api from '../config/api'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import { getApiError } from '../utils/apiError'
 
 // Column definitions
 const COLUMNS = [
   {
     id: 'applied',
     label: 'Applied',
-    dotClass: 'bg-gray-400 dark:bg-gray-500',
-    badgeClass: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-    headerBorder: 'border-gray-200 dark:border-gray-700',
+    dotClass: 'bg-ink-subtle',
+    badgeClass: 'bg-surface-sunken text-ink-muted',
+    headerBorder: 'border-hairline',
     topBorder: '',
     emptyIcon: Send,
     emptyText: 'No applications yet',
@@ -68,7 +69,7 @@ function CompanyLogo({ company, logoUrl }) {
   const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(company || 'C')}&background=random&size=40&bold=true`
   const src = (!imgError && logoUrl) ? logoUrl : fallback
   return (
-    <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900">
+    <div className="w-10 h-10 rounded-card overflow-hidden border border-hairline flex-shrink-0 bg-surface-raised">
       <img
         src={src}
         alt={company}
@@ -81,16 +82,16 @@ function CompanyLogo({ company, logoUrl }) {
 
 function SkeletonCard() {
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm animate-pulse">
+    <div className="surface-card p-4 animate-pulse">
       <div className="flex items-start gap-3 mb-3">
-        <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 flex-shrink-0" />
+        <div className="w-10 h-10 rounded-card bg-surface-sunken flex-shrink-0" />
         <div className="flex-1 space-y-2">
-          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
-          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+          <div className="h-4 bg-surface-sunken rounded-card w-3/4" />
+          <div className="h-3 bg-surface-sunken rounded-card w-1/2" />
         </div>
       </div>
-      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-2/3 mb-3" />
-      <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded" />
+      <div className="h-3 bg-surface-sunken rounded-card w-2/3 mb-3" />
+      <div className="h-8 bg-surface-sunken rounded-card" />
     </div>
   )
 }
@@ -98,9 +99,9 @@ function SkeletonCard() {
 function EmptyColumnCard({ col }) {
   const Icon = col.emptyIcon
   return (
-    <div className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-6 flex flex-col items-center justify-center text-center gap-2">
-      <Icon className="w-8 h-8 text-gray-300 dark:text-gray-600" />
-      <p className="text-sm text-gray-400 dark:text-gray-500">{col.emptyText}</p>
+    <div className="rounded-card border-2 border-dashed border-hairline p-6 flex flex-col items-center justify-center text-center gap-2">
+      <Icon className="w-8 h-8 text-ink-subtle" />
+      <p className="text-caption text-ink-subtle">{col.emptyText}</p>
     </div>
   )
 }
@@ -125,22 +126,22 @@ function ApplicationCard({ app, colId, index, onPrepareAI, onUpdateStatus }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.05 }}
-      className={`relative overflow-hidden bg-white dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm hover:shadow-lg transition-all duration-200 group cursor-default ${
+      className={`relative overflow-hidden surface-card p-4 transition-all duration-200 group cursor-default hover:border-hairline-strong ${
         isRejected ? 'opacity-70 dark:opacity-60' : ''
       }`}
     >
       {/* Column-specific top border accent */}
       {isInterviewing && (
         <>
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-blue-400 rounded-t-xl" />
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-900/10 pointer-events-none rounded-xl" />
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-blue-400 rounded-t-panel" />
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-900/10 pointer-events-none rounded-panel" />
         </>
       )}
       {isOffered && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-400 rounded-t-xl" />
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-400 rounded-t-panel" />
       )}
       {isRejected && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 to-rose-400 rounded-t-xl" />
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 to-rose-400 rounded-t-panel" />
       )}
 
       <div className="relative z-10">
@@ -149,51 +150,48 @@ function ApplicationCard({ app, colId, index, onPrepareAI, onUpdateStatus }) {
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <CompanyLogo company={app.company || app.company_name} logoUrl={app.company_logo} />
             <div className="min-w-0 flex-1">
-              <h4 className="font-semibold text-sm text-gray-900 dark:text-white leading-tight truncate" title={app.job_title || app.title}>
+              <h4 className="font-semibold text-caption text-ink leading-tight truncate" title={app.job_title || app.title}>
                 {app.job_title || app.title || 'Job Position'}
               </h4>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate" title={app.company}>
+              <p className="text-caption text-ink-muted truncate" title={app.company}>
                 {app.company || 'Company'}
               </p>
             </div>
           </div>
-          <button className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0">
-            <MoreVertical className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Status / date info */}
         {isInterviewing && (
-          <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 mb-3">
+          <div className="flex items-center gap-1.5 text-caption text-blue-600 dark:text-blue-400 mb-3">
             <Calendar className="w-3.5 h-3.5" />
             <span>{interviewDate ? `Interview: ${interviewDate}` : 'Interview Scheduled'}</span>
           </div>
         )}
         {isOffered && (
-          <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 mb-3">
+          <div className="flex items-center gap-1.5 text-caption text-emerald-600 dark:text-emerald-400 mb-3">
             <PartyPopper className="w-3.5 h-3.5" />
             <span>Offer Received!</span>
           </div>
         )}
         {isRejected && (
-          <div className="flex items-center gap-1.5 text-xs text-rose-500 dark:text-rose-400 mb-3">
+          <div className="flex items-center gap-1.5 text-caption text-rose-500 dark:text-rose-400 mb-3">
             <XCircle className="w-3.5 h-3.5" />
             <span>Not Selected</span>
           </div>
         )}
         {colId === 'applied' && formattedDate && (
-          <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-3">
+          <div className="flex items-center gap-1.5 text-caption text-ink-muted mb-3">
             <Clock className="w-3.5 h-3.5" />
             <span>Applied {formattedDate}</span>
           </div>
         )}
 
         {/* Actions */}
-        <div className="pt-3 border-t border-gray-100 dark:border-gray-700/60">
+        <div className="pt-3 border-t border-hairline">
           {isInterviewing ? (
             <button
               onClick={() => onPrepareAI(app)}
-              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors duration-200 active:scale-[0.98]"
+              className="app-btn-primary app-btn-sm w-full flex items-center justify-center gap-2 active:scale-[0.98]"
             >
               <Sparkles className="w-3.5 h-3.5" />
               Prepare with AI Coach
@@ -202,20 +200,20 @@ function ApplicationCard({ app, colId, index, onPrepareAI, onUpdateStatus }) {
             <div className="flex gap-2">
               <button
                 onClick={() => onUpdateStatus(app.application_id, 'accepted')}
-                className="flex-1 text-xs font-semibold py-2 rounded-lg border border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors cursor-pointer"
+                className="flex-1 text-caption font-semibold py-2 rounded-card border border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors cursor-pointer"
               >
                 Accept
               </button>
               <button
                 onClick={() => onUpdateStatus(app.application_id, 'rejected')}
-                className="flex-1 text-xs font-semibold py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+ className="flex-1 text-caption font-semibold py-2 rounded-card border border-hairline text-ink-muted hov-surface transition-colors cursor-pointer"
               >
                 Decline
               </button>
             </div>
           ) : (
             <div className="flex justify-end">
-              <Link to={`/job/${app.job_id}`} className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors">
+              <Link to={`/job/${app.job_id}`} className="flex items-center gap-1 text-caption text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors">
                 View Details <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
@@ -228,6 +226,7 @@ function ApplicationCard({ app, colId, index, onPrepareAI, onUpdateStatus }) {
 
 export default function MyApplicationsPage() {
   const toast = useToast()
+  const navigate = useNavigate()
   const [applications, setApplications] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -287,7 +286,8 @@ export default function MyApplicationsPage() {
   const upcomingInterviews = useMemo(() => grouped.interviewing.slice(0, 3), [grouped])
 
   function handlePrepareAI(app) {
-    toast.info(`Launching AI Coach for ${app.job_title || 'your interview'}...`)
+    toast.info(`Opening AI Coach to prepare for ${app.job_title || 'your interview'}...`)
+    navigate('/dashboard/interview')
   }
 
   const handleUpdateStatus = async (appId, newStatus) => {
@@ -297,12 +297,12 @@ export default function MyApplicationsPage() {
       fetchApplications()
     } catch (err) {
       console.error(err)
-      toast.error(err.response?.data?.detail || 'Failed to update status. Please try again.')
+      toast.error(getApiError(err, 'Failed to update status. Please try again.'))
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-canvas text-ink font-body">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
 
       <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -313,10 +313,11 @@ export default function MyApplicationsPage() {
           transition={{ duration: 0.4 }}
           className="mb-8"
         >
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
+          <p className="eyebrow mb-2">Applications</p>
+          <h1 className="app-page-title">
             My Applications
           </h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
+          <p className="app-page-subtitle">
             Track your job application progress and upcoming interviews.
           </p>
         </motion.div>
@@ -334,11 +335,11 @@ export default function MyApplicationsPage() {
                   <div key={col.id} className="flex flex-col gap-3">
                     {/* Column Header */}
                     <div className={`flex items-center justify-between pb-3 border-b ${col.headerBorder}`}>
-                      <h3 className="font-semibold text-sm text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${col.dotClass}`} />
+                      <h3 className="font-semibold text-caption text-ink flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-pill ${col.dotClass}`} />
                         {col.label}
                       </h3>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${col.badgeClass}`}>
+                      <span className={`text-caption font-bold px-2 py-0.5 rounded-pill ${col.badgeClass}`}>
                         {loading ? '—' : grouped[col.id].length}
                       </span>
                     </div>
@@ -369,51 +370,64 @@ export default function MyApplicationsPage() {
 
             {/* Recent Activity */}
             <div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+              <h3 className="app-section-title mb-4">
                 Recent Activity
               </h3>
-              <div className="bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
+              <div className="surface-card overflow-hidden">
                 {loading ? (
-                  <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                  <div className="divide-y divide-hairline">
                     {[0, 1, 2].map(i => (
                       <div key={i} className="p-4 flex items-center gap-4 animate-pulse">
-                        <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700" />
+                        <div className="w-8 h-8 rounded-pill bg-surface-sunken" />
                         <div className="flex-1 space-y-2">
-                          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
-                          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
+                          <div className="h-3 bg-surface-sunken rounded-card w-3/4" />
+                          <div className="h-3 bg-surface-sunken rounded-card w-1/3" />
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : recentActivity.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400 dark:text-gray-500">
+                  <div className="p-8 text-center text-ink-subtle">
                     <TrendingUp className="w-10 h-10 mx-auto mb-3 opacity-40" />
                     <p>No activity yet. Start applying!</p>
                   </div>
                 ) : (
-                  <ul className="divide-y divide-gray-100 dark:divide-gray-700/60">
-                    {recentActivity.map((item, idx) => (
-                      <motion.li
-                        key={item.id || idx}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${item.colorClass}`}>
-                            <item.Icon className="w-4 h-4" />
+                  <ul className="divide-y divide-hairline">
+                    {recentActivity.map((item, idx) => {
+                      const rowContent = (
+                        <>
+                          <div className="flex items-center gap-4">
+                            <div className={`w-8 h-8 rounded-pill flex items-center justify-center flex-shrink-0 ${item.colorClass}`}>
+                              <item.Icon className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-caption text-ink">{item.description}</p>
+                              {item.timeStr && (
+                                <p className="text-caption text-ink-subtle">{item.timeStr}</p>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm text-gray-800 dark:text-gray-200">{item.description}</p>
-                            {item.timeStr && (
-                              <p className="text-xs text-gray-400 dark:text-gray-500">{item.timeStr}</p>
-                            )}
-                          </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      </motion.li>
-                    ))}
+                          {item.job_id && <ChevronRight className="w-4 h-4 text-ink-subtle flex-shrink-0" />}
+                        </>
+                      )
+                      return (
+                        <motion.li
+                          key={item.id || idx}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="p-4 hov-surface transition-colors flex items-center justify-between"
+                        >
+                          {item.job_id ? (
+                            <Link to={`/job/${item.job_id}`} className="flex items-center justify-between w-full">
+                              {rowContent}
+                            </Link>
+                          ) : (
+                            rowContent
+                          )}
+                        </motion.li>
+                      )
+                    })}
                   </ul>
                 )}
               </div>
@@ -421,17 +435,17 @@ export default function MyApplicationsPage() {
 
           </div>
 
-          {/* === RIGHT: Sidebar (30%) === */}
-          <aside className="w-full lg:w-[30%] flex flex-col gap-5">
+          {/* RIGHT: Sidebar (30%) — sticky rail on lg+ (static below lg where the layout stacks) */}
+          <aside className="w-full lg:w-[30%] flex flex-col gap-5 lg:sticky lg:top-6 self-start">
 
             {/* Upcoming Interviews */}
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.4, delay: 0.1 }}
-              className="bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm"
+              className="surface-card p-5"
             >
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <h3 className="font-semibold text-ink mb-4 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-blue-500" />
                 Upcoming Interviews
               </h3>
@@ -439,37 +453,37 @@ export default function MyApplicationsPage() {
                 <div className="space-y-4 animate-pulse">
                   {[0, 1].map(i => (
                     <div key={i} className="flex gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 flex-shrink-0" />
+                      <div className="w-10 h-10 rounded-card bg-surface-sunken flex-shrink-0" />
                       <div className="flex-1 space-y-2">
-                        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
-                        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                        <div className="h-3 bg-surface-sunken rounded-card w-3/4" />
+                        <div className="h-3 bg-surface-sunken rounded-card w-1/2" />
                       </div>
                     </div>
                   ))}
                 </div>
               ) : upcomingInterviews.length === 0 ? (
                 <div className="text-center py-6">
-                  <Calendar className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                  <p className="text-sm text-gray-400 dark:text-gray-500">No upcoming interviews</p>
+                  <Calendar className="w-10 h-10 mx-auto mb-2 text-ink-subtle" />
+                  <p className="text-caption text-ink-subtle">No upcoming interviews</p>
                 </div>
               ) : (
                 <ul className="space-y-4">
                   {upcomingInterviews.map((app, idx) => (
                     <li key={app.id || idx} className="flex gap-3 items-start">
-                      <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 flex items-center justify-center flex-shrink-0">
+                      <div className="w-10 h-10 rounded-card bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 flex items-center justify-center flex-shrink-0">
                         <Calendar className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                       </div>
                       <div className="min-w-0">
-                        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
+                        <h4 className="text-caption font-semibold text-ink truncate">
                           {app.job_title || app.title}
                         </h4>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        <p className="text-caption text-ink-muted truncate">
                           {app.company}
                           {app.interview_date && ` • ${new Date(app.interview_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                         </p>
                         <button
                           onClick={() => handlePrepareAI(app)}
-                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block font-medium"
+                          className="text-caption text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block font-medium"
                         >
                           Prepare with AI Coach
                         </button>
@@ -485,9 +499,9 @@ export default function MyApplicationsPage() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.4, delay: 0.2 }}
-              className="bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm"
+              className="surface-card p-5"
             >
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <h3 className="font-semibold text-ink mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-yellow-500" />
                 Recommended Actions
               </h3>
@@ -499,14 +513,14 @@ export default function MyApplicationsPage() {
                 ].map(({ Icon, label, color, to }, idx) => (
                   <li
                     key={idx}
-                    className="p-0 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer transition-colors group"
+ className="p-0 border border-hairline rounded-card hov-surface cursor-pointer transition-colors group"
                   >
                     <Link to={to} className="flex items-center justify-between p-3 w-full h-full">
                       <div className="flex items-center gap-3">
                         <Icon className={`w-4 h-4 ${color}`} />
-                        <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+                        <span className="text-caption text-ink-muted">{label}</span>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:translate-x-0.5 transition-transform" />
+                      <ChevronRight className="w-4 h-4 text-ink-subtle group-hover:translate-x-0.5 transition-transform" />
                     </Link>
                   </li>
                 ))}
@@ -518,14 +532,14 @@ export default function MyApplicationsPage() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.4, delay: 0.3 }}
-              className="bg-gradient-to-br from-blue-600 to-blue-800 dark:from-blue-800 dark:to-blue-950 rounded-xl p-5 shadow-sm text-white"
+              className="rounded-panel bg-primary-800 p-5 shadow-soft-sm text-white"
             >
               <h3 className="font-semibold mb-3 flex items-center gap-2">
                 <Briefcase className="w-4 h-4" /> Application Summary
               </h3>
               {loading ? (
                 <div className="space-y-2 animate-pulse">
-                  {[0, 1, 2].map(i => <div key={i} className="h-4 bg-white/20 rounded" />)}
+                  {[0, 1, 2].map(i => <div key={i} className="h-4 bg-primary-700/50 rounded-card" />)}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
@@ -535,9 +549,9 @@ export default function MyApplicationsPage() {
                     { label: 'Offered', val: grouped.offered.length, color: 'text-emerald-300' },
                     { label: 'Rejected', val: grouped.rejected.length, color: 'text-rose-300' },
                   ].map(({ label, val, color }) => (
-                    <div key={label} className="bg-white/10 rounded-lg p-3">
-                      <p className={`text-2xl font-bold ${color}`}>{val}</p>
-                      <p className="text-xs text-white/70">{label}</p>
+                    <div key={label} className="bg-primary-700/50 rounded-card p-3">
+                      <p className={`text-title-lg font-bold ${color}`}>{val}</p>
+                      <p className="text-caption text-white/70">{label}</p>
                     </div>
                   ))}
                 </div>

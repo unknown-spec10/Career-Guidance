@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { apiUrl, api } from './api'
+import { __resetAuthTokenForTests, getAuthToken } from '../utils/authToken'
 
 describe('apiUrl', () => {
   it('returns relative paths untouched when no base URL is configured (dev proxy mode)', async () => {
@@ -45,10 +46,12 @@ describe('apiUrl', () => {
 
 describe('request interceptor', () => {
   beforeEach(() => {
+    __resetAuthTokenForTests()
     sessionStorage.clear()
   })
 
   afterEach(() => {
+    __resetAuthTokenForTests()
     sessionStorage.clear()
   })
 
@@ -82,12 +85,14 @@ describe('response interceptor — 401 handling', () => {
     originalLocation = window.location
     delete window.location
     window.location = { pathname: '/student/dashboard', href: '' }
+    __resetAuthTokenForTests()
     sessionStorage.clear()
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   afterEach(() => {
     window.location = originalLocation
+    __resetAuthTokenForTests()
     sessionStorage.clear()
     vi.restoreAllMocks()
   })
@@ -99,6 +104,8 @@ describe('response interceptor — 401 handling', () => {
 
     await expect(errorHandler(error)).rejects.toBe(error)
     expect(sessionStorage.getItem('_secure_token')).toBeNull()
+    // H7: the 401 path must also drain the in-memory holder, not just storage
+    expect(getAuthToken()).toBeNull()
     expect(window.location.href).toBe('/login')
   })
 

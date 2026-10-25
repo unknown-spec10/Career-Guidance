@@ -38,7 +38,7 @@ const TransactionHistoryPage = () => {
       case 'bonus':
         return <Gift className="w-5 h-5 text-yellow-500" />
       default:
-        return <Clock className="w-5 h-5 text-gray-500" />
+        return <Clock className="w-5 h-5 text-ink-subtle" />
     }
   }
 
@@ -51,7 +51,7 @@ const TransactionHistoryPage = () => {
       case 'bonus':
         return 'text-yellow-600 bg-yellow-50 border-yellow-200'
       default:
-        return 'text-gray-600 bg-gray-50 border-gray-200'
+        return 'text-ink-muted bg-surface-sunken border-hairline'
     }
   }
 
@@ -72,11 +72,11 @@ const TransactionHistoryPage = () => {
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="surface-card p-6">
           <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-gray-200 rounded w-1/4"></div>
+            <div className="h-6 bg-surface-sunken rounded-card w-1/4"></div>
             {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-20 bg-gray-100 rounded"></div>
+              <div key={i} className="h-20 bg-surface-sunken rounded-card"></div>
             ))}
           </div>
         </div>
@@ -85,27 +85,24 @@ const TransactionHistoryPage = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-4xl mx-auto px-4 py-8 text-ink font-body">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Credit Transaction History</h1>
-        <p className="text-gray-600">Track your credit usage, refills, and bonuses</p>
+        <p className="eyebrow mb-2">Credits</p>
+        <h1 className="app-page-title mb-2">Credit Transaction History</h1>
+        <p className="app-page-subtitle">Track your credit usage, refills, and bonuses</p>
       </div>
 
       {/* Filter Buttons */}
-      <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+      <div className="surface-card p-4 mb-6">
         <div className="flex items-center space-x-2">
-          <Filter className="w-5 h-5 text-gray-500" />
-          <span className="text-sm font-medium text-gray-700">Filter:</span>
+          <Filter className="w-5 h-5 text-ink-subtle" />
+          <span className="text-caption font-medium text-ink-muted">Filter:</span>
           <div className="flex space-x-2">
             {['all', 'spend', 'refill', 'bonus'].map(type => (
               <button
                 key={type}
                 onClick={() => setFilter(type)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  filter === type
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                className={`rounded-pill font-medium transition-all ${ filter === type ? 'app-btn-primary app-btn-sm rounded-pill' : 'app-btn-secondary app-btn-sm rounded-pill' }`}
               >
                 {type.charAt(0).toUpperCase() + type.slice(1)}
               </button>
@@ -115,26 +112,26 @@ const TransactionHistoryPage = () => {
       </div>
 
       {/* Transactions List */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+      <div className="surface-card overflow-hidden">
         {filteredTransactions.length > 0 ? (
-          <div className="divide-y divide-gray-200">
+          <div className="divide-y divide-hairline">
             {filteredTransactions.map((tx) => (
               <motion.div
                 key={tx.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="p-4 hover:bg-gray-50 transition-colors"
+ className="p-4 hov-surface transition-colors"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4 flex-1">
-                    <div className={`p-2 rounded-lg border ${getTypeColor(tx.transaction_type)}`}>
+                    <div className={`p-2 rounded-card border ${getTypeColor(tx.transaction_type)}`}>
                       {getTypeIcon(tx.transaction_type)}
                     </div>
                     <div className="flex-1">
-                      <div className="font-semibold text-gray-900">
+                      <div className="font-semibold text-ink">
                         {getActivityLabel(tx.activity_type)}
                       </div>
-                      <div className="text-sm text-gray-500">
+                      <div className="text-caption text-ink-muted">
                         {new Date(tx.created_at).toLocaleString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -144,13 +141,13 @@ const TransactionHistoryPage = () => {
                         })}
                       </div>
                       {tx.notes && (
-                        <div className="text-sm text-gray-600 mt-1">{tx.notes}</div>
+                        <div className="text-caption text-ink-muted mt-1">{tx.notes}</div>
                       )}
                     </div>
                   </div>
                   <div className="text-right">
                     <div
-                      className={`text-lg font-bold ${
+                      className={`text-title-lg font-bold ${
                         tx.transaction_type === 'spend'
                           ? 'text-red-600'
                           : 'text-green-600'
@@ -159,7 +156,7 @@ const TransactionHistoryPage = () => {
                       {tx.transaction_type === 'spend' ? '-' : '+'}
                       {Math.abs(tx.amount)}
                     </div>
-                    <div className="text-sm text-gray-500">
+                    <div className="text-caption text-ink-muted">
                       Balance: {tx.balance_after}
                     </div>
                   </div>
@@ -168,13 +165,13 @@ const TransactionHistoryPage = () => {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-ink-muted">
             <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
             <p>No transactions found</p>
             {filter !== 'all' && (
               <button
                 onClick={() => setFilter('all')}
-                className="mt-2 text-indigo-600 hover:text-indigo-700"
+                className="mt-2 text-caption font-semibold text-primary-600 dark:text-primary-400 hover:underline"
               >
                 Clear filter
               </button>
@@ -185,28 +182,28 @@ const TransactionHistoryPage = () => {
 
       {/* Summary Card */}
       {transactions.length > 0 && (
-        <div className="mt-6 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg p-6 text-white">
-          <h3 className="text-lg font-semibold mb-4">Summary</h3>
+        <div className="mt-6 rounded-panel bg-primary-800 p-6 text-white shadow-soft-sm">
+          <h3 className="text-title mb-4">Summary</h3>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <div className="text-sm opacity-80">Total Spent</div>
-              <div className="text-2xl font-bold">
+              <div className="text-caption text-white/80">Total Spent</div>
+              <div className="text-title-lg font-bold">
                 {transactions
                   .filter(tx => tx.transaction_type === 'spend')
                   .reduce((sum, tx) => sum + Math.abs(tx.amount), 0)}
               </div>
             </div>
             <div>
-              <div className="text-sm opacity-80">Total Refilled</div>
-              <div className="text-2xl font-bold">
+              <div className="text-caption text-white/80">Total Refilled</div>
+              <div className="text-title-lg font-bold">
                 {transactions
                   .filter(tx => tx.transaction_type === 'refill')
                   .reduce((sum, tx) => sum + tx.amount, 0)}
               </div>
             </div>
             <div>
-              <div className="text-sm opacity-80">Total Bonuses</div>
-              <div className="text-2xl font-bold">
+              <div className="text-caption text-white/80">Total Bonuses</div>
+              <div className="text-title-lg font-bold">
                 {transactions
                   .filter(tx => tx.transaction_type === 'bonus')
                   .reduce((sum, tx) => sum + tx.amount, 0)}

@@ -2,12 +2,37 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, User, Users, Sparkles, BookOpen, Briefcase, LogOut,
-  Menu, X, Bell, Sun, Moon, Coins, ChevronRight, ChevronLeft, Shield, Activity,
-  ClipboardList, Network, BarChart3, Search, UserCheck, FileCheck
+  LayoutDashboard, User, Sparkles, BookOpen, Briefcase, LogOut,
+  Menu, X, Bell, Sun, Moon, Coins, ChevronRight, ChevronLeft, Shield,
+  ShieldCheck, Users, ClipboardList
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
+
+const HEADER_TITLES = {
+  '/student/dashboard': 'Dashboard',
+  '/student/applications': 'My Applications',
+  '/student/intelligence': 'AI Guru',
+  '/student/profile': 'Profile Settings',
+  '/dashboard/interview': 'Interview Prep',
+  '/dashboard/learning-paths': 'Learning Paths',
+  '/dashboard/upgrade': 'Upgrade',
+  '/dashboard/credits/transactions': 'Credit History',
+  '/admin/dashboard': 'Admin Dashboard',
+  '/admin/users': 'Users',
+  '/admin/jobs': 'Jobs',
+  '/jobs': 'Jobs',
+}
+
+function headerTitleFor(pathname) {
+  if (HEADER_TITLES[pathname]) return HEADER_TITLES[pathname]
+  if (pathname.startsWith('/dashboard/interview/results/')) return 'Interview Results'
+  if (pathname.startsWith('/dashboard/interview/')) return 'Interview Session'
+  if (pathname.startsWith('/dashboard/learning-path/')) return 'Learning Path'
+  if (pathname.startsWith('/results/')) return 'Resume Results'
+  if (pathname.startsWith('/job/')) return 'Job Details'
+  return pathname.split('/').filter(Boolean).pop()?.replace(/-/g, ' ') || 'Dashboard'
+}
 
 export default function DashboardLayout({ children }) {
   const location = useLocation()
@@ -61,6 +86,8 @@ export default function DashboardLayout({ children }) {
     }
 
     const fetchCredits = async () => {
+      // Credit wallet is a student surface; admin sessions have no account.
+      if (storedUser?.role !== 'student') return
       try {
         const response = await api.get('/api/credits/balance')
         setCredits(response.data)
@@ -83,7 +110,7 @@ export default function DashboardLayout({ children }) {
 
     fetchCredits()
     refreshUserDetails()
-    const interval = setInterval(fetchCredits, 30000)
+    const interval = storedUser?.role === 'student' ? setInterval(fetchCredits, 30000) : null
 
     const handleProfileUpdate = () => {
       const updatedUser = secureStorage.getItem('user')
@@ -102,6 +129,13 @@ export default function DashboardLayout({ children }) {
   // Generate dynamic notifications based on user data
   useEffect(() => {
     if (!user) return
+    // Admin notifications are not modelled yet; keep the bell empty rather
+    // than calling student-only endpoints with an admin session.
+    if (user.role !== 'student') {
+      setNotifications([])
+      setHasNewNotifications(false)
+      return
+    }
 
     const generateNotifications = async () => {
       const list = []
@@ -201,26 +235,14 @@ export default function DashboardLayout({ children }) {
           { to: '/student/applications', label: 'My Applications', icon: ClipboardList },
           { to: '/dashboard/interview', label: 'Interview Prep', icon: Sparkles },
           { to: '/dashboard/learning-paths', label: 'Learning Paths', icon: BookOpen },
-          { to: '/student/network', label: 'Mentorship Hub', icon: Network },
           { to: '/student/intelligence', label: 'AI Guru', icon: Shield },
           { to: '/student/profile', label: 'Profile Settings', icon: User }
         ]
-      case 'employer':
-        return [
-          { to: '/employer/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { to: '/employer/post-job', label: 'Post a New Job', icon: Sparkles },
-          { to: '/employer/talent-pool', label: 'Talent Pool', icon: Search },
-          { to: '/employer/analytics', label: 'Analytics', icon: BarChart3 },
-          { to: '/employer/profile', label: 'Company Settings', icon: User }
-        ]
       case 'admin':
         return [
-          { to: '/admin/dashboard?tab=overview', label: 'Admin Hub', icon: LayoutDashboard },
-          { to: '/admin/dashboard?tab=all-jobs', label: 'Manage Jobs', icon: Briefcase },
-          { to: '/admin/moderation', label: 'Job Moderation', icon: FileCheck },
-          { to: '/admin/users', label: 'User Management', icon: UserCheck },
-          { to: '/admin/dashboard?tab=resume-reviews', label: 'Resume Reviews', icon: Shield },
-          { to: '/admin/dashboard?tab=system-health', label: 'System Health', icon: Activity }
+          { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+          { to: '/admin/users', label: 'Users', icon: Users },
+          { to: '/admin/jobs', label: 'Jobs', icon: ShieldCheck }
         ]
       default:
         return []
@@ -237,26 +259,26 @@ export default function DashboardLayout({ children }) {
   const walletColor = creditPct >= 50 ? 'bg-success' : creditPct >= 25 ? 'bg-warning' : 'bg-error'
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-muted dark:bg-inverse-surface text-on-surface dark:text-inverse-on-surface font-body-base">
+    <div className="flex h-screen w-screen overflow-hidden bg-canvas text-ink font-body transition-colors duration-200">
       
       {/* --- DESKTOP SIDEBAR --- */}
-      <aside className={`hidden md:flex flex-col h-screen bg-surface-container dark:bg-inverse-surface border-r border-border-subtle dark:border-outline-variant flex-shrink-0 z-30 transition-all duration-300 ${collapsed ? 'w-20 p-md' : 'w-64 p-lg'}`}>
+      <aside className={`hidden md:flex flex-col h-screen bg-surface-raised border-r border-hairline flex-shrink-0 z-30 transition-all duration-300 ${collapsed ? 'w-20 p-md' : 'w-64 p-lg'}`}>
         
         {/* Brand Header */}
-        <div className={`mb-xl flex items-center px-xs ${collapsed ? 'flex-col gap-3 justify-center' : 'justify-between'}`}>
-          <div className="flex items-center min-w-0">
+        <div className={`mb-xl flex items-center px-xs ${collapsed ? 'flex-col gap-3 justify-center' : 'gap-1'}`}>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             <img src="/logo.png" alt="CareerSync Logo" className="h-7 w-7 object-contain shrink-0" />
-            <span className={`text-headline-md font-headline-md font-extrabold text-primary dark:text-primary-fixed-dim ml-sm truncate transition-all duration-300 origin-left overflow-hidden ${collapsed ? 'max-w-0 opacity-0 scale-x-0 ml-0 pointer-events-none' : 'max-w-[200px] opacity-100 scale-x-100'}`}>
+            <span title="CareerSync AI" className={`font-display text-title font-bold tracking-[-0.02em] text-ink whitespace-nowrap transition-all duration-300 origin-left overflow-hidden ${collapsed ? 'max-w-0 opacity-0 scale-x-0 pointer-events-none' : 'opacity-100 scale-x-100'}`}>
               CareerSync AI
             </span>
           </div>
           <button
             onClick={toggleCollapse}
-            className="relative group/toggle p-1 rounded-lg hover:bg-surface-container-high dark:hover:bg-surface-variant/20 text-on-surface-variant dark:text-surface-variant hover:text-on-surface transition-all active:scale-95 duration-150 shrink-0 mt-1"
+ className="relative group/toggle p-1 rounded-card text-ink-muted hover:bg-surface-sunken hover:text-ink transition-all active:scale-95 duration-150 shrink-0"
           >
             {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
             {collapsed && (
-              <div className="absolute left-full ml-sm px-md py-sm bg-neutral-900 dark:bg-slate-800 text-white dark:text-inverse-on-surface text-metadata rounded-md shadow-xl opacity-0 group-hover/toggle:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              <div className="absolute left-full ml-sm px-md py-sm rounded-card border border-hairline bg-surface-overlay text-ink text-caption shadow-soft opacity-0 group-hover/toggle:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                 Expand Sidebar
               </div>
             )}
@@ -265,21 +287,21 @@ export default function DashboardLayout({ children }) {
 
         {/* User Card */}
         {user && (
-          <div className={`flex items-center mb-lg bg-surface-container-low dark:bg-inverse-surface/10 rounded-xl border border-border-subtle dark:border-outline-variant/30 transition-all duration-300 ${collapsed ? 'justify-center p-2' : 'p-sm'}`}>
+          <div className={`flex items-center mb-lg bg-surface-sunken rounded-card border border-hairline transition-all duration-300 ${collapsed ? 'justify-center p-2' : 'p-sm'}`}>
             {user.profile_picture_url ? (
               <img
                 src={user.profile_picture_url.startsWith("http") ? user.profile_picture_url : `${api.defaults.baseURL || ""}${user.profile_picture_url}`}
                 alt="User Avatar"
-                className="w-10 h-10 rounded-lg object-cover shadow-sm shrink-0"
+                className="w-10 h-10 rounded-card object-cover shadow-soft-xs shrink-0"
               />
             ) : (
-              <div className="w-10 h-10 rounded-lg bg-primary-container text-on-primary-container flex items-center justify-center font-bold font-display-lg uppercase shadow-sm shrink-0">
+              <div className="w-10 h-10 rounded-card bg-primary-600 text-white dark:bg-primary-500 flex items-center justify-center font-display font-bold uppercase shadow-soft-xs shrink-0">
                 {user.name ? user.name[0] : (user.email ? user.email[0] : 'U')}
               </div>
             )}
             <div className={`min-w-0 transition-all duration-300 overflow-hidden ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-sm'}`}>
-              <p className="font-body-bold text-[14px] text-on-surface dark:text-inverse-on-surface truncate">{user.name || 'Alex Chen'}</p>
-              <p className="font-metadata text-[11px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider truncate">{user.role}</p>
+              <p className="font-body text-caption font-semibold text-ink truncate">{user.name || 'Alex Chen'}</p>
+              <p className="text-overline text-ink-subtle truncate">{user.role}</p>
             </div>
           </div>
         )}
@@ -295,18 +317,18 @@ export default function DashboardLayout({ children }) {
               <Link
                 key={link.to}
                 to={link.to}
-                className={`relative group flex items-center py-3 rounded-xl transition-all duration-200 active:translate-x-1 min-w-0 ${
+                className={`relative group flex items-center py-3 rounded-card transition-colors duration-200 active:translate-x-1 min-w-0 ${
                   active
-                    ? 'bg-primary-container dark:bg-primary-container text-white dark:text-on-primary-container font-body-bold shadow-md shadow-primary-500/10'
-                    : 'text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant/20 hover:text-on-surface'
+                    ? 'bg-primary-600 text-white dark:bg-primary-500 font-body font-semibold shadow-soft-xs'
+ : 'text-ink-muted hover:bg-surface-sunken hover:text-ink'
                 } ${collapsed ? 'justify-center px-0' : 'px-md'}`}
               >
                 <Icon className="w-5 h-5 shrink-0" />
-                <span className={`text-[14px] transition-all duration-300 overflow-hidden whitespace-nowrap truncate ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-none opacity-100 ml-md'}`}>
+                <span className={`font-body text-sm transition-all duration-300 overflow-hidden whitespace-nowrap truncate ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-none opacity-100 ml-md'}`}>
                   {link.label}
                 </span>
                 {collapsed && (
-                  <div className="absolute left-full ml-sm px-md py-sm bg-neutral-900 dark:bg-slate-800 text-white dark:text-inverse-on-surface text-metadata rounded-md shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                  <div className="absolute left-full ml-sm px-md py-sm rounded-card border border-hairline bg-surface-overlay text-ink text-caption shadow-soft opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                     {link.label}
                   </div>
                 )}
@@ -317,27 +339,27 @@ export default function DashboardLayout({ children }) {
 
         {/* Sidebar Wallet */}
         {user?.role === 'student' && credits && (
-          <div className={`relative group/wallet glass-panel dark:bg-surface-variant/10 rounded-xl mb-sm mt-md border border-border-subtle dark:border-outline-variant/30 shadow-[0_4px_12px_rgba(0,0,0,0.01)] transition-all duration-300 ${collapsed ? 'p-2 flex flex-col items-center gap-1.5' : 'p-md'}`}>
+          <div className={`relative group/wallet rounded-card border border-hairline bg-surface-sunken mb-sm mt-md shadow-soft-xs transition-all duration-300 ${collapsed ? 'p-2 flex flex-col items-center gap-1.5' : 'p-md'}`}>
             <div className="flex justify-between items-center mb-xs w-full">
-              {!collapsed && <span className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider">AI Credits</span>}
+              {!collapsed && <span className="text-overline text-ink-subtle">AI Credits</span>}
               <Coins className={`h-4 w-4 text-warning ${collapsed ? 'mx-auto' : ''}`} />
             </div>
             {collapsed ? (
-              <div className="text-[11px] font-bold text-on-surface dark:text-inverse-on-surface text-center">
+              <div className="text-[11px] font-bold text-ink text-center">
                 {currentCredits}
               </div>
             ) : (
               <>
                 <div className="flex items-baseline gap-xs mb-xs">
-                  <span className="font-label-caps text-headline-md text-on-surface dark:text-inverse-on-surface">{currentCredits}</span>
-                  <span className="font-metadata text-[11px] text-on-surface-variant dark:text-surface-variant">/ {limitCredits}</span>
+                  <span className="font-display text-title font-bold text-ink">{currentCredits}</span>
+                  <span className="font-body text-[11px] text-ink-subtle">/ {limitCredits}</span>
                 </div>
-                <div className="w-full bg-surface-container-highest dark:bg-surface-variant rounded-full h-1.5 mb-sm overflow-hidden">
-                  <div className={`${walletColor} h-1.5 rounded-full`} style={{ width: `${creditPct}%` }} />
+                <div className="w-full bg-hairline rounded-pill h-1.5 mb-sm overflow-hidden">
+                  <div className={`${walletColor} h-1.5 rounded-pill`} style={{ width: `${creditPct}%` }} />
                 </div>
                 <Link
                   to="/dashboard/upgrade"
-                  className="btn-secondary-sm block w-full py-1.5 text-center text-[11px] font-body-bold rounded-lg cursor-pointer"
+                  className="app-btn-secondary app-btn-sm w-full cursor-pointer"
                 >
                   Refill Quota
                 </Link>
@@ -345,7 +367,7 @@ export default function DashboardLayout({ children }) {
             )}
             
             {collapsed && (
-              <div className="absolute left-full ml-sm px-md py-sm bg-neutral-900 dark:bg-slate-800 text-white dark:text-inverse-on-surface text-metadata rounded-md shadow-xl opacity-0 group-hover/wallet:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              <div className="absolute left-full ml-sm px-md py-sm rounded-card border border-hairline bg-surface-overlay text-ink text-caption shadow-soft opacity-0 group-hover/wallet:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                 Credits: {currentCredits} / {limitCredits}
               </div>
             )}
@@ -353,29 +375,29 @@ export default function DashboardLayout({ children }) {
         )}
 
         {/* Footer actions */}
-        <div className="pt-md border-t border-border-subtle dark:border-outline-variant/40 space-y-1">
+        <div className="pt-md border-t border-hairline space-y-1">
           <button
             onClick={toggleTheme}
-            className={`relative group/theme w-full flex items-center py-2.5 text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant/20 hover:text-on-surface rounded-xl transition-all text-left ${collapsed ? 'justify-center px-0' : 'px-md'}`}
+ className={`relative group/theme w-full flex items-center py-2.5 text-ink-muted hover:bg-surface-sunken hover:text-ink rounded-card transition-colors text-left ${collapsed ? 'justify-center px-0' : 'px-md'}`}
           >
             {theme === 'light' ? (
               <>
                 <Moon className="w-5 h-5 shrink-0" />
-                <span className={`text-[14px] transition-all duration-300 overflow-hidden whitespace-nowrap ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-md'}`}>
+                <span className={`font-body text-sm transition-all duration-300 overflow-hidden whitespace-nowrap ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-md'}`}>
                   Dark Theme
                 </span>
               </>
             ) : (
               <>
                 <Sun className="w-5 h-5 text-amber-500 shrink-0" />
-                <span className={`text-[14px] transition-all duration-300 overflow-hidden whitespace-nowrap ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-md'}`}>
+                <span className={`font-body text-sm transition-all duration-300 overflow-hidden whitespace-nowrap ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-md'}`}>
                   Light Theme
                 </span>
               </>
             )}
             
             {collapsed && (
-              <div className="absolute left-full ml-sm px-md py-sm bg-neutral-900 dark:bg-slate-800 text-white dark:text-inverse-on-surface text-metadata rounded-md shadow-xl opacity-0 group-hover/theme:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              <div className="absolute left-full ml-sm px-md py-sm rounded-card border border-hairline bg-surface-overlay text-ink text-caption shadow-soft opacity-0 group-hover/theme:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                 {theme === 'light' ? 'Dark Theme' : 'Light Theme'}
               </div>
             )}
@@ -383,15 +405,15 @@ export default function DashboardLayout({ children }) {
           
           <button
             onClick={handleLogout}
-            className={`relative group/logout w-full flex items-center py-2.5 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-all text-left ${collapsed ? 'justify-center px-0' : 'px-md'}`}
+ className={`relative group/logout w-full flex items-center py-2.5 text-rose-600 dark:text-rose-400 rounded-card transition-colors text-left hover:bg-rose-50 dark:hover:bg-rose-500/10 ${collapsed ? 'justify-center px-0' : 'px-md'}`}
           >
             <LogOut className="w-5 h-5 shrink-0" />
-            <span className={`text-[14px] font-body-bold transition-all duration-300 overflow-hidden whitespace-nowrap ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-md'}`}>
+            <span className={`font-body text-sm font-semibold transition-all duration-300 overflow-hidden whitespace-nowrap ${collapsed ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[150px] opacity-100 ml-md'}`}>
               Logout
             </span>
             
             {collapsed && (
-              <div className="absolute left-full ml-sm px-md py-sm bg-neutral-900 dark:bg-slate-800 text-white dark:text-inverse-on-surface text-metadata rounded-md shadow-xl opacity-0 group-hover/logout:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              <div className="absolute left-full ml-sm px-md py-sm rounded-card border border-hairline bg-surface-overlay text-ink text-caption shadow-soft opacity-0 group-hover/logout:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                 Logout
               </div>
             )}
@@ -400,34 +422,37 @@ export default function DashboardLayout({ children }) {
       </aside>
 
       {/* --- MAIN PORT --- */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background dark:bg-inverse-surface/30">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-canvas">
         
         {/* --- TOP HEADER --- */}
-        <header className="bg-surface-container-lowest dark:bg-inverse-surface border-b border-border-subtle dark:border-outline-variant/40 h-16 flex-shrink-0 flex items-center px-margin-desktop z-20 shadow-sm transition-all duration-300">
+        {/* sticky top-0 pins the header above the scrolling main portal;
+            solid opaque bg + z-30 keep page content from showing through
+            behind it. Notification dropdown (z-50) still floats above. */}
+        <header className="sticky top-0 bg-canvas border-b border-hairline h-16 flex-shrink-0 flex items-center px-margin-desktop z-30 shadow-soft-xs transition-all duration-300">
           <div className="w-full max-w-container-max mx-auto flex justify-between items-center">
             
             {/* Left Header - Mobile menu trigger */}
-            <div className="flex items-center gap-md">
+            <div className="flex min-w-0 flex-1 items-center gap-md">
               <button
                 onClick={() => setMobileMenuOpen(true)}
                 aria-label="Open navigation menu"
-                className="md:hidden p-sm hover:bg-surface-container dark:hover:bg-surface-variant/40 rounded-full active:scale-95 text-on-surface transition-transform"
+ className="md:hidden p-sm rounded-pill text-ink-muted hover:bg-surface-sunken hover:text-ink active:scale-95 transition-all"
               >
                 <Menu className="w-6 h-6" />
               </button>
-              <h2 className="text-body-bold font-body-bold text-on-surface dark:text-inverse-on-surface capitalize">
-                {location.pathname.split('/').pop().replace('-', ' ')} Portal
+              <h2 className="truncate font-display text-title font-bold capitalize tracking-[-0.02em] text-ink">
+                {headerTitleFor(location.pathname)}
               </h2>
             </div>
 
             {/* Right Header Controls */}
-            <div className="flex items-center gap-md">
+            <div className="flex shrink-0 items-center gap-md">
               
               {/* Upgrade Trigger */}
               {user?.role === 'student' && (
                 <Link
                   to="/dashboard/upgrade"
-                  className="hidden sm:inline-flex items-center px-3 py-1.5 bg-primary-container text-white dark:text-on-primary-container rounded-lg font-body-bold text-xs hover:bg-primary shadow-sm active:scale-95 duration-150 transition-all"
+                  className="hidden sm:inline-flex app-btn-primary app-btn-sm"
                 >
                   Upgrade Pro
                 </Link>
@@ -436,7 +461,7 @@ export default function DashboardLayout({ children }) {
               {/* Theme toggle (Top navigation fallback for mobile) */}
               <button
                 onClick={toggleTheme}
-                className="p-sm text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim transition-colors rounded-full hover:bg-surface-container dark:hover:bg-surface-variant/30 active:scale-95 md:hidden"
+ className="p-sm text-ink-muted hover:text-ink transition-colors rounded-pill hover:bg-surface-sunken active:scale-95 md:hidden"
               >
                 {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5 text-amber-500" />}
               </button>
@@ -450,11 +475,11 @@ export default function DashboardLayout({ children }) {
                   }}
                   aria-label={`Notifications${hasNewNotifications ? ' (new)' : ''}`}
                   aria-expanded={notificationsOpen}
-                  className="p-sm text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim transition-colors rounded-full hover:bg-surface-container dark:hover:bg-surface-variant/30 active:scale-95 relative"
+ className="p-sm text-ink-muted hover:text-ink transition-colors rounded-pill hover:bg-surface-sunken active:scale-95 relative"
                 >
                   <Bell className="w-5 h-5" />
                   {hasNewNotifications && (
-                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-error border-2 border-white dark:border-inverse-surface rounded-full"></span>
+                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-error border-2 border-canvas rounded-pill"></span>
                   )}
                 </button>
 
@@ -465,39 +490,39 @@ export default function DashboardLayout({ children }) {
                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-2 w-80 rounded-2xl border border-border-subtle dark:border-outline-variant bg-white dark:bg-inverse-surface shadow-2xl p-sm z-50 max-h-96 overflow-y-auto"
+                      className="absolute right-0 mt-2 w-80 rounded-panel border border-hairline bg-surface-overlay shadow-soft-lg p-sm z-50 max-h-96 overflow-y-auto"
                     >
-                      <div className="px-sm py-xs border-b border-border-subtle dark:border-outline-variant/40 mb-xs flex justify-between items-center">
-                        <span className="font-body-bold text-[13px] text-on-surface dark:text-inverse-on-surface">Notifications</span>
+                      <div className="px-sm py-xs border-b border-hairline mb-xs flex justify-between items-center">
+                        <span className="font-body text-caption font-semibold text-ink">Notifications</span>
                         <button
                           type="button"
                           onClick={() => {
                             setNotifications([])
                             setHasNewNotifications(false)
                           }}
-                          className="text-[10px] text-primary dark:text-primary-fixed-dim cursor-pointer font-semibold hover:underline bg-transparent border-0 p-0"
+                          className="text-[10px] text-primary-600 dark:text-primary-400 cursor-pointer font-semibold hover:underline bg-transparent border-0 p-0"
                         >
                           Mark read
                         </button>
                       </div>
                       
                       {notifications.length === 0 ? (
-                        <div className="p-4 text-center text-xs text-on-surface-variant">No new notifications.</div>
+                        <div className="p-4 text-center text-caption text-ink-muted">No new notifications.</div>
                       ) : (
                         <div className="space-y-1">
                           {notifications.map((notif) => {
-                            let typeColor = 'bg-primary/10 text-primary dark:text-primary-fixed-dim'
+                            let typeColor = 'bg-primary-500/10 text-primary'
                             if (notif.type === 'warning') typeColor = 'bg-warning/10 text-warning'
                             if (notif.type === 'success') typeColor = 'bg-success/10 text-success'
                             if (notif.type === 'interview') typeColor = 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
 
                             return (
-                              <div key={notif.id} className="p-2 hover:bg-surface-container-low dark:hover:bg-surface-variant/20 rounded-lg flex items-start gap-sm transition-colors cursor-pointer">
-                                <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${typeColor.split(' ')[1]}`} />
+ <div key={notif.id} className="p-2 hov-surface rounded-card flex items-start gap-sm transition-colors cursor-pointer">
+                                <div className={`w-2 h-2 mt-1.5 rounded-pill shrink-0 ${typeColor.split(' ')[1]}`} />
                                 <div className="min-w-0">
-                                  <h4 className="font-body-bold text-[12px] text-on-surface dark:text-inverse-on-surface truncate">{notif.title}</h4>
-                                  <p className="text-[11px] text-on-surface-variant dark:text-surface-variant leading-tight mt-0.5">{notif.body}</p>
-                                  <span className="text-[9px] text-slate-400 dark:text-slate-500 block mt-1">{notif.time}</span>
+                                  <h4 className="font-body text-caption font-semibold text-ink truncate">{notif.title}</h4>
+                                  <p className="text-[11px] text-ink-muted leading-tight mt-0.5">{notif.body}</p>
+                                  <span className="text-[9px] text-ink-subtle block mt-1">{notif.time}</span>
                                 </div>
                               </div>
                             )
@@ -511,15 +536,18 @@ export default function DashboardLayout({ children }) {
 
               {/* Profile Avatar Trigger */}
               {user && (
-                <div className="flex items-center gap-xs cursor-pointer select-none group" onClick={() => navigate(user.role === 'student' ? '/student/profile' : '/employer/profile')}>
+                <div
+                  className="flex items-center gap-xs cursor-pointer select-none group"
+                  onClick={() => navigate(user.role === 'admin' ? '/admin/dashboard' : '/student/profile')}
+                >
                   {user.profile_picture_url ? (
                     <img
                       src={user.profile_picture_url.startsWith("http") ? user.profile_picture_url : `${api.defaults.baseURL || ""}${user.profile_picture_url}`}
                       alt="User Avatar"
-                      className="w-8 h-8 rounded-lg object-cover shadow-sm group-hover:ring-2 group-hover:ring-primary/20 transition-all"
+                      className="w-8 h-8 rounded-card object-cover shadow-soft-xs ring-1 ring-hairline group-hover:ring-hairline-strong transition-all"
                     />
                   ) : (
-                    <div className="w-8 h-8 rounded-lg bg-secondary-container dark:bg-surface-variant text-on-secondary-container dark:text-surface-variant flex items-center justify-center font-bold text-xs uppercase shadow-sm group-hover:ring-2 group-hover:ring-primary/20 transition-all">
+                    <div className="w-8 h-8 rounded-card bg-surface-sunken border border-hairline text-ink flex items-center justify-center font-display font-bold text-xs uppercase shadow-soft-xs group-hover:border-hairline-strong transition-all">
                       {user.name ? user.name[0] : (user.email ? user.email[0] : 'U')}
                     </div>
                   )}
@@ -556,18 +584,18 @@ export default function DashboardLayout({ children }) {
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'tween', duration: 0.3 }}
-              className="fixed top-0 bottom-0 left-0 w-64 bg-surface-container dark:bg-inverse-surface p-lg z-50 flex flex-col md:hidden shadow-2xl"
+              className="fixed top-0 bottom-0 left-0 w-64 bg-surface-overlay border-r border-hairline p-lg z-50 flex flex-col md:hidden shadow-soft-xl"
             >
               <div className="flex justify-between items-center mb-xl">
                 <div className="flex items-center">
                   <img src="/logo.png" alt="CareerSync Logo" className="h-7 w-7 object-contain mr-sm" />
-                  <span className="text-body-bold font-display-lg font-bold text-primary dark:text-primary-fixed-dim">
+                  <span className="font-display text-title font-bold tracking-[-0.02em] text-ink">
                     CareerSync AI
                   </span>
                 </div>
                 <button
                   onClick={() => setMobileMenuOpen(false)}
-                  className="p-xs text-on-surface-variant hover:text-on-surface rounded-full hover:bg-surface-container-high"
+ className="p-xs text-ink-muted hover:text-ink rounded-pill hover:bg-surface-sunken"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -585,14 +613,14 @@ export default function DashboardLayout({ children }) {
                       key={link.to}
                       to={link.to}
                       onClick={() => setMobileMenuOpen(false)}
-                      className={`flex items-center gap-md px-md py-3 rounded-xl transition-all duration-200 ${
+                      className={`flex items-center gap-md px-md py-3 rounded-card transition-colors duration-200 ${
                         active
-                          ? 'bg-primary-container dark:bg-primary-container text-white dark:text-on-primary-container font-body-bold shadow-md shadow-primary-500/10'
-                          : 'text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-variant/20'
+                          ? 'bg-primary-600 text-white dark:bg-primary-500 font-body font-semibold shadow-soft-xs'
+ : 'text-ink-muted hover:bg-surface-sunken hover:text-ink'
                       }`}
                     >
                       <Icon className="w-5 h-5 shrink-0" />
-                      <span className="text-[14px]">{link.label}</span>
+                      <span className="font-body text-sm">{link.label}</span>
                     </Link>
                   )
                 })}
@@ -600,36 +628,36 @@ export default function DashboardLayout({ children }) {
 
               {/* Wallet (Mobile) */}
               {user?.role === 'student' && credits && (
-                <div className="glass-panel dark:bg-surface-variant/10 rounded-xl p-md mb-sm mt-md border border-border-subtle dark:border-outline-variant/30">
+                <div className="rounded-card p-md mb-sm mt-md border border-hairline bg-surface-sunken">
                   <div className="flex justify-between items-center mb-xs">
-                    <span className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider">Credits</span>
+                    <span className="text-overline text-ink-subtle">Credits</span>
                     <Coins className="h-4 w-4 text-warning" />
                   </div>
                   <div className="flex items-baseline gap-xs mb-xs">
-                    <span className="font-label-caps text-headline-md text-on-surface dark:text-inverse-on-surface">{currentCredits}</span>
-                    <span className="font-metadata text-[11px] text-on-surface-variant dark:text-surface-variant">/ {limitCredits}</span>
+                    <span className="font-display text-title font-bold text-ink">{currentCredits}</span>
+                    <span className="font-body text-[11px] text-ink-subtle">/ {limitCredits}</span>
                   </div>
-                  <div className="w-full bg-surface-container-highest dark:bg-surface-variant rounded-full h-1.5 overflow-hidden">
-                    <div className={`${walletColor} h-1.5 rounded-full`} style={{ width: `${creditPct}%` }} />
+                  <div className="w-full bg-hairline rounded-pill h-1.5 overflow-hidden">
+                    <div className={`${walletColor} h-1.5 rounded-pill`} style={{ width: `${creditPct}%` }} />
                   </div>
                 </div>
               )}
 
               {/* Footer (Mobile) */}
-              <div className="pt-md border-t border-border-subtle dark:border-outline-variant/40 space-y-1">
+              <div className="pt-md border-t border-hairline space-y-1">
                 <button
                   onClick={toggleTheme}
-                  className="w-full flex items-center gap-md px-md py-2.5 text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high rounded-xl text-left"
+ className="w-full flex items-center gap-md px-md py-2.5 text-ink-muted hover:bg-surface-sunken hover:text-ink rounded-card text-left"
                 >
                   {theme === 'light' ? (
                     <>
                       <Moon className="w-5 h-5" />
-                      <span className="text-[14px]">Dark Theme</span>
+                      <span className="font-body text-sm">Dark Theme</span>
                     </>
                   ) : (
                     <>
                       <Sun className="w-5 h-5 text-amber-500" />
-                      <span className="text-[14px]">Light Theme</span>
+                      <span className="font-body text-sm">Light Theme</span>
                     </>
                   )}
                 </button>
@@ -638,10 +666,10 @@ export default function DashboardLayout({ children }) {
                     setMobileMenuOpen(false)
                     handleLogout()
                   }}
-                  className="w-full flex items-center gap-md px-md py-2.5 text-rose-500 dark:text-rose-400 hover:bg-rose-50 rounded-xl text-left"
+ className="w-full flex items-center gap-md px-md py-2.5 text-rose-600 dark:text-rose-400 rounded-card text-left hover:bg-rose-50 dark:hover:bg-rose-500/10"
                 >
                   <LogOut className="w-5 h-5 shrink-0" />
-                  <span className="text-[14px] font-body-bold">Logout</span>
+                  <span className="font-body text-sm font-semibold">Logout</span>
                 </button>
               </div>
             </motion.aside>

@@ -14,6 +14,7 @@ vi.mock('../config/api', () => ({
 
 import api from '../config/api'
 import LoginPage from './LoginPage'
+import { __resetAuthTokenForTests } from '../utils/authToken'
 
 function renderLogin() {
   return render(
@@ -21,8 +22,6 @@ function renderLogin() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/student/dashboard" element={<div>STUDENT_DASH</div>} />
-        <Route path="/employer/dashboard" element={<div>EMPLOYER_DASH</div>} />
-        <Route path="/admin/dashboard" element={<div>ADMIN_DASH</div>} />
         <Route path="/forgot-password" element={<div>FORGOT</div>} />
         <Route path="/register" element={<div>REGISTER</div>} />
       </Routes>
@@ -32,6 +31,7 @@ function renderLogin() {
 
 describe('LoginPage — credential login contract', () => {
   beforeEach(() => {
+    __resetAuthTokenForTests()
     sessionStorage.clear()
     vi.clearAllMocks()
     localStorage.clear()
@@ -69,7 +69,7 @@ describe('LoginPage — credential login contract', () => {
     expect(api.defaults.headers.common.Authorization).toBe('Bearer tok-abc')
   })
 
-  it('routes employers and admins to their own dashboards based on the returned role', async () => {
+  it('routes unknown roles to the student dashboard fallback', async () => {
     const user = userEvent.setup()
     api.post.mockResolvedValueOnce({
       data: { access_token: 'tok-e', user: { id: 2, role: 'employer' } },
@@ -80,7 +80,7 @@ describe('LoginPage — credential login contract', () => {
     await user.type(screen.getByPlaceholderText('Enter your password'), 'pw')
     await user.click(screen.getByRole('button', { name: /^sign in$/i }))
 
-    await waitFor(() => expect(screen.getByText('EMPLOYER_DASH')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
   })
 
   it('shows the backend error detail on failed login and does not create a session', async () => {
@@ -114,7 +114,9 @@ describe('LoginPage — credential login contract', () => {
     await user.type(screen.getByPlaceholderText('Enter your password'), 'pw')
     await user.click(screen.getByRole('button', { name: /^sign in$/i }))
 
-    expect(screen.getByRole('button', { name: /^signing in/i })).toBeDisabled()
+    const submit = screen.getByRole('button', { name: /^sign in$/i })
+    await waitFor(() => expect(submit).toBeDisabled())
+    expect(submit).toHaveAttribute('aria-busy', 'true')
 
     resolveLogin({ data: { access_token: 't', user: { role: 'student' } } })
     await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
@@ -124,5 +126,41 @@ describe('LoginPage — credential login contract', () => {
     renderLogin()
     expect(screen.getByRole('link', { name: /create an account/i })).toHaveAttribute('href', '/register')
     expect(screen.getByRole('link', { name: /forgot password/i })).toHaveAttribute('href', '/forgot-password')
+  })
+
+  it('remember-me persists only the email for prefill when checked', async () => {
+    const user = userEvent.setup()
+    api.post.mockResolvedValueOnce({
+      data: { access_token: 'tok-r', user: { id: 1, role: 'student' } },
+    })
+    renderLogin()
+
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'remember@example.com')
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'pw123456')
+    await user.click(screen.getByRole('checkbox', { name: /remember me/i }))
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }))
+
+    await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
+    // Only the email is persisted for prefill — never the password or token.
+    expect(localStorage.getItem('remembered_email')).toBe('remember@example.com')
+  })
+
+  it('prefills the email from a previous remember-me choice and clears it when unchecked', async () => {
+    localStorage.setItem('remembered_email', 'back@example.com')
+    const user = userEvent.setup()
+    api.post.mockResolvedValueOnce({
+      data: { access_token: 'tok-r2', user: { id: 1, role: 'student' } },
+    })
+    renderLogin()
+
+    expect(screen.getByPlaceholderText('you@example.com')).toHaveValue('back@example.com')
+    expect(screen.getByRole('checkbox', { name: /remember me/i })).toBeChecked()
+
+    await user.click(screen.getByRole('checkbox', { name: /remember me/i }))
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'pw')
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }))
+
+    await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
+    expect(localStorage.getItem('remembered_email')).toBeNull()
   })
 })

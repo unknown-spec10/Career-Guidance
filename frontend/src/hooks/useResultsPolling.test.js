@@ -102,4 +102,47 @@ describe('useResultsPolling — evaluation recovery contract', () => {
     expect(api.get).toHaveBeenCalledTimes(2)
     expect(result.current.results?.refreshed).toBe(true)
   })
+
+  it('refresh() ignores non-complete payloads so a scorecard is never wiped to 0%', async () => {
+    api.get
+      .mockResolvedValueOnce({ data: { status: 'complete', total: 3, overall_score: 0.9 } })
+      .mockResolvedValueOnce({ data: { status: 'processing', completed: 1, total: 3 } })
+
+    const { result } = renderHook(() => useResultsPolling('sess-r2'))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.results?.overall_score).toBe(0.9)
+
+    await act(async () => {
+      await result.current.refresh()
+    })
+
+    // The processing payload must not overwrite the complete results.
+    expect(result.current.results?.overall_score).toBe(0.9)
+    expect(result.current.results?.status).toBe('complete')
+  })
+
+  it('stops polling after the timeout budget and offers a retry that restarts it', async () => {
+    api.get.mockResolvedValue({ data: { status: 'processing', completed: 1, total: 10 } })
+    const { result } = renderHook(() => useResultsPolling('sess-slow'))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.timedOut).toBe(false)
+
+    // Exhaust the bounded polling budget (60 attempts, backoff-capped at 10s).
+    for (let i = 0; i < 65; i++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(11000) })
+    }
+
+    expect(result.current.timedOut).toBe(true)
+    expect(result.current.isProcessing).toBe(false)
+    const callsAfterTimeout = api.get.mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000) })
+    expect(api.get.mock.calls.length).toBe(callsAfterTimeout)
+
+    // Retry restarts bounded polling from scratch.
+    const completePayload = { data: { status: 'complete', total: 10, overall_score: 0.7 } }
+    api.get.mockResolvedValueOnce(completePayload)
+    await act(async () => { await result.current.retry() })
+    expect(result.current.timedOut).toBe(false)
+    expect(result.current.results?.overall_score).toBe(0.7)
+  })
 })

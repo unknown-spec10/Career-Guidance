@@ -9,6 +9,7 @@ vi.mock('../config/api', () => ({
 }))
 
 import api from '../config/api'
+import { __resetAuthTokenForTests } from '../utils/authToken'
 
 const GAP_JSON = {
   skills: [
@@ -56,6 +57,7 @@ const renderModal = (props = {}) =>
 describe('SkillGapModal — gap analysis streaming + learning path contract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    __resetAuthTokenForTests()
     sessionStorage.setItem('_secure_token', btoa(JSON.stringify('tok-sg')))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(console, 'log').mockImplementation(() => {})

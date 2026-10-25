@@ -121,21 +121,21 @@ export default function Modal({
             role="dialog"
             aria-modal="true"
             aria-label={typeof title === 'string' ? title : undefined}
-            className={`w-full ${sizes[size]} card border border-gray-300 bg-white my-8 relative`}
+            className={`w-full ${sizes[size]} relative my-8 rounded-panel border border-hairline bg-surface-overlay p-6 shadow-soft-xl`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             {(title || showCloseButton) && (
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-hairline">
                 {title && (
-                  <h3 className="text-xl font-semibold">{title}</h3>
+                  <h3 className="font-display text-title text-ink">{title}</h3>
                 )}
                 {showCloseButton && (
                   <motion.button
                     whileHover={{ scale: 1.1, rotate: 90 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={onClose}
-                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
+ className="p-2 rounded-card hov-surface text-ink-muted transition-colors hover:text-ink"
                   >
                     <X className="w-5 h-5" />
                   </motion.button>

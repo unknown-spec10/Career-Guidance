@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import secureStorage, { checkSessionValidity } from '../utils/secureStorage'
+import { getAuthToken, setAuthToken, clearAuthToken } from '../utils/authToken'
 import api from '../config/api'
+import { getApiError } from '../utils/apiError'
 
 /**
  * Custom hook for authentication with token expiration handling
@@ -30,6 +32,7 @@ export const useAuth = () => {
 
   // Logout and clear session
   const logout = useCallback((redirect = true) => {
+    clearAuthToken()
     secureStorage.clear()
     setUser(null)
     setIsAuthenticated(false)
@@ -51,7 +54,7 @@ export const useAuth = () => {
         return false
       }
 
-      const token = secureStorage.getItem('token')
+      const token = getAuthToken()
       const userData = secureStorage.getItem('user')
 
       if (!token || !userData) {
@@ -101,8 +104,9 @@ export const useAuth = () => {
       const response = await api.post('/api/auth/login', { email, password })
       const { access_token, user: userData } = response.data
 
-      // Store in secure storage
-      secureStorage.setItem('token', access_token)
+      // Token via the in-memory holder (mirrored for reload restore),
+      // profile data in session storage
+      setAuthToken(access_token)
       secureStorage.setItem('user', userData)
       secureStorage.setItem('login_time', Date.now())
 
@@ -117,7 +121,7 @@ export const useAuth = () => {
       console.error('Login error:', err)
       return { 
         success: false, 
-        error: err.response?.data?.detail || 'Login failed' 
+        error: getApiError(err, 'Login failed') 
       }
     }
   }, [])
@@ -132,7 +136,7 @@ export const useAuth = () => {
     if (!isAuthenticated) return
 
     const interval = setInterval(() => {
-      const token = secureStorage.getItem('token')
+      const token = getAuthToken()
       if (isTokenExpired(token)) {
         console.warn('Token expired, logging out')
         logout()

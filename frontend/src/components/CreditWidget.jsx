@@ -60,8 +60,8 @@ const CreditWidget = ({ compact = false }) => {
 
   if (loading) {
     return (
-      <div className={`bg-gray-200 rounded-lg p-4 animate-pulse ${compact ? 'h-14 w-full' : 'h-16 w-full'}`}>
-        <div className="h-6 bg-gray-300 rounded w-24"></div>
+      <div className={`surface-card p-4 animate-pulse ${compact ? 'h-14 w-full' : 'h-16 w-full'}`}>
+        <div className="h-6 bg-surface-sunken rounded-card w-24"></div>
       </div>
     )
   }
@@ -86,41 +86,41 @@ const CreditWidget = ({ compact = false }) => {
         onClick={() => setShowModal(true)}
         whileHover={{ scale: 1.015, y: -1 }}
         whileTap={{ scale: 0.995 }}
-        className="cursor-pointer border border-slate-100 bg-white/90 backdrop-blur-sm rounded-2xl p-4 transition-all duration-300 shadow-[0_8px_30px_rgb(0,0,0,0.02)] hover:shadow-[0_15px_35px_rgba(15,23,42,0.05)] hover:border-slate-200 flex flex-col justify-between w-full h-full min-h-[110px]"
+        className="surface-card surface-card-interactive cursor-pointer p-4 flex flex-col justify-between w-full h-full min-h-[110px]"
       >
         <div>
           <div className="flex items-center justify-between gap-3 mb-2">
             <div className="min-w-0 flex items-center gap-3">
-              <div className={`rounded-xl p-2 ${isHigh ? 'bg-emerald-50 text-emerald-600' : isMedium ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
+              <div className={`rounded-card p-2 ${isHigh ? 'bg-emerald-50 text-emerald-600' : isMedium ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
                 <Coins className="h-5 w-5" />
               </div>
               <div>
-                <div className="text-sm font-semibold text-slate-800">Credits Balance</div>
-                <div className="text-[10px] text-slate-400 font-medium">Tap for details</div>
+                <div className="text-caption font-semibold text-ink">Credits Balance</div>
+                <div className="text-[10px] text-ink-subtle font-medium">Tap for details</div>
               </div>
             </div>
-            <div className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${bgThemeColor} ${textThemeColor} ${borderThemeColor}`}>
+            <div className={`px-2.5 py-0.5 rounded-pill text-[10px] font-bold border uppercase tracking-wider ${bgThemeColor} ${textThemeColor} ${borderThemeColor}`}>
               {next_refill_days > 0 ? `${next_refill_days}d ${next_refill_hours}h` : `${next_refill_hours}h`} left
             </div>
           </div>
 
           <div className="flex items-baseline justify-between mt-3">
-            <div className="flex items-baseline gap-1 text-2xl font-extrabold text-slate-900 tabular-nums">
+            <div className="flex items-baseline gap-1 text-title-lg font-extrabold text-ink tabular-nums">
               <span>{current_credits}</span>
-              <span className="text-xs font-semibold text-slate-400">/ {weekly_limit}</span>
+              <span className="text-caption font-semibold text-ink-subtle">/ {weekly_limit}</span>
             </div>
-            <div className={`text-xs font-bold ${textThemeColor}`}>
+            <div className={`text-caption font-bold ${textThemeColor}`}>
               {Math.round(creditPercentage)}% remaining
             </div>
           </div>
         </div>
 
-        <div className="h-2 w-full rounded-full bg-slate-100 mt-3 overflow-hidden">
+        <div className="h-2 w-full rounded-pill bg-surface-sunken mt-3 overflow-hidden">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${creditPercentage}%` }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            className={`h-full rounded-full bg-gradient-to-r ${fillGradient}`}
+            className={`h-full rounded-pill bg-gradient-to-r ${fillGradient}`}
           />
         </div>
       </motion.div>
@@ -136,18 +136,18 @@ const CreditWidget = ({ compact = false }) => {
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
-              className="flex w-full max-w-md max-h-[90vh] flex-col overflow-hidden rounded-3xl border border-slate-100 bg-white/95 backdrop-blur shadow-2xl"
+              className="flex w-full max-w-md max-h-[90vh] flex-col overflow-hidden rounded-panel border border-hairline bg-surface-overlay shadow-soft-xl"
             >
               {/* Modal Header */}
-              <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
+              <div className="p-6 border-b border-hairline flex justify-between items-start bg-surface-sunken">
                 <div>
-                  <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                  <h3 className="text-title text-ink flex items-center gap-2">
                     <Coins className="w-5 h-5 text-primary-500" />
                     Credit Account
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1">Manage your practice and learning path quota</p>
+                  <p className="text-caption text-ink-muted mt-1">Manage your practice and learning path quota</p>
                 </div>
-                <button onClick={closeModal} className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-700 transition-colors">
+ <button onClick={closeModal} className="p-1.5 hov-surface rounded-card text-ink-subtle hover:text-ink transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -156,20 +156,20 @@ const CreditWidget = ({ compact = false }) => {
                 {/* Visual Balance */}
                 <div className="text-center">
                   <div className="inline-flex items-baseline justify-center space-x-1.5 mb-2">
-                    <span className={`text-5xl font-black tracking-tight ${textThemeColor}`}>{current_credits}</span>
-                    <span className="text-lg font-bold text-slate-400">/ {weekly_limit}</span>
+                    <span className={`text-display-xl font-black tracking-tight ${textThemeColor}`}>{current_credits}</span>
+                    <span className="text-body-lg font-bold text-ink-subtle">/ {weekly_limit}</span>
                   </div>
-                  <p className="text-xs font-semibold text-slate-500 mb-4">Available Credits</p>
+                  <p className="text-caption font-semibold text-ink-muted mb-4">Available Credits</p>
                   
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2 overflow-hidden">
+                  <div className="w-full bg-surface-sunken rounded-pill h-2.5 mb-2 overflow-hidden">
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${creditPercentage}%` }}
-                      className={`h-full rounded-full bg-gradient-to-r ${fillGradient}`}
+                      className={`h-full rounded-pill bg-gradient-to-r ${fillGradient}`}
                     />
                   </div>
                   {is_premium && (
-                    <div className="inline-flex items-center space-x-1 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-xs font-bold text-amber-700 mt-1">
+                    <div className="inline-flex items-center space-x-1 px-3 py-1 bg-amber-50 border border-amber-200 rounded-pill text-caption font-bold text-amber-700 mt-1">
                       <Award className="w-3.5 h-3.5" />
                       <span>Premium Active</span>
                     </div>
@@ -177,46 +177,46 @@ const CreditWidget = ({ compact = false }) => {
                 </div>
 
                 {/* Refill Info */}
-                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+                <div className="rounded-card border border-hairline bg-surface-sunken p-4 flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="p-2 bg-white border border-slate-100 rounded-xl">
-                      <Clock className="w-5 h-5 text-slate-400" />
+                    <div className="p-2 bg-surface-raised border border-hairline rounded-card">
+                      <Clock className="w-5 h-5 text-ink-subtle" />
                     </div>
                     <div>
-                      <div className="text-xs font-bold text-slate-700">Refill Schedule</div>
-                      <div className="text-[10px] text-slate-400 font-semibold">Weekly quota reset</div>
+                      <div className="text-caption font-bold text-ink">Refill Schedule</div>
+                      <div className="text-[10px] text-ink-subtle font-semibold">Weekly quota reset</div>
                     </div>
                   </div>
-                  <div className="text-base font-bold font-mono text-slate-800">
+                  <div className="text-body font-bold font-mono text-ink">
                     {next_refill_days > 0 ? `${next_refill_days}d ${next_refill_hours}h` : `${next_refill_hours}h`}
                   </div>
                 </div>
 
                 {/* Costs Grid — values from the API `costs` object (authoritative) */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4 text-center">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Mock Practice</div>
-                    <div className="text-lg font-extrabold text-slate-800">{costs?.micro_session ?? 1} Credit{(costs?.micro_session ?? 1) === 1 ? '' : 's'} / Q</div>
-                    <div className="text-[9px] font-semibold text-slate-400 tracking-wide mt-1">Deducted per response</div>
+                  <div className="rounded-card border border-hairline bg-surface-sunken p-4 text-center">
+                    <div className="eyebrow mb-1">Mock Practice</div>
+                    <div className="text-body font-extrabold text-ink">{costs?.micro_session ?? 1} Credit{(costs?.micro_session ?? 1) === 1 ? '' : 's'} / Q</div>
+                    <div className="text-[10px] font-semibold text-ink-subtle tracking-wide mt-1">Deducted per response</div>
                   </div>
-                  <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4 text-center">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Learning Path</div>
-                    <div className="text-lg font-extrabold text-slate-800">{costs?.learning_path ?? 10} Credits</div>
-                    <div className="text-[9px] font-semibold text-slate-400 tracking-wide mt-1">Deducted per roadmap</div>
+                  <div className="rounded-card border border-hairline bg-surface-sunken p-4 text-center">
+                    <div className="eyebrow mb-1">Learning Path</div>
+                    <div className="text-body font-extrabold text-ink">{costs?.learning_path ?? 10} Credits</div>
+                    <div className="text-[10px] font-semibold text-ink-subtle tracking-wide mt-1">Deducted per roadmap</div>
                   </div>
                 </div>
 
                 {/* Usage Details Toggle */}
-                <div className="border-t border-slate-100 pt-4">
+                <div className="border-t border-hairline pt-4">
                   <button
                     onClick={() => setShowUsageDetails(!showUsageDetails)}
-                    className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 transition-colors text-xs font-bold text-slate-700"
+ className="w-full flex items-center justify-between p-2 rounded-card hov-surface transition-colors text-caption font-bold text-ink"
                   >
                     <span className="flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-slate-400" />
+                      <TrendingUp className="w-4 h-4 text-ink-subtle" />
                       Usage Statistics
                     </span>
-                    <span className="text-[10px] font-semibold text-slate-400">{showUsageDetails ? 'Hide' : 'Show'}</span>
+                    <span className="text-[10px] font-semibold text-ink-subtle">{showUsageDetails ? 'Hide' : 'Show'}</span>
                   </button>
 
                   <AnimatePresence>
@@ -227,18 +227,18 @@ const CreditWidget = ({ compact = false }) => {
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden"
                       >
-                        <div className="pt-2 space-y-2 text-xs text-slate-600 px-2">
-                          <div className="flex justify-between py-2 border-b border-slate-100 font-medium">
+                        <div className="pt-2 space-y-2 text-caption text-ink-muted px-2">
+                          <div className="flex justify-between py-2 border-b border-hairline font-medium">
                             <span>Credits Used (Today)</span>
-                            <span className="font-bold text-slate-800">{usage_today.credits}</span>
+                            <span className="font-bold text-ink">{usage_today.credits}</span>
                           </div>
-                          <div className="flex justify-between py-2 border-b border-slate-100 font-medium">
+                          <div className="flex justify-between py-2 border-b border-hairline font-medium">
                             <span>Credits Used (Week)</span>
-                            <span className="font-bold text-slate-800">{usage_this_week.credits}</span>
+                            <span className="font-bold text-ink">{usage_this_week.credits}</span>
                           </div>
                           <div className="flex justify-between py-2 font-medium">
                             <span>Practice Sessions (Week)</span>
-                            <span className="font-bold text-slate-800">{usage_this_week.full_interviews}</span>
+                            <span className="font-bold text-ink">{usage_this_week.full_interviews}</span>
                           </div>
                         </div>
                       </motion.div>
@@ -246,13 +246,13 @@ const CreditWidget = ({ compact = false }) => {
                   </AnimatePresence>
                 </div>
 
-                <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex items-start space-x-3">
-                  <div className="p-2 bg-white border border-indigo-100 rounded-xl">
-                    <TrendingUp className="w-5 h-5 text-indigo-600 animate-pulse" />
+                <div className="rounded-card border border-primary-100 bg-primary-50/60 p-4 flex items-start space-x-3">
+                  <div className="p-2 bg-surface-raised border border-primary-100 rounded-card">
+                    <TrendingUp className="w-5 h-5 text-primary-600 animate-pulse" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-indigo-900">Accelerate Your Match Score</h4>
-                    <p className="text-[10px] text-slate-500 leading-normal mt-1">
+                    <h4 className="text-caption font-bold text-ink">Accelerate Your Match Score</h4>
+                    <p className="text-[10px] text-ink-muted leading-normal mt-1">
                       Practicing mock sessions helps our AI mapping engine understand your strengths, improving your job compatibility score.
                     </p>
                   </div>

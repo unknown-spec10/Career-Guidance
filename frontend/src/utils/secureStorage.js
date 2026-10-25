@@ -1,13 +1,22 @@
 /**
- * Secure Storage Utility
- * Provides encrypted storage for sensitive data with automatic cleanup
+ * Session-scoped key/value store.
+ *
+ * HONEST SECURITY NOTE (H7): values are only base64-encoded JSON, NOT
+ * encrypted. base64 is reversible by anyone — it stops casual shoulder
+ * surfing, nothing more. Everything here (including the JWT) is readable by
+ * any JavaScript running on this origin, so it must NOT be relied upon as
+ * XSS protection. The JWT's primary copy lives in the in-memory holder
+ * (`authToken.js`); sessionStorage is only its reload-restore mirror. The
+ * durable fix is an httpOnly (+ Secure + SameSite) session cookie set by the
+ * backend, which would keep the token out of JS reach entirely.
  */
 
-// Simple encryption using base64 encoding
-// Note: For production, consider using a proper encryption library like crypto-js
+// Base64 obfuscation for casual readability only — NOT encryption.
+// For production, consider moving secrets to httpOnly cookies instead.
 const STORAGE_KEY_PREFIX = '_secure_'
 
-// Simple obfuscation (not true encryption, but better than plain text)
+// Base64 obfuscation (NOT encryption — see the security note at the top).
+// Decodable by any script on the page; never treat this as secret storage.
 const encode = (data) => {
   try {
     const json = JSON.stringify(data)

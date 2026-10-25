@@ -39,17 +39,18 @@ if (typeof window !== 'undefined' && window.speechSynthesis) {
  * Read the given text aloud.
  * @param {string} text - The question or text to speak.
  * @param {Object} options - Override options (rate, pitch, volume, onEnd).
+ * @returns {boolean} false when TTS is unsupported in this browser.
  */
 export const speakQuestion = (text, options = {}) => {
   if (typeof window === 'undefined' || !window.speechSynthesis) {
     console.warn('Speech synthesis not supported in this browser.')
-    return
+    return false
   }
 
   // Cancel any ongoing speech first (crucial to prevent queuing lock-ups)
   window.speechSynthesis.cancel()
 
-  if (!text) return
+  if (!text) return false
 
   // Strip markdown or HTML elements for a cleaner reading experience
   const cleanText = text.replace(/[*_`#\-]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -71,7 +72,14 @@ export const speakQuestion = (text, options = {}) => {
   if (options.onError) utterance.onerror = options.onError
 
   window.speechSynthesis.speak(utterance)
+  return true
 }
+
+/**
+ * Whether text-to-speech is available in this browser.
+ */
+export const isTtsSupported = () =>
+  typeof window !== 'undefined' && !!window.speechSynthesis
 
 /**
  * Instantly cancel and silence any ongoing speech.

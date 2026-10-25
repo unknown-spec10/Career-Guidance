@@ -1,12 +1,27 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, MotionConfig } from 'framer-motion'
 import { 
-  ArrowRight, Sparkles, Star, Shield, Briefcase, 
-  MapPin, CheckCircle, Brain, Play, Compass, Code, 
-  Target, Zap, GraduationCap, Check
+  ArrowRight, Sparkles, Star, Shield, CheckCircle, Brain, 
+  Compass, Code, Target, Zap, Check
 } from 'lucide-react'
 import secureStorage from '../utils/secureStorage'
+
+const EASE = [0.22, 1, 0.36, 1]
+
+function Reveal({ children, delay = 0, className = '' }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={{ duration: 0.6, delay, ease: EASE }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  )
+}
 
 export default function Hero() {
   const navigate = useNavigate()
@@ -33,80 +48,57 @@ export default function Hero() {
   }
 
   return (
-    <div className="bg-slate-50 dark:bg-slate-900 transition-colors duration-300 relative min-h-screen overflow-hidden pt-16 font-sans">
-      {/* Grid Overlay */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-[0.03] dark:opacity-[0.02] pointer-events-none z-0" />
-      
-      {/* Background ambient radial glows */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-        <motion.div
-          animate={{
-            x: [0, 40, -40, 0],
-            y: [0, -50, 50, 0],
-            scale: [1, 1.15, 0.9, 1],
-          }}
-          transition={{
-            duration: 20,
-            repeat: Infinity,
-            ease: 'easeInOut',
-          }}
-          className="absolute left-10 top-20 h-[500px] w-[500px] rounded-full bg-gradient-to-br from-primary-500/10 to-indigo-500/10 dark:from-primary-500/5 dark:to-indigo-500/5 blur-[120px]"
-        />
-        <motion.div
-          animate={{
-            x: [0, -30, 30, 0],
-            y: [0, 40, -40, 0],
-            scale: [1, 0.9, 1.1, 1],
-          }}
-          transition={{
-            duration: 25,
-            repeat: Infinity,
-            ease: 'easeInOut',
-          }}
-          className="absolute right-10 top-40 h-[600px] w-[600px] rounded-full bg-gradient-to-br from-purple-400/5 to-pink-400/10 dark:from-purple-400/2 dark:to-pink-400/5 blur-[140px]"
-        />
-      </div>
+    <MotionConfig reducedMotion="user">
+      <div className="relative min-h-screen overflow-hidden bg-canvas pt-16 font-body transition-colors duration-300">
+        {/* Hairline grid + ambient light — static, low contrast. */}
+        <div className="pointer-events-none absolute inset-0 z-0 bg-grid-hairline opacity-70" />
+        <div className="pointer-events-none absolute -top-56 left-1/2 z-0 h-[640px] w-[900px] -translate-x-1/2 hero-glow-primary" />
+        <div className="pointer-events-none absolute -right-24 top-44 z-0 h-[520px] w-[520px] hero-glow-accent" />
 
-      {/* --- HERO SECTION --- */}
-      <section className="relative z-10 pt-16 pb-20 sm:pt-24 lg:pt-32 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-          
+        {/* --- HERO SECTION --- */}
+        <section className="landing-shell relative z-10 grid grid-cols-1 items-center gap-14 pb-16 pt-14 sm:pt-20 lg:grid-cols-12 lg:gap-10 lg:pb-24 lg:pt-28">
           {/* Left Column: Headline */}
-          <div className="lg:col-span-7 space-y-6 text-left">
+          <motion.div
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: EASE }}
+            className="space-y-6 text-left lg:col-span-7"
+          >
             {/* Tag Pill */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-primary-50 dark:bg-primary-950/20 border border-primary-100 dark:border-primary-900/40 text-primary-600 dark:text-primary-400 text-xs font-bold uppercase tracking-wider shadow-sm">
-              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-              <span>AI-Powered Career Transition Platform</span>
+            <div className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface-raised px-3.5 py-1.5 shadow-soft-xs">
+              <Sparkles className="h-3.5 w-3.5 text-primary-600 dark:text-primary-400" />
+              <span className="text-overline uppercase text-ink-muted">AI-Powered Career Transition Platform</span>
             </div>
 
-            <h1 className="text-4xl sm:text-5xl lg:text-[54px] font-black tracking-tight text-slate-900 dark:text-white leading-[1.1] transition-colors">
-              Your Professional Journey, <br />
-              <span className="text-primary-600 dark:text-primary-400 bg-gradient-to-r from-primary-600 to-indigo-600 dark:from-primary-400 dark:to-indigo-400 bg-clip-text text-transparent">Precisely Synchronized.</span>
+            <h1 className="font-display text-display-2xl text-balance text-ink transition-colors">
+              Your Professional Journey,{' '}
+              <span className="bg-gradient-to-r from-primary-700 via-primary-600 to-indigo-600 bg-clip-text text-transparent dark:from-primary-300 dark:via-primary-400 dark:to-indigo-300">
+                Precisely Synchronized.
+              </span>
             </h1>
 
-            <p className="text-slate-500 dark:text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
+            <p className="max-w-xl text-body-lg text-ink-muted">
               Bridge the gap between academics and industry. CareerSync AI maps your unique potential to the global job market with clinical precision.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 pt-2">
+            <div className="flex flex-col items-stretch gap-3 pt-2 sm:flex-row sm:items-center">
               <button 
                 onClick={handleGetStarted}
-                className="bg-primary-600 hover:bg-primary-750 text-white font-extrabold px-6 py-3.5 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-primary-500/10 hover:shadow-primary-500/20 hover:scale-102 transition-all cursor-pointer"
+                className="group inline-flex items-center justify-center gap-2 rounded-full bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white shadow-soft-sm transition-[transform,background-color,box-shadow] duration-300 hover:-translate-y-0.5 hover:bg-primary-700 hover:shadow-glow-primary dark:bg-primary-500 dark:hover:bg-primary-400"
               >
                 <span>Get Started Free</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
               </button>
               <button 
                 onClick={handleGetStarted}
-                className="bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 font-extrabold px-6 py-3.5 rounded-2xl flex items-center justify-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors shadow-sm cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 rounded-full border border-hairline bg-surface-raised px-6 py-3.5 text-sm font-semibold text-ink shadow-soft-xs transition-colors duration-300 hover:border-hairline-strong hover:bg-surface-sunken"
               >
                 <span>View Demo</span>
               </button>
             </div>
 
             {/* Social Proof */}
-            <div className="flex items-center gap-4 pt-6 border-t border-slate-100 dark:border-slate-800 max-w-md">
-              {/* Avatar stack */}
+            <div className="flex max-w-md items-center gap-4 border-t border-hairline pt-7">
               <div className="flex -space-x-2.5">
                 {[
                   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&h=100&q=80',
@@ -117,388 +109,417 @@ export default function Hero() {
                     key={idx} 
                     src={src} 
                     alt="User Avatar" 
-                    className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 object-cover"
+                    className="h-9 w-9 rounded-full border-2 border-surface-raised object-cover"
                   />
                 ))}
               </div>
               <div>
                 <div className="flex items-center gap-0.5">
                   {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    <Star key={i} className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                   ))}
                 </div>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                <p className="mt-1 text-caption font-semibold text-ink-subtle">
                   Trusted by 12,000+ students globally
                 </p>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Right Column: Hero Mockup Widget */}
-          <div className="lg:col-span-5 relative flex justify-center lg:justify-end">
-            <div className="w-full max-w-sm rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-950/90 shadow-2xl p-5 relative overflow-hidden select-none">
-              
+          <motion.div
+            initial={{ opacity: 0, y: 28 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.75, delay: 0.12, ease: EASE }}
+            className="relative mx-auto w-full max-w-sm lg:col-span-5 lg:ml-auto lg:mr-0"
+          >
+            <div className="absolute inset-0 rounded-hero bg-gradient-to-br from-primary-500/15 via-transparent to-indigo-500/15 blur-2xl" />
+
+            <div className="relative select-none rounded-hero border border-hairline bg-surface-raised p-5 shadow-soft-lg">
               {/* Career Match Engine header */}
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-900 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-primary-50 dark:bg-primary-950/30 text-primary-500 border border-primary-100 dark:border-primary-900/40">
-                    <Brain className="w-4 h-4" />
+              <div className="flex items-center justify-between border-b border-hairline pb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="rounded-card border border-hairline bg-surface-sunken p-2 text-primary-600 dark:text-primary-400">
+                    <Brain className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-xs font-black text-slate-800 dark:text-slate-250 leading-none">Career Match Engine</p>
-                    <p className="text-[9px] font-semibold text-slate-400 mt-0.5">REAL-TIME ANALYTICS</p>
+                    <p className="font-display text-sm font-bold leading-none text-ink">Career Match Engine</p>
+                    <p className="mt-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">Real-time analytics</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-black bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 border border-emerald-100 dark:border-emerald-900/30 rounded-full">
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400">
                   96% Match
                 </span>
               </div>
 
               {/* Rows */}
-              <div className="mt-4 space-y-3.5">
+              <div className="mt-4 space-y-3">
                 {/* Row 1 */}
-                <div className="p-3 border border-slate-100 dark:border-slate-900 rounded-2xl bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-start">
+                <div className="flex items-start justify-between rounded-card border border-hairline bg-surface-sunken p-3">
                   <div>
-                    <h4 className="text-xs font-black text-slate-850 dark:text-slate-200">Senior Product Designer</h4>
-                    <div className="flex gap-1 mt-1.5">
-                      <span className="text-[8px] font-bold text-slate-500 bg-white dark:bg-slate-950 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-850">UX RESEARCH</span>
-                      <span className="text-[8px] font-bold text-slate-500 bg-white dark:bg-slate-950 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-850">FIGMA</span>
+                    <h4 className="font-display text-xs font-bold text-ink">Senior Product Designer</h4>
+                    <div className="mt-1.5 flex gap-1">
+                      <span className="rounded-md border border-hairline bg-surface-raised px-1.5 py-0.5 text-[8px] font-bold tracking-wide text-ink-subtle">UX RESEARCH</span>
+                      <span className="rounded-md border border-hairline bg-surface-raised px-1.5 py-0.5 text-[8px] font-bold tracking-wide text-ink-subtle">FIGMA</span>
                     </div>
                   </div>
-                  <span className="text-[10px] font-extrabold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-950/20 px-2 py-0.5 border border-primary-100/60 dark:border-primary-900/40 rounded-lg">
+                  <span className="rounded-lg border border-primary-100 bg-primary-100 px-2 py-0.5 text-[10px] font-bold text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300">
                     $140k+
                   </span>
                 </div>
 
                 {/* Row 2 */}
-                <div className="p-3 border border-slate-100 dark:border-slate-900 rounded-2xl bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-start">
+                <div className="flex items-start justify-between rounded-card border border-hairline bg-surface-sunken p-3">
                   <div>
-                    <h4 className="text-xs font-black text-slate-850 dark:text-slate-200">AI Research Engineer</h4>
-                    <div className="flex gap-1 mt-1.5">
-                      <span className="text-[8px] font-bold text-slate-500 bg-white dark:bg-slate-950 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-850">PYTHON</span>
-                      <span className="text-[8px] font-bold text-slate-500 bg-white dark:bg-slate-950 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-850">PYTORCH</span>
+                    <h4 className="font-display text-xs font-bold text-ink">AI Research Engineer</h4>
+                    <div className="mt-1.5 flex gap-1">
+                      <span className="rounded-md border border-hairline bg-surface-raised px-1.5 py-0.5 text-[8px] font-bold tracking-wide text-ink-subtle">PYTHON</span>
+                      <span className="rounded-md border border-hairline bg-surface-raised px-1.5 py-0.5 text-[8px] font-bold tracking-wide text-ink-subtle">PYTORCH</span>
                     </div>
                   </div>
-                  <span className="text-[10px] font-extrabold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-950/20 px-2 py-0.5 border border-primary-100/60 dark:border-primary-900/40 rounded-lg">
+                  <span className="rounded-lg border border-primary-100 bg-primary-100 px-2 py-0.5 text-[10px] font-bold text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300">
                     $165k+
                   </span>
                 </div>
               </div>
 
               {/* Bottom tag block */}
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-900 flex justify-between items-center text-[10px] font-bold text-slate-400">
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-ping" />
+              <div className="mt-4 flex items-center justify-between border-t border-hairline pt-3 text-[10px] font-semibold text-ink-subtle">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary-500 dark:bg-primary-400" />
                   <span>82% Skills Growth</span>
                 </span>
                 <span>Match scales...</span>
               </div>
 
               {/* Verified badge */}
-              <div className="absolute -top-3 -right-3 rotate-12 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 p-2.5 rounded-2xl shadow-xl flex items-center gap-1.5">
-                <CheckCircle className="w-4 h-4 text-emerald-500" />
-                <span className="text-[9px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Resume Verified</span>
+              <div className="absolute -right-3 -top-3 flex rotate-3 items-center gap-1.5 rounded-card border border-hairline bg-surface-overlay p-2.5 shadow-soft">
+                <CheckCircle className="h-4 w-4 text-emerald-500" />
+                <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-ink-muted">Resume Verified</span>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </motion.div>
+        </section>
 
-      {/* --- UNIVERSITY TRUST SECTION --- */}
-      <section className="relative z-10 bg-white dark:bg-slate-950 border-y border-slate-150 dark:border-slate-850/80 py-10 transition-colors">
-        <div className="container mx-auto px-4 max-w-5xl text-center">
-          <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 mb-6">
-            Empowering students from world-class institutions
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-6 text-slate-400 font-extrabold tracking-widest text-xs sm:text-sm">
-            {['STANFORD', 'MIT', 'HARVARD', 'BERKELEY', 'CARNEGIE MELLON'].map((uni) => (
-              <span key={uni} className="hover:text-slate-500 transition-colors">{uni}</span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* --- STATISTICS SECTION --- */}
-      <section className="relative z-10 py-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {[
-            { val: '93%', lbl: 'Placement Rate' },
-            { val: '15k+', lbl: 'AI Resume Audits' },
-            { val: '200+', lbl: 'Hiring Partners' },
-            { val: '24/7', lbl: 'Career Coaching' }
-          ].map((stat, idx) => (
-            <div key={idx} className="p-5 border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 rounded-2xl shadow-sm text-center">
-              <p className="text-2xl sm:text-3xl font-black text-primary-600 dark:text-primary-400 leading-none">{stat.val}</p>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-2">{stat.lbl}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* --- FEATURES SECTION --- */}
-      <section id="features" className="relative z-10 py-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-        <div className="text-center max-w-2xl mx-auto space-y-3">
-          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight leading-none transition-colors">Engineered for Your Success</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold leading-relaxed">
-            We've built an industry-leading infrastructure to ensure your transition from classroom to boardroom is seamless.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Card 1: Deep Semantic Skills Mapping (Spans 2 columns on medium+) */}
-          <div className="md:col-span-2 p-6 border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 rounded-3xl shadow-sm flex flex-col justify-between min-h-[300px] relative overflow-hidden group">
-            <div className="space-y-4 max-w-md z-10">
-              <div className="p-3 w-fit rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 border border-indigo-100 dark:border-indigo-900/40">
-                <Brain className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">Deep Semantic Skills Mapping</h3>
-              <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium leading-relaxed">
-                Our LLM-powered engine doesn't just look for keywords. It understands the underlying concepts and technical depth of your projects, matching you with roles where you'll truly thrive.
-              </p>
-            </div>
-            
-            <div className="pt-6 z-10">
-              <Link 
-                to="/register" 
-                className="inline-flex items-center gap-1 text-xs font-bold text-primary-650 hover:text-primary-800 dark:text-primary-400 dark:hover:text-primary-350 transition-colors uppercase tracking-wider"
-              >
-                <span>Learn how it works</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-
-            {/* Abstract floating nodes inside card */}
-            <div className="absolute right-[-20px] bottom-[-20px] opacity-15 dark:opacity-10 group-hover:scale-105 transition-transform duration-300 pointer-events-none select-none">
-              <svg viewBox="0 0 180 180" className="w-40 h-40">
-                <rect x="10" y="10" width="60" height="40" rx="6" fill="#4f46e5" />
-                <rect x="90" y="30" width="70" height="35" rx="6" fill="#3b82f6" />
-                <rect x="30" y="80" width="80" height="40" rx="6" fill="#8b5cf6" />
-                <line x1="40" y1="30" x2="125" y2="47" stroke="#475569" strokeWidth="2" />
-                <line x1="70" y1="100" x2="125" y2="47" stroke="#475569" strokeWidth="2" />
-              </svg>
+        {/* --- UNIVERSITY TRUST SECTION --- */}
+        <section className="relative z-10 border-y border-hairline bg-surface-raised py-10 transition-colors">
+          <div className="landing-shell max-w-5xl text-center">
+            <p className="eyebrow mb-6">Empowering students from world-class institutions</p>
+            <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-subtle sm:gap-x-14">
+              {['STANFORD', 'MIT', 'HARVARD', 'BERKELEY', 'CARNEGIE MELLON'].map((uni) => (
+                <span key={uni} className="transition-colors hover:text-ink">{uni}</span>
+              ))}
             </div>
           </div>
+        </section>
 
-          {/* Card 2: Technical Interview Ready */}
-          <div className="p-6 bg-primary-600 dark:bg-primary-950/20 border border-primary-700 dark:border-primary-900/40 rounded-3xl shadow-sm text-white flex flex-col justify-between min-h-[300px]">
-            <div className="space-y-4">
-              <div className="p-3 w-fit rounded-2xl bg-white/10 text-white border border-white/10">
-                <Shield className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-black dark:text-white">Technical Interview Ready</h3>
-              <p className="opacity-90 dark:text-slate-300 text-xs sm:text-sm font-medium leading-relaxed">
-                AI-driven simulations tailored to the specific company and role you're targeting. Practice voice responses and receive structured score breakdowns.
-              </p>
-            </div>
-
-            <button
-              onClick={handleGetStarted}
-              className="w-full py-3 bg-white text-primary-600 hover:bg-slate-50 dark:bg-primary-600 dark:text-white dark:hover:bg-primary-500 font-extrabold rounded-2xl transition-all shadow-md text-xs cursor-pointer"
-            >
-              Start Practice
-            </button>
-          </div>
-
-          {/* Card 3: Dynamic Learning Paths */}
-          <div className="p-6 border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 rounded-3xl shadow-sm flex flex-col justify-between min-h-[260px]">
-            <div className="space-y-4">
-              <div className="p-3 w-fit rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 border border-emerald-100 dark:border-emerald-900/40">
-                <Compass className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">Dynamic Learning Paths</h3>
-              <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium leading-relaxed">
-                Instantly identify and bridge skill gaps with curriculum-aligned content from top learning platforms and project repos.
-              </p>
-            </div>
-          </div>
-
-          {/* Card 4: Portfolio Optimization */}
-          <div className="md:col-span-2 p-6 border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 rounded-3xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-6 min-h-[260px]">
-            <div className="space-y-4 max-w-md">
-              <div className="p-3 w-fit rounded-2xl bg-amber-50 dark:bg-amber-950/20 text-amber-500 border border-amber-100 dark:border-amber-900/40">
-                <Target className="w-5 h-5" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">Portfolio Optimization</h3>
-              <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium leading-relaxed">
-                Automatically highlight your strongest projects and contributions to catch the attention of recruiters. Our engine optimizes your narrative for maximum impact.
-              </p>
-              <div className="flex flex-wrap gap-4 text-[10px] font-bold text-slate-400 pt-1">
-                <span className="flex items-center gap-1">
-                  <Code className="w-3.5 h-3.5 text-primary-500" />
-                  <span>GitHub Integration</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  <Shield className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Live Hosting</span>
-                </span>
-              </div>
-            </div>
-
-            {/* Circular Progress Gauge */}
-            <div className="w-28 h-28 flex-shrink-0 relative flex items-center justify-center bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-900">
-              <svg viewBox="0 0 100 100" className="w-24 h-24 transform -rotate-90">
-                <circle cx="50" cy="50" r="38" className="stroke-slate-200/60 dark:stroke-slate-800" strokeWidth="7" fill="transparent" />
-                <circle cx="50" cy="50" r="38" className="stroke-primary-500" strokeWidth="7" fill="transparent" strokeDasharray="238.7" strokeDashoffset="35.8" strokeLinecap="round" />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
-                <span className="text-base font-black text-slate-800 dark:text-slate-200">85%</span>
-                <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Ready</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* --- HOW IT WORKS SECTION --- */}
-      <section id="how-it-works" className="relative z-10 py-16 bg-white dark:bg-slate-950/40 border-y border-slate-150 dark:border-slate-850/80 transition-colors">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-          <div className="text-center max-w-2xl mx-auto space-y-3">
-            <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight leading-none">A Streamlined Journey</h2>
-            <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold leading-relaxed">
-              How CareerSync AI synchronizes your potential with actual industry demands in three simple steps.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* --- STATISTICS SECTION --- */}
+        <section className="landing-shell relative z-10 py-section-xs">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
             {[
-              { step: '01', title: 'Upload Resume', desc: 'Upload your academic CV or resume. Our parser instantly extracts skills and structures your baseline profile.' },
-              { step: '02', title: 'Target Gaps', desc: 'Specify your dream job path. The semantic matching engine computes compatibility scores and outlines course gaps.' },
-              { step: '03', title: 'Close Gaps', desc: 'Complete interactive milestone paths, simulate voice-based interview practices, and secure placement matches.' }
-            ].map((st, sIdx) => (
-              <div key={sIdx} className="space-y-4">
-                <span className="block text-3xl font-black text-primary-500/20 dark:text-primary-500/10 leading-none">{st.step}</span>
-                <h3 className="text-base font-extrabold text-slate-855 dark:text-slate-200">{st.title}</h3>
-                <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium leading-relaxed">{st.desc}</p>
+              { val: '93%', lbl: 'Placement Rate' },
+              { val: '15k+', lbl: 'AI Resume Audits' },
+              { val: '200+', lbl: 'Hiring Partners' },
+              { val: '24/7', lbl: 'Career Coaching' }
+            ].map((stat, idx) => (
+              <div key={idx} className="surface-card px-5 py-6 text-center">
+                <p className="font-display text-2xl font-extrabold leading-none text-primary-700 dark:text-primary-300 sm:text-3xl">{stat.val}</p>
+                <p className="mt-2.5 text-overline text-ink-subtle">{stat.lbl}</p>
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* --- TESTIMONIALS SECTION --- */}
-      <section id="testimonials" className="relative z-10 py-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-        <div className="text-center max-w-2xl mx-auto space-y-3">
-          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight leading-none">Loved by Candidates</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold">Hear from candidates who secured their dream positions using our platform.</p>
-        </div>
+        {/* --- FEATURES SECTION --- */}
+        <section id="features" className="landing-shell landing-section relative z-10 scroll-mt-24 space-y-12">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <h2 className="font-display text-display-xl text-balance text-ink transition-colors">Engineered for Your Success</h2>
+            <p className="mx-auto mt-4 max-w-xl text-body text-ink-muted">
+              We&apos;ve built an industry-leading infrastructure to ensure your transition from classroom to boardroom is seamless.
+            </p>
+          </Reveal>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[
-            {
-              quote: "CareerSync AI did not just help me apply faster. It helped me focus on the right roles and improve my interview performance with clear feedback.",
-              author: "Priya Sharma",
-              role: "Frontend Engineer, Razorpay",
-              avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&h=100&q=80"
-            },
-            {
-              quote: "The mock practice simulated the actual technical interview with Razorpay precisely. The real-time Whisper review helped me build confidence.",
-              author: "Rohan Das",
-              role: "Data Analyst, Zepto",
-              avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80"
-            }
-          ].map((t, tIdx) => (
-            <div key={tIdx} className="p-6 border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 rounded-3xl shadow-sm space-y-4">
-              <p className="italic text-slate-600 dark:text-slate-350 text-xs sm:text-sm font-medium leading-relaxed">
-                "{t.quote}"
-              </p>
-              <div className="flex items-center gap-3">
-                <img src={t.avatar} alt={t.author} className="w-10 h-10 rounded-full object-cover border border-slate-100 dark:border-slate-800" />
-                <div>
-                  <h4 className="text-xs font-black text-slate-850 dark:text-slate-200 leading-none">{t.author}</h4>
-                  <p className="text-[10px] font-bold text-slate-450 dark:text-slate-400 mt-1">{t.role}</p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-5">
+            {/* Card 1: Deep Semantic Skills Mapping (Spans 2 columns on medium+) */}
+            <Reveal className="md:col-span-2" delay={0.05}>
+              <div className="surface-card surface-card-interactive group relative flex h-full min-h-[300px] flex-col justify-between overflow-hidden p-7">
+                <div className="z-10 max-w-md space-y-4">
+                  <div className="inline-flex rounded-card border border-hairline bg-surface-sunken p-3 text-indigo-600 dark:text-indigo-400">
+                    <Brain className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-display text-title-lg text-ink">Deep Semantic Skills Mapping</h3>
+                  <p className="text-body text-ink-muted">
+                    Our LLM-powered engine doesn&apos;t just look for keywords. It understands the underlying concepts and technical depth of your projects, matching you with roles where you&apos;ll truly thrive.
+                  </p>
+                </div>
+                
+                <div className="z-10 pt-6">
+                  <Link 
+                    to="/register" 
+                    className="inline-flex items-center gap-1.5 text-caption font-semibold text-primary-700 transition-colors hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
+                  >
+                    <span>Learn how it works</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+
+                {/* Abstract floating nodes inside card */}
+                <div className="pointer-events-none absolute -bottom-6 -right-6 select-none opacity-10 transition-transform duration-500 group-hover:scale-105 dark:opacity-[0.08]">
+                  <svg viewBox="0 0 180 180" className="h-44 w-44">
+                    <rect x="10" y="10" width="60" height="40" rx="6" fill="#4f46e5" />
+                    <rect x="90" y="30" width="70" height="35" rx="6" fill="#3b82f6" />
+                    <rect x="30" y="80" width="80" height="40" rx="6" fill="#8b5cf6" />
+                    <line x1="40" y1="30" x2="125" y2="47" stroke="#475569" strokeWidth="2" />
+                    <line x1="70" y1="100" x2="125" y2="47" stroke="#475569" strokeWidth="2" />
+                  </svg>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            </Reveal>
 
-      {/* --- PRICING SECTION --- */}
-      <section id="pricing" className="relative z-10 py-16 bg-white dark:bg-slate-950/40 border-t border-slate-150 dark:border-slate-850/80 transition-colors">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-          <div className="text-center max-w-2xl mx-auto space-y-3">
-            <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight leading-none">Simple, Transparent Pricing</h2>
-            <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold">Get started today for free and unlock premium credits when you are ready to scale.</p>
-          </div>
+            {/* Card 2: Technical Interview Ready */}
+            <Reveal delay={0.1}>
+              <div className="relative flex h-full min-h-[300px] flex-col justify-between overflow-hidden rounded-panel border border-primary-700/40 bg-primary-800 p-7 text-white shadow-soft-sm">
+                <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-primary-500/20 blur-3xl" />
+                <div className="relative space-y-4">
+                  <div className="inline-flex rounded-card border border-primary-600/50 bg-primary-900/70 p-3 text-primary-100">
+                    <Shield className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-display text-title-lg">Technical Interview Ready</h3>
+                  <p className="text-body text-primary-100/85">
+                    AI-driven simulations tailored to the specific company and role you&apos;re targeting. Practice voice responses and receive structured score breakdowns.
+                  </p>
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto">
-            {/* Free Tier */}
-            <div className="p-6 border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 rounded-3xl shadow-sm flex flex-col justify-between min-h-[350px]">
-              <div className="space-y-4">
-                <span className="inline-block text-[10px] font-bold uppercase tracking-wider bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 text-slate-500 px-2.5 py-1 rounded-full">Free Tier</span>
-                <p className="text-3xl font-black text-slate-900 dark:text-white leading-none">$0</p>
-                <p className="text-xs font-semibold text-slate-400">Perfect to test features and review matches.</p>
-                <ul className="space-y-2 text-xs font-semibold text-slate-550 dark:text-slate-350 pt-2">
-                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-primary-500" /> 65 Initial Trial Credits</li>
-                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-primary-500" /> 1 Mock Practice Session</li>
-                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-primary-500" /> Basic Job Search Matching</li>
-                </ul>
+                <button
+                  onClick={handleGetStarted}
+                  className="relative mt-6 w-full rounded-full bg-primary-100 px-4 py-3 text-caption font-bold text-primary-800 shadow-soft-xs transition-colors duration-300 hover:bg-primary-200 dark:bg-primary-400 dark:text-primary-950 dark:hover:bg-primary-300"
+                >
+                  Start Practice
+                </button>
               </div>
-              <button 
-                onClick={handleGetStarted}
-                className="w-full mt-6 py-3 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-200 font-extrabold rounded-2xl transition-all shadow-sm text-xs cursor-pointer"
-              >
-                Sign Up Now
-              </button>
-            </div>
+            </Reveal>
 
-            {/* Premium Tier */}
-            <div className="p-6 bg-primary-600 dark:bg-primary-950/20 border border-primary-700 dark:border-primary-900/40 rounded-3xl shadow-sm text-white flex flex-col justify-between min-h-[350px]">
-              <div className="space-y-4">
-                <span className="inline-block text-[10px] font-bold uppercase tracking-wider bg-white/10 border border-white/10 text-white px-2.5 py-1 rounded-full">Premium Tier</span>
-                <p className="text-3xl font-black leading-none">$19<span className="text-xs opacity-80 font-normal">/mo</span></p>
-                <p className="text-xs opacity-90 dark:text-slate-350">Supercharge your tech prep with continuous mocks.</p>
-                <ul className="space-y-2 text-xs font-semibold opacity-95 dark:text-slate-300 pt-2">
-                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-white" /> 200 Refillable Weekly Credits</li>
-                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-white" /> Unlimited Mock Practice Mocks</li>
-                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-white" /> Complete AI Weakness scorecard diagnostics</li>
-                  <li className="flex items-center gap-2"><Check className="w-3.5 h-3.5 text-white" /> Live Resume re-indexing updates</li>
-                </ul>
+            {/* Card 3: Dynamic Learning Paths */}
+            <Reveal delay={0.05}>
+              <div className="surface-card surface-card-interactive flex h-full min-h-[260px] flex-col justify-between p-7">
+                <div className="space-y-4">
+                  <div className="inline-flex rounded-card border border-hairline bg-surface-sunken p-3 text-emerald-600 dark:text-emerald-400">
+                    <Compass className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-display text-title-lg text-ink">Dynamic Learning Paths</h3>
+                  <p className="text-body text-ink-muted">
+                    Instantly identify and bridge skill gaps with curriculum-aligned content from top learning platforms and project repos.
+                  </p>
+                </div>
               </div>
-              <button 
-                onClick={handleGetStarted}
-                className="w-full mt-6 py-3 bg-white text-primary-650 hover:bg-slate-50 dark:bg-primary-600 dark:text-white dark:hover:bg-primary-500 font-extrabold rounded-2xl transition-all shadow-md text-xs cursor-pointer"
-              >
-                Go Premium
-              </button>
+            </Reveal>
+
+            {/* Card 4: Portfolio Optimization */}
+            <Reveal className="md:col-span-2" delay={0.1}>
+              <div className="surface-card surface-card-interactive flex h-full min-h-[260px] flex-col items-center justify-between gap-6 p-7 sm:flex-row">
+                <div className="max-w-md space-y-4">
+                  <div className="inline-flex rounded-card border border-hairline bg-surface-sunken p-3 text-amber-600 dark:text-amber-400">
+                    <Target className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-display text-title-lg text-ink">Portfolio Optimization</h3>
+                  <p className="text-body text-ink-muted">
+                    Automatically highlight your strongest projects and contributions to catch the attention of recruiters. Our engine optimizes your narrative for maximum impact.
+                  </p>
+                  <div className="flex flex-wrap gap-4 pt-1 text-caption font-semibold text-ink-subtle">
+                    <span className="flex items-center gap-1.5">
+                      <Code className="h-3.5 w-3.5 text-primary-500 dark:text-primary-400" />
+                      <span>GitHub Integration</span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Shield className="h-3.5 w-3.5 text-emerald-500" />
+                      <span>Live Hosting</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Circular Progress Gauge */}
+                <div className="relative flex h-28 w-28 flex-shrink-0 items-center justify-center rounded-card border border-hairline bg-surface-sunken">
+                  <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90">
+                    <circle cx="50" cy="50" r="38" className="stroke-slate-200/60 dark:stroke-slate-800" strokeWidth="7" fill="transparent" />
+                    <circle cx="50" cy="50" r="38" className="stroke-primary-500 dark:stroke-primary-400" strokeWidth="7" fill="transparent" strokeDasharray="238.7" strokeDashoffset="35.8" strokeLinecap="round" />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
+                    <span className="font-display text-base font-bold text-ink">85%</span>
+                    <span className="mt-1 text-[7px] font-bold uppercase tracking-[0.18em] text-ink-subtle">Ready</span>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* --- HOW IT WORKS SECTION --- */}
+        <section id="how-it-works" className="relative z-10 scroll-mt-24 border-y border-hairline bg-surface-sunken transition-colors">
+          <div className="landing-shell landing-section space-y-12">
+            <Reveal className="mx-auto max-w-2xl text-center">
+              <h2 className="font-display text-display-xl text-balance text-ink">A Streamlined Journey</h2>
+              <p className="mx-auto mt-4 max-w-xl text-body text-ink-muted">
+                How CareerSync AI synchronizes your potential with actual industry demands in three simple steps.
+              </p>
+            </Reveal>
+
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-3 md:gap-6">
+              {[
+                { step: '01', title: 'Upload Resume', desc: 'Upload your academic CV or resume. Our parser instantly extracts skills and structures your baseline profile.' },
+                { step: '02', title: 'Target Gaps', desc: 'Specify your dream job path. The semantic matching engine computes compatibility scores and outlines course gaps.' },
+                { step: '03', title: 'Close Gaps', desc: 'Complete interactive milestone paths, simulate voice-based interview practices, and secure placement matches.' }
+              ].map((st, sIdx) => (
+                <Reveal key={sIdx} delay={sIdx * 0.06}>
+                  <div className="space-y-3 border-t border-hairline pt-6">
+                    <span className="block font-display text-4xl font-extrabold leading-none text-primary-200 dark:text-primary-500/25">{st.step}</span>
+                    <h3 className="font-display text-title text-ink">{st.title}</h3>
+                    <p className="text-body text-ink-muted">{st.desc}</p>
+                  </div>
+                </Reveal>
+              ))}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* --- CTA BOTTOM BANNER --- */}
-      <section className="relative z-10 py-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-850 dark:to-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 sm:p-12 text-center shadow-xl space-y-6">
-          <h2 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-none transition-colors">
-            Start Your Transition Today
-          </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold max-w-md mx-auto leading-relaxed">
-            Join thousands of high-performers who have already synchronized their careers with the future of work.
-          </p>
+        {/* --- TESTIMONIALS SECTION --- */}
+        <section id="testimonials" className="landing-shell landing-section relative z-10 scroll-mt-24 space-y-12">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <h2 className="font-display text-display-xl text-balance text-ink">Loved by Candidates</h2>
+            <p className="mx-auto mt-4 max-w-xl text-body text-ink-muted">Hear from candidates who secured their dream positions using our platform.</p>
+          </Reveal>
 
-          <form onSubmit={handleEarlyAccess} className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
-            <input 
-              type="email"
-              placeholder="Enter your email"
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
-              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-3.5 outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 text-sm dark:text-white transition-all shadow-sm"
-              required
-            />
-            <button 
-              type="submit"
-              className="w-full sm:w-auto bg-primary-600 hover:bg-primary-750 text-white font-extrabold px-6 py-3.5 rounded-2xl flex items-center justify-center gap-1.5 shadow-md shadow-primary-500/10 hover:scale-102 transition-all cursor-pointer whitespace-nowrap"
-            >
-              <Zap className="w-4 h-4 fill-white" />
-              <span>Get Early Access</span>
-            </button>
-          </form>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
+            {[
+              {
+                quote: "CareerSync AI did not just help me apply faster. It helped me focus on the right roles and improve my interview performance with clear feedback.",
+                author: "Priya Sharma",
+                role: "Frontend Engineer, Razorpay",
+                avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&h=100&q=80"
+              },
+              {
+                quote: "The mock practice simulated the actual technical interview with Razorpay precisely. The real-time Whisper review helped me build confidence.",
+                author: "Rohan Das",
+                role: "Data Analyst, Zepto",
+                avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80"
+              }
+            ].map((t, tIdx) => (
+              <Reveal key={tIdx} delay={tIdx * 0.06}>
+                <figure className="surface-card flex h-full flex-col justify-between gap-6 p-7">
+                  <blockquote className="text-body text-ink-muted">
+                    &ldquo;{t.quote}&rdquo;
+                  </blockquote>
+                  <figcaption className="flex items-center gap-3">
+                    <img src={t.avatar} alt={t.author} className="h-10 w-10 rounded-full border border-hairline object-cover" />
+                    <div>
+                      <p className="font-display text-caption font-bold leading-none text-ink">{t.author}</p>
+                      <p className="mt-1.5 text-[11px] font-medium text-ink-subtle">{t.role}</p>
+                    </div>
+                  </figcaption>
+                </figure>
+              </Reveal>
+            ))}
+          </div>
+        </section>
 
-          <p className="text-[10px] font-semibold text-slate-400">
-            No credit card required. Free for your first 3 career matches.
-          </p>
-        </div>
-      </section>
-    </div>
+        {/* --- PRICING SECTION --- */}
+        <section id="pricing" className="relative z-10 scroll-mt-24 border-t border-hairline bg-surface-sunken transition-colors">
+          <div className="landing-shell landing-section space-y-12">
+            <Reveal className="mx-auto max-w-2xl text-center">
+              <h2 className="font-display text-display-xl text-balance text-ink">Simple, Transparent Pricing</h2>
+              <p className="mx-auto mt-4 max-w-xl text-body text-ink-muted">Get started today for free and unlock premium credits when you are ready to scale.</p>
+            </Reveal>
+
+            <div className="mx-auto grid max-w-3xl grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
+              {/* Free Tier */}
+              <Reveal>
+                <div className="surface-card flex h-full min-h-[350px] flex-col justify-between p-7">
+                  <div className="space-y-4">
+                    <span className="inline-block rounded-full border border-hairline bg-surface-sunken px-3 py-1 text-overline text-ink-subtle">Free Tier</span>
+                    <p className="font-display text-4xl font-extrabold leading-none tracking-tight text-ink">$0</p>
+                    <p className="text-caption font-medium text-ink-subtle">Perfect to test features and review matches.</p>
+                    <ul className="space-y-2.5 pt-2 text-caption font-medium text-ink-muted">
+                      <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary-500 dark:text-primary-400" /> 65 Initial Trial Credits</li>
+                      <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary-500 dark:text-primary-400" /> 1 Mock Practice Session</li>
+                      <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-primary-500 dark:text-primary-400" /> Basic Job Search Matching</li>
+                    </ul>
+                  </div>
+                  <button 
+                    onClick={handleGetStarted}
+                    className="mt-7 w-full rounded-full border border-hairline bg-surface-raised px-4 py-3 text-caption font-bold text-ink shadow-soft-xs transition-colors duration-300 hover:border-hairline-strong hover:bg-surface-sunken"
+                  >
+                    Sign Up Now
+                  </button>
+                </div>
+              </Reveal>
+
+              {/* Premium Tier */}
+              <Reveal delay={0.06}>
+                <div className="relative flex h-full min-h-[350px] flex-col justify-between overflow-hidden rounded-panel border border-primary-700/40 bg-primary-800 p-7 text-white shadow-soft-lg">
+                  <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-primary-500/20 blur-3xl" />
+                  <div className="relative space-y-4">
+                    <span className="inline-block rounded-full border border-primary-600/50 bg-primary-900/70 px-3 py-1 text-overline text-primary-100">Premium Tier</span>
+                    <p className="font-display text-4xl font-extrabold leading-none tracking-tight">$19<span className="text-sm font-normal text-primary-200">/mo</span></p>
+                    <p className="text-caption font-medium text-primary-200">Supercharge your tech prep with continuous mocks.</p>
+                    <ul className="space-y-2.5 pt-2 text-caption font-medium text-primary-100">
+                      <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-white" /> 200 Refillable Weekly Credits</li>
+                      <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-white" /> Unlimited Mock Practice Mocks</li>
+                      <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-white" /> Complete AI Weakness scorecard diagnostics</li>
+                      <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-white" /> Live Resume re-indexing updates</li>
+                    </ul>
+                  </div>
+                  <button 
+                    onClick={handleGetStarted}
+                    className="relative mt-7 w-full rounded-full bg-primary-100 px-4 py-3 text-caption font-bold text-primary-800 shadow-soft-xs transition-colors duration-300 hover:bg-primary-200 dark:bg-primary-400 dark:text-primary-950 dark:hover:bg-primary-300"
+                  >
+                    Go Premium
+                  </button>
+                </div>
+              </Reveal>
+            </div>
+          </div>
+        </section>
+
+        {/* --- CTA BOTTOM BANNER --- */}
+        <section className="landing-shell relative z-10 py-section">
+          <Reveal>
+            <div className="relative overflow-hidden rounded-hero border border-primary-700/30 bg-gradient-to-br from-primary-800 via-primary-700 to-indigo-800 px-6 py-12 text-center shadow-soft-xl sm:px-12 sm:py-14 dark:from-primary-950 dark:via-primary-900 dark:to-indigo-950">
+              <div className="pointer-events-none absolute -left-24 -top-28 h-72 w-72 rounded-full bg-primary-400/20 blur-3xl" />
+              <div className="pointer-events-none absolute -bottom-32 -right-20 h-80 w-80 rounded-full bg-indigo-400/15 blur-3xl" />
+
+              <div className="relative space-y-6">
+                <h2 className="font-display text-display-xl text-balance text-white">
+                  Start Your Transition Today
+                </h2>
+                <p className="mx-auto max-w-md text-body text-white/75">
+                  Join thousands of high-performers who have already synchronized their careers with the future of work.
+                </p>
+
+                <form onSubmit={handleEarlyAccess} className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 pt-2 sm:flex-row">
+                  <input 
+                    type="email"
+                    placeholder="Enter your email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    className="w-full rounded-full border border-white/15 bg-slate-900/40 px-5 py-3.5 text-sm text-white shadow-soft-xs outline-none transition-all placeholder:text-slate-400 focus:border-primary-300 focus:ring-2 focus:ring-primary-300/30"
+                    required
+                  />
+                  <button 
+                    type="submit"
+                    className="inline-flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-primary-100 px-6 py-3.5 text-sm font-bold text-primary-800 shadow-soft-sm transition-colors duration-300 hover:bg-primary-200 sm:w-auto dark:bg-primary-400 dark:text-primary-950 dark:hover:bg-primary-300"
+                  >
+                    <Zap className="h-4 w-4 fill-current" />
+                    <span>Get Early Access</span>
+                  </button>
+                </form>
+
+                <p className="text-caption font-medium text-white/55">
+                  No credit card required. Free for your first 3 career matches.
+                </p>
+              </div>
+            </div>
+          </Reveal>
+        </section>
+      </div>
+    </MotionConfig>
   )
 }

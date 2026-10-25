@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import secureStorage from '../utils/secureStorage'
+import { getDashboardPath } from '../utils/navigation'
 
 export default function DashboardRouter() {
   const navigate = useNavigate()
@@ -17,19 +18,7 @@ export default function DashboardRouter() {
     try {
       
       // Redirect to role-specific dashboard
-      switch (user.role) {
-        case 'student':
-          navigate('/student/dashboard')
-          break
-        case 'employer':
-          navigate('/employer/dashboard')
-          break
-        case 'admin':
-          navigate('/admin/dashboard')
-          break
-        default:
-          navigate('/login')
-      }
+      navigate(getDashboardPath(user.role))
     } catch (err) {
       // Invalid user data
       secureStorage.clear()
@@ -38,10 +27,10 @@ export default function DashboardRouter() {
   }, [navigate])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div className="min-h-screen bg-canvas flex items-center justify-center">
       <div className="text-center">
-        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-        <p className="text-gray-400">Redirecting to your dashboard...</p>
+        <div className="w-16 h-16 border-4 border-hairline border-t-primary-600 rounded-pill animate-spin mx-auto mb-4"></div>
+        <p className="text-ink-muted">Redirecting to your dashboard...</p>
       </div>
     </div>
   )

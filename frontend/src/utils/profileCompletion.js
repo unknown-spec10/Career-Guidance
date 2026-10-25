@@ -70,16 +70,3 @@ export const calculateProfileCompletion = (profileData) => {
   const total = personalScore + academicScore + skillsScore + experienceScore + projectsScore + certificationsScore
   return Math.max(0, Math.min(100, Math.round(total)))
 }
-
-export const getProfileCompletionDetails = (profileData) => {
-  const data = profileData || {}
-  return {
-    personalInfo: getPersonalInfo(data),
-    skills: normalizeList(data.skills),
-    education: normalizeList(data.education),
-    experience: normalizeList(data.experience),
-    projects: normalizeList(data.projects),
-    certifications: normalizeList(data.certifications),
-    completion: calculateProfileCompletion(data),
-  }
-}

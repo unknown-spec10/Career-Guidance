@@ -64,14 +64,29 @@ describe('ResultsPage — resume analysis surface', () => {
     expect(await screen.findByText('HOME')).toBeInTheDocument()
   })
 
-  it('disables Export Report honestly instead of pretending it works (dead-UI regression)', async () => {
+  it('does not render the removed Export Report button (dead-UI regression)', async () => {
     api.get.mockResolvedValueOnce({ data: parsedPayload })
     renderResults()
     await screen.findByText('Resume Analysis Results')
 
-    const exportBtn = screen.getByRole('button', { name: /export report/i })
-    expect(exportBtn).toBeDisabled()
-    expect(exportBtn).toHaveAttribute('title', 'Report export is coming soon')
-    expect(exportBtn).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.queryByRole('button', { name: /export report/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the left summary rail sticky on desktop only', async () => {
+    api.get.mockResolvedValueOnce({ data: parsedPayload })
+    renderResults()
+
+    await screen.findByText('Resume Analysis Results')
+    // The rail is the lg:col-span-1 grid item; locate it via a
+    // class-substring selector (no layout engine needed — asserts the
+    // Tailwind sticky contract, not computed position).
+    const rail = screen.getByText('Personal Information').closest('[class*="lg:col-span-1"]')
+    expect(rail).not.toBeNull()
+    expect(rail.className).toMatch(/lg:sticky/)
+    expect(rail.className).toMatch(/lg:top-6/)
+    expect(rail.className).toMatch(/(^|\s)self-start(\s|$)/)
+    // Must NOT be unconditionally sticky: below the lg breakpoint the
+    // layout collapses to one column, so only the `lg:` variant may exist.
+    expect(rail.className).not.toMatch(/(^|\s)sticky(\s|$)/)
   })
 })

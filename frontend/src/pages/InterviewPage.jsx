@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Cpu, Users, Heart, Shuffle, Zap, Target, BarChart2,
   Clock, ArrowRight, RefreshCw, ChevronLeft, Award, Play, Mic,
@@ -9,6 +8,7 @@ import {
 import api from '../config/api'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import Spinner from '../components/Spinner'
 import useInterviewSession from '../hooks/useInterviewSession'
 
 const INTERVIEW_TYPES = [
@@ -26,7 +26,7 @@ const DIFFICULTIES = [
 
 const PERSONAS = [
   { id: 'Friendly Senior Engineer', label: 'Friendly Senior Engineer', icon: Smile, desc: 'Warm, collaborative, offers helpful hints when you get stuck.', badge: 'Warm Hinting' },
-  { id: 'Tough FAANG Interviewer', label: 'Tough FAANG Interviewer', icon: ShieldAlert, desc: 'Strict, minimal feedback, optimal performance focus. No hints.', badge: 'Strict Strict' },
+  { id: 'Tough FAANG Interviewer', label: 'Tough FAANG Interviewer', icon: ShieldAlert, desc: 'Strict, minimal feedback, optimal performance focus. Hints are disabled for this persona.', badge: 'Strict Strict' },
   { id: 'Startup CTO', label: 'Startup CTO', icon: Cpu, desc: 'Pragmatic, values quick shipping, trade-offs, and shipping MVPs.', badge: 'Pragmatic MVP' }
 ]
 
@@ -47,6 +47,7 @@ export default function InterviewPage() {
   })
   const [isStarting, setIsStarting] = useState(false)
   const [resumeStatus, setResumeStatus] = useState(null) // null | 'parsed' | 'missing'
+  const [profileError, setProfileError] = useState(false)
   const [activeSession, setActiveSession] = useState(null)
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
@@ -62,6 +63,11 @@ export default function InterviewPage() {
         if (profileRes.status === 'fulfilled') {
           const skills = profileRes.value.data?.skills || []
           setResumeStatus(skills.length > 0 ? 'parsed' : 'missing')
+          setProfileError(false)
+        } else {
+          // A failed profile fetch is not the same as "no resume" — leave
+          // status unknown so Start isn't hard-blocked by a network blip.
+          setProfileError(true)
         }
         if (sessionRes.status === 'fulfilled' && sessionRes.value.data?.has_active_session) {
           setActiveSession(sessionRes.value.data)
@@ -71,13 +77,25 @@ export default function InterviewPage() {
         }
       } catch (err) {
         console.error('Failed to load prep configs:', err)
-        setResumeStatus('missing')
+        setProfileError(true)
       } finally {
         setHistoryLoading(false)
       }
     }
     checkStatus()
   }, [])
+
+  const handleRetryProfile = async () => {
+    setProfileError(false)
+    try {
+      const res = await api.get('/api/student/profile')
+      const skills = res.data?.skills || []
+      setResumeStatus(skills.length > 0 ? 'parsed' : 'missing')
+    } catch (err) {
+      console.error('Failed to load profile:', err)
+      setProfileError(true)
+    }
+  }
 
   const handleStart = async () => {
     if (resumeStatus === 'missing') {
@@ -120,22 +138,38 @@ export default function InterviewPage() {
       {/* Welcome Header */}
       <div className="mb-xl flex flex-col md:flex-row md:items-end justify-between gap-md relative z-10">
         <div>
-          <h1 className="font-display-lg text-display-lg text-on-surface dark:text-inverse-on-surface mb-xs font-bold leading-tight">
+          <h1 className="app-page-title">
             AI Interview Coach
           </h1>
-          <p className="font-body-base text-body-base text-on-surface-variant dark:text-surface-variant">
+          <p className="app-page-subtitle">
             Set up real-time voice or text sessions aligned with your resume experience.
           </p>
         </div>
       </div>
 
+      {/* Warning when resume status could not be verified (network error) */}
+      {profileError && resumeStatus !== 'missing' && (
+        <div className="mb-lg p-md rounded-card bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold flex items-start gap-2.5">
+          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+          <div className="flex-1">
+            <h4>Couldn&apos;t verify resume status</h4>
+            <p className="text-ink-muted font-normal mt-0.5">
+              A network error stopped us checking your resume. You can still try starting — the server will confirm.
+            </p>
+          </div>
+          <button onClick={handleRetryProfile} className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-card text-xs font-bold transition-colors cursor-pointer flex-shrink-0">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Warning if resume missing */}
       {resumeStatus === 'missing' && (
-        <div className="mb-lg p-md bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold flex items-start gap-2.5">
+        <div className="mb-lg p-md rounded-card bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-start gap-2.5">
           <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0" />
           <div>
             <h4>Resume Profile Required</h4>
-            <p className="text-slate-500 font-normal mt-0.5">
+            <p className="text-ink-muted font-normal mt-0.5">
               Please go to the <Link to="/student/dashboard" className="underline text-rose-900">Dashboard</Link> and upload a resume before starting mock sessions so the coach can tailor questions to your skills.
             </p>
           </div>
@@ -144,14 +178,14 @@ export default function InterviewPage() {
 
       {/* Active Session Callout */}
       {activeSession && (
-        <div className="mb-lg bg-primary/10 border border-primary/20 p-md rounded-xl flex flex-col sm:flex-row justify-between items-center gap-md">
+        <div className="mb-lg bg-primary-500/10 border border-primary-500/20 p-md rounded-card flex flex-col sm:flex-row justify-between items-center gap-md">
           <div>
-            <h4 className="font-body-bold text-[14px] text-primary dark:text-primary-fixed-dim">Active session in progress</h4>
-            <p className="text-xs text-slate-500 mt-0.5">You have a pending mock session created recently.</p>
+            <h4 className="font-body text-caption font-bold text-primary">Active session in progress</h4>
+            <p className="text-xs text-ink-muted mt-0.5">You have a pending mock session created recently.</p>
           </div>
           <button 
             onClick={handleResumeSession}
-            className="px-4 py-2 bg-primary text-white rounded-lg font-body-bold text-xs hover:bg-primary-500 transition-all cursor-pointer"
+            className="app-btn-primary app-btn-sm"
           >
             Resume Session
           </button>
@@ -165,8 +199,8 @@ export default function InterviewPage() {
         <div className="lg:col-span-8 flex flex-col gap-lg">
           
           {/* Card 1: Setup configurations */}
-          <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-lg soft-shadow">
-            <h2 className="text-lg font-bold text-on-surface dark:text-inverse-on-surface mb-lg flex items-center gap-2">
+          <div className="surface-card p-lg">
+            <h2 className="app-section-title mb-lg flex items-center gap-2">
               <Cpu className="w-5 h-5 text-primary" />
               Configure Mock Session
             </h2>
@@ -175,7 +209,7 @@ export default function InterviewPage() {
               
               {/* Type Selection */}
               <div>
-                <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-sm">Interview Type</label>
+                <label className="app-label block mb-sm">Interview Type</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-sm">
                   {INTERVIEW_TYPES.map(type => {
                     const active = config.interview_type === type.id
@@ -184,18 +218,18 @@ export default function InterviewPage() {
                       <button
                         key={type.id}
                         onClick={() => setConfig(prev => ({ ...prev, interview_type: type.id }))}
-                        className={`p-md rounded-lg text-left border transition-all cursor-pointer flex gap-3 ${
+                        className={`p-md rounded-card text-left border transition-all cursor-pointer flex gap-3 ${
                           active
-                            ? 'bg-primary/5 dark:bg-primary/10 border-primary text-primary dark:text-primary-fixed-dim font-body-bold'
-                            : 'border-border-subtle hover:bg-surface-container-low text-on-surface-variant dark:text-surface-variant'
+                            ? 'bg-primary-500/5 dark:bg-primary-500/10 border-primary text-primary font-body font-bold'
+ : 'border-hairline hover:bg-surface-sunken text-ink-muted'
                         }`}
                       >
-                        <div className={`p-2 rounded-lg ${active ? 'bg-primary/10 text-primary dark:text-primary-fixed-dim' : 'bg-slate-50 text-slate-400'}`}>
+                        <div className={`p-2 rounded-card ${active ? 'bg-primary-500/10 text-primary' : 'bg-surface-sunken text-ink-subtle'}`}>
                           <Icon className="w-5 h-5" />
                         </div>
                         <div>
                           <h4 className="text-[13px] font-bold">{type.label}</h4>
-                          <p className="text-[11px] text-slate-400 mt-0.5 leading-tight font-normal">{type.desc}</p>
+                          <p className="text-[11px] text-ink-subtle mt-0.5 leading-tight font-normal">{type.desc}</p>
                         </div>
                       </button>
                     )
@@ -205,7 +239,7 @@ export default function InterviewPage() {
 
               {/* Persona Selection */}
               <div>
-                <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-sm">Coach Persona</label>
+                <label className="app-label block mb-sm">Coach Persona</label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-sm">
                   {PERSONAS.map(p => {
                     const active = config.interviewer_persona === p.id
@@ -214,18 +248,18 @@ export default function InterviewPage() {
                       <button
                         key={p.id}
                         onClick={() => setConfig(prev => ({ ...prev, interviewer_persona: p.id }))}
-                        className={`p-md rounded-lg text-left border transition-all cursor-pointer ${
+                        className={`p-md rounded-card text-left border transition-all cursor-pointer ${
                           active
-                            ? 'bg-primary/5 dark:bg-primary/10 border-primary text-primary dark:text-primary-fixed-dim font-body-bold'
-                            : 'border-border-subtle hover:bg-surface-container-low text-on-surface-variant dark:text-surface-variant'
+                            ? 'bg-primary-500/5 dark:bg-primary-500/10 border-primary text-primary font-body font-bold'
+ : 'border-hairline hover:bg-surface-sunken text-ink-muted'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <Icon className={`w-5 h-5 ${active ? 'text-primary' : 'text-slate-400'}`} />
-                          <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">{p.badge}</span>
+                          <Icon className={`w-5 h-5 ${active ? 'text-primary' : 'text-ink-subtle'}`} />
+                          <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-pill bg-surface-sunken text-ink-muted">{p.badge}</span>
                         </div>
                         <h4 className="text-[12px] font-bold">{p.label}</h4>
-                        <p className="text-[10px] text-slate-400 mt-1 font-normal leading-normal">{p.desc}</p>
+                        <p className="text-[10px] text-ink-subtle mt-1 font-normal leading-normal">{p.desc}</p>
                       </button>
                     )
                   })}
@@ -234,7 +268,7 @@ export default function InterviewPage() {
 
               {/* Difficulty Selection */}
               <div>
-                <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-sm">Complexity Level</label>
+                <label className="app-label block mb-sm">Complexity Level</label>
                 <div className="grid grid-cols-3 gap-sm">
                   {DIFFICULTIES.map(diff => {
                     const active = config.difficulty === diff.id
@@ -242,14 +276,14 @@ export default function InterviewPage() {
                       <button
                         key={diff.id}
                         onClick={() => setConfig(prev => ({ ...prev, difficulty: diff.id }))}
-                        className={`p-sm rounded-lg text-center border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                        className={`p-sm rounded-card text-center border transition-all cursor-pointer flex flex-col items-center justify-center ${
                           active
-                            ? diff.color + ' font-body-bold shadow-sm'
-                            : 'border-border-subtle hover:bg-surface-container-low text-on-surface-variant dark:text-surface-variant'
+                            ? diff.color + ' font-body font-bold shadow-soft-xs'
+ : 'border-hairline hover:bg-surface-sunken text-ink-muted'
                         }`}
                       >
                         <span className="text-[13px] font-bold">{diff.label}</span>
-                        <span className="text-[9px] text-slate-400 mt-0.5 font-normal">{diff.desc}</span>
+                        <span className="text-[9px] text-ink-subtle mt-0.5 font-normal">{diff.desc}</span>
                       </button>
                     )
                   })}
@@ -257,34 +291,34 @@ export default function InterviewPage() {
               </div>
 
               {/* Details & Controls */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-md pt-md border-t border-border-subtle dark:border-outline-variant/10">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-md pt-md border-t border-hairline">
                 
                 {/* Topic Focus */}
                 <div>
-                  <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-xs">Sub-topic Focus (Optional)</label>
+                  <label className="app-label block mb-xs">Sub-topic Focus (Optional)</label>
                   <input
                     type="text"
                     name="topic_focus"
                     placeholder="e.g. system design, async loops, STAR behavioral"
                     value={config.topic_focus}
                     onChange={(e) => setConfig(prev => ({ ...prev, topic_focus: e.target.value }))}
-                    className="w-full bg-slate-50 dark:bg-inverse-surface/30 border border-border-subtle rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all dark:text-white"
+                    className="app-input"
                   />
                 </div>
 
                 {/* Question Count Selection */}
                 <div>
-                  <label className="font-label-caps text-[10px] text-on-surface-variant dark:text-surface-variant uppercase tracking-wider block mb-xs">Question Count</label>
-                  <div className="flex bg-slate-50 dark:bg-inverse-surface/30 rounded-lg p-0.5 border border-border-subtle">
+                  <label className="app-label block mb-xs">Question Count</label>
+                  <div className="flex bg-surface-sunken rounded-card p-0.5 border border-hairline">
                     {QUESTION_COUNTS.map(cnt => (
                       <button
                         key={cnt}
                         type="button"
                         onClick={() => setConfig(prev => ({ ...prev, num_questions: cnt }))}
-                        className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer text-center ${
+                        className={`flex-1 py-1.5 rounded-card text-xs font-bold transition-all cursor-pointer text-center ${
                           config.num_questions === cnt
-                            ? 'bg-white dark:bg-inverse-surface text-primary border border-border-subtle shadow-sm'
-                            : 'text-slate-400 hover:text-slate-650'
+                            ? 'bg-surface-raised text-primary border border-hairline shadow-soft-xs'
+                            : 'text-ink-subtle hover:text-ink'
                         }`}
                       >
                         {cnt} Qs
@@ -296,17 +330,17 @@ export default function InterviewPage() {
               </div>
 
               {/* Voice Mode Toggle */}
-              <div className="pt-md flex items-center justify-between border-t border-border-subtle dark:border-outline-variant/10">
+              <div className="pt-md flex items-center justify-between border-t border-hairline">
                 <div>
-                  <h4 className="text-[13px] font-bold text-on-surface dark:text-inverse-on-surface">Voice Interactive Mode</h4>
-                  <p className="text-[11px] text-slate-400 leading-tight mt-0.5 font-normal">Synthesize voice responses and answer using speech recognition.</p>
+                  <h4 className="text-[13px] font-bold text-ink">Voice Interactive Mode</h4>
+                  <p className="text-[11px] text-ink-subtle leading-tight mt-0.5 font-normal">Hear questions read aloud and answer by voice. Needs a microphone, Chrome or Edge, and HTTPS — live captions only where the browser supports speech recognition.</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setConfig(prev => ({ ...prev, voice_mode: !prev.voice_mode }))}
-                  className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer relative ${config.voice_mode ? 'bg-primary' : 'bg-slate-200'}`}
+                  className={`w-12 h-7 rounded-pill p-0.5 transition-colors cursor-pointer relative ${config.voice_mode ? 'bg-primary' : 'bg-surface-sunken'}`}
                 >
-                  <div className={`w-5.5 h-5.5 rounded-full bg-white shadow transition-all transform ${config.voice_mode ? 'translate-x-5.5' : 'translate-x-0'}`} />
+                  <div className={`w-6 h-6 rounded-pill bg-surface-raised shadow-soft-xs transition-transform ${config.voice_mode ? 'translate-x-5' : 'translate-x-0'}`} />
                 </button>
               </div>
 
@@ -315,59 +349,66 @@ export default function InterviewPage() {
 
         </div>
 
-        {/* Info & History Pane (4/12 width) */}
-        <div className="lg:col-span-4 flex flex-col gap-lg">
+        {/* Info & History Pane (4/12 width) — sticky rail on lg+ so it stays
+            visible while the settings column scrolls; static below lg where
+            the layout collapses to one column. */}
+        <div className="lg:col-span-4 flex flex-col gap-lg lg:sticky lg:top-6 self-start">
           
           {/* Action Trigger Card */}
-          <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow text-center">
-            <div className="w-12 h-12 rounded-full bg-primary/5 text-primary border border-primary/10 flex items-center justify-center mx-auto mb-3">
+          <div className="surface-card p-md text-center">
+            <div className="w-12 h-12 rounded-pill bg-primary-500/5 text-primary border border-primary-500/10 flex items-center justify-center mx-auto mb-3">
               <Zap className="w-6 h-6 animate-pulse" />
             </div>
-            <h3 className="font-body-bold text-[15px] font-bold text-on-surface dark:text-inverse-on-surface">Ready to start?</h3>
-            <p className="font-metadata text-[11px] text-slate-400 leading-normal my-sm">
+            <h3 className="font-body text-caption font-bold text-ink">Ready to start?</h3>
+            <p className="text-[11px] text-ink-subtle leading-normal my-sm">
               Estimated duration: {config.num_questions * 3} minutes.
             </p>
             <button
               onClick={handleStart}
               disabled={isStarting || resumeStatus === 'missing'}
-              className="w-full py-2.5 bg-primary hover:bg-primary-500 text-white rounded-lg font-body-bold text-xs transition-all shadow-md flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-busy={isStarting}
+              className="app-btn-primary app-btn-sm inline-flex w-full items-center justify-center gap-2"
             >
-              <Play className="w-4 h-4 fill-current" />
-              {isStarting ? 'Setting up Round...' : 'Launch AI Practice'}
+              {isStarting ? <Spinner className="h-4 w-4" /> : <Play className="h-4 w-4 shrink-0 fill-current" />}
+              <span>Launch AI Practice</span>
             </button>
           </div>
 
           {/* History Tracker */}
-          <div className="bg-white dark:bg-inverse-surface/5 border border-border-subtle dark:border-outline-variant/30 rounded-xl p-md soft-shadow flex-1">
-            <h3 className="font-body-bold text-[14px] font-bold text-on-surface dark:text-inverse-on-surface mb-md">Practice History</h3>
+          <div className="surface-card p-md flex-1">
+            <h3 className="font-body text-caption font-bold text-ink mb-md">Practice History</h3>
             
             {historyLoading ? (
-              <div className="text-center py-6 text-xs text-on-surface-variant">Loading records...</div>
+              <div className="text-center py-6 text-xs text-ink-muted">Loading records...</div>
             ) : history.length === 0 ? (
-              <div className="text-center py-6 text-xs text-on-surface-variant">No sessions completed yet. Launch your first round!</div>
+              <div className="text-center py-6 text-xs text-ink-muted">No sessions completed yet. Launch your first round!</div>
             ) : (
               <div className="space-y-sm">
                 {history.slice(0, 4).map((session, index) => {
-                  const score = session.overall_score || session.score
-                  const isGood = score && score >= 75
+                  // Backend stores overall_score 0.0–1.0; normalize to 0–100 for display.
+                  const rawScore = session.overall_score ?? session.score
+                  const pct = rawScore !== null && rawScore !== undefined
+                    ? Math.round(rawScore <= 1 ? rawScore * 100 : rawScore)
+                    : null
+                  const isGood = pct !== null && pct >= 75
                   
                   return (
                     <div 
                       key={session.session_id || index}
-                      className="p-sm bg-slate-50 dark:bg-inverse-surface/10 border border-border-subtle dark:border-outline-variant/20 rounded-lg flex items-center justify-between"
+                      className="p-sm bg-surface-sunken border border-hairline rounded-card flex items-center justify-between"
                     >
                       <div>
-                        <h4 className="font-body-bold text-[12px] text-on-surface dark:text-inverse-on-surface capitalize truncate max-w-[120px]">{session.interview_type} Round</h4>
-                        <p className="text-[10px] text-slate-400 capitalize mt-0.5">
+                        <h4 className="font-body text-[12px] font-bold text-ink capitalize truncate max-w-[120px]">{session.interview_type} Round</h4>
+                        <p className="text-[10px] text-ink-subtle capitalize mt-0.5">
                           {session.difficulty} • {session.num_questions} Qs
                         </p>
                       </div>
                       
                       <div className="flex items-center gap-2">
-                        {score !== null && score !== undefined && (
+                        {pct !== null && (
                           <div className="text-right mr-1">
-                            <span className={`font-label-caps text-sm font-bold ${isGood ? 'text-success' : 'text-warning'}`}>{Math.round(score)}%</span>
-                            <span className="block text-[8px] text-slate-400 uppercase tracking-wider font-semibold">Score</span>
+                            <span className={`font-body text-sm font-bold ${isGood ? 'text-success' : 'text-warning'}`}>{pct}%</span>
+                            <span className="block text-[8px] text-ink-subtle uppercase tracking-wider font-semibold">Score</span>
                           </div>
                         )}
                         <button
@@ -378,7 +419,7 @@ export default function InterviewPage() {
                               handleRetake(session)
                             }
                           }}
-                          className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-primary transition-colors cursor-pointer"
+ className="p-1 rounded-pill hover:bg-surface-sunken text-ink-subtle hover:text-primary transition-colors cursor-pointer"
                         >
                           <ArrowRight className="w-4 h-4" />
                         </button>

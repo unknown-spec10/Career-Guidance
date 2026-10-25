@@ -4,40 +4,35 @@ import { motion } from 'framer-motion'
 import { Mail, Lock, AlertTriangle, CheckCircle, ArrowRight, Eye, EyeOff, Sparkles, Sun, Moon } from 'lucide-react'
 import api, { API_BASE_URL } from '../config/api'
 import secureStorage from '../utils/secureStorage'
+import { setAuthToken, clearAuthToken, getAuthToken } from '../utils/authToken'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
+import Spinner from '../components/Spinner'
 import { sanitizeEmail } from '../utils/sanitize'
+import { getDashboardPath } from '../utils/navigation'
+import { useTheme } from '../hooks/useTheme'
+import { getApiError } from '../utils/apiError'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const toast = useToast()
   const [formData, setFormData] = useState({
-    username: '', // OAuth2PasswordRequestForm expects 'username' field
+    username: typeof window !== 'undefined' ? (localStorage.getItem('remembered_email') || '') : '',
     password: ''
   })
+  const [rememberMe, setRememberMe] = useState(
+    () => typeof window !== 'undefined' && !!localStorage.getItem('remembered_email')
+  )
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [googleRole, setGoogleRole] = useState('student')
+  // Student-only signup/login — Google OAuth always uses the student role.
+  const googleRole = 'student'
   const message = location.state?.message
 
-  // Local Theme Sync
-  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light')
-
-  useEffect(() => {
-    const root = document.documentElement
-    if (theme === 'dark') {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
-    }
-    localStorage.setItem('theme', theme)
-  }, [theme])
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light')
-  }
+  // Local Theme Sync (shared hook)
+  const { theme, toggleTheme } = useTheme()
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -54,8 +49,8 @@ export default function LoginPage() {
       setLoading(true)
       const fetchUserData = async () => {
         try {
-          // Store token in secure storage
-          secureStorage.setItem('token', token)
+          // Store token via the in-memory holder (mirrored for reload restore)
+          setAuthToken(token)
           // Set default authorization header
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
@@ -66,25 +61,23 @@ export default function LoginPage() {
           secureStorage.setItem('user', user)
           secureStorage.setItem('login_time', Date.now())
 
-          // Navigate based on role
-          switch (user.role) {
-            case 'admin':
-              navigate('/admin/dashboard', { replace: true })
-              break
-            case 'employer':
-              navigate('/employer/dashboard', { replace: true })
-              break
-            default:
-              navigate('/student/dashboard', { replace: true })
+          // Navigate based on role — or back to the preserved location
+          // (e.g. an interview interrupted by a 401) when present.
+          const postLoginRedirect = sessionStorage.getItem('post_login_redirect')
+          if (postLoginRedirect && postLoginRedirect.startsWith('/dashboard/interview/')) {
+            sessionStorage.removeItem('post_login_redirect')
+            navigate(postLoginRedirect, { replace: true })
+          } else {
+            navigate(getDashboardPath(user.role, '/student/dashboard'), { replace: true })
           }
           toast.success('Login successful!')
         } catch (err) {
           console.error('Failed to login via Google token:', err)
-          const errorMsg = err.response?.data?.detail || 'Authentication failed'
+          const errorMsg = getApiError(err, 'Authentication failed')
           setError(errorMsg)
           toast.error(errorMsg)
-          // Clear invalid token from secure storage
-          secureStorage.removeItem('token')
+          // Clear invalid token (memory + restore mirror)
+          clearAuthToken()
           delete api.defaults.headers.common['Authorization']
         } finally {
           setLoading(false)
@@ -119,28 +112,37 @@ export default function LoginPage() {
 
       const { access_token, user } = response.data
 
-      // Store in secure storage
-      secureStorage.setItem('token', access_token)
+      // Remember-me: persist only the email address for prefill, never the password.
+      try {
+        if (rememberMe && sanitizedEmail) {
+          localStorage.setItem('remembered_email', sanitizedEmail)
+        } else {
+          localStorage.removeItem('remembered_email')
+        }
+      } catch {
+        // storage may be unavailable (private mode) — login still succeeds
+      }
+
+      // Store session via the in-memory holder (mirrored for reload restore)
+      setAuthToken(access_token)
       secureStorage.setItem('user', user)
       secureStorage.setItem('login_time', Date.now())
 
       // Set default authorization header
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
 
-      // Navigate based on role
-      switch (user.role) {
-        case 'admin':
-          navigate('/admin/dashboard')
-          break
-        case 'employer':
-          navigate('/employer/dashboard')
-          break
-        default:
-          navigate('/student/dashboard')
+      // Navigate based on role — or back to the preserved location
+      // (e.g. an interview interrupted by a 401) when present.
+      const postLoginRedirect = sessionStorage.getItem('post_login_redirect')
+      if (postLoginRedirect && postLoginRedirect.startsWith('/dashboard/interview/')) {
+        sessionStorage.removeItem('post_login_redirect')
+        navigate(postLoginRedirect, { replace: true })
+      } else {
+        navigate(getDashboardPath(user.role, '/student/dashboard'))
       }
       toast.success('Login successful!')
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || 'Login failed'
+      const errorMsg = getApiError(err, 'Login failed')
       setError(errorMsg)
       toast.error(errorMsg)
     } finally {
@@ -149,61 +151,61 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+    <div className="min-h-screen flex flex-col md:flex-row bg-canvas text-ink transition-colors duration-200">
       
       {/* Left visual panel */}
-      <div className="hidden md:flex md:w-1/2 lg:w-3/5 bg-slate-900 dark:bg-slate-950 relative overflow-hidden flex-col justify-between p-12 border-r border-slate-200 dark:border-slate-800">
+      <div className="hidden md:flex md:w-1/2 lg:w-3/5 bg-primary-950 relative overflow-hidden flex-col justify-between p-12 border-r border-hairline">
         {/* Background Grid Pattern & Gradients */}
         <div className="absolute inset-0 bg-grid-pattern opacity-10 pointer-events-none" />
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-primary-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-primary-500/10 rounded-pill blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-500/10 rounded-pill blur-3xl pointer-events-none" />
         
         {/* Logo and Brand */}
         <div className="z-10 flex items-center space-x-3">
           <img src="/logo.png" alt="CareerSync Logo" className="w-10 h-10 object-contain" />
-          <span className="text-2xl font-extrabold text-white tracking-tight">CareerSync AI</span>
+          <span className="font-display text-title-lg font-bold tracking-[-0.02em] text-white">CareerSync AI</span>
         </div>
 
         {/* Feature Highlights */}
         <div className="z-10 max-w-lg my-auto space-y-8">
           <div>
-            <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight tracking-tight mb-4">
+            <h1 className="font-display text-4xl lg:text-5xl font-extrabold text-white leading-[1.05] tracking-[-0.03em] mb-4">
               Align Your Talent.<br />
               <span className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">Sync Your Future.</span>
             </h1>
-            <p className="text-slate-400 text-lg">
+            <p className="text-slate-400 text-body-lg">
               Unlock a premium suite of intelligent career tools designed to accelerate alignment between candidates and employers.
             </p>
           </div>
 
           <div className="space-y-4">
-            <div className="flex gap-4 p-4 bg-white/5 border border-white/10 rounded-xl backdrop-blur-sm hover:bg-white/8 transition-all">
-              <div className="p-3 bg-primary-500/10 border border-primary-500/20 text-primary-400 rounded-lg h-fit shrink-0">
+ <div className="flex gap-4 p-4 bg-primary-900/40 border border-white/10 rounded-card backdrop-blur-sm hover:border-white/20 transition-colors">
+              <div className="p-3 bg-primary-500/10 border border-primary-500/20 text-primary-400 rounded-card h-fit shrink-0">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="font-bold text-white text-base">Gemini-Powered Parser</h4>
-                <p className="text-slate-400 text-sm">Convert raw resumes into structured talent insights, matching exact skills and credentials.</p>
+                <h4 className="font-display font-bold text-white text-base">Smart Resume Parser</h4>
+                <p className="text-slate-400 text-caption">Convert raw resumes into structured talent insights, matching exact skills and credentials.</p>
               </div>
             </div>
 
-            <div className="flex gap-4 p-4 bg-white/5 border border-white/10 rounded-xl backdrop-blur-sm hover:bg-white/8 transition-all">
-              <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-lg h-fit shrink-0">
+ <div className="flex gap-4 p-4 bg-primary-900/40 border border-white/10 rounded-card backdrop-blur-sm hover:border-white/20 transition-colors">
+              <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-card h-fit shrink-0">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="font-bold text-white text-base">High-Fidelity AI Interviews</h4>
-                <p className="text-slate-400 text-sm">Practice in a real-time conversational session with semantic performance tracking.</p>
+                <h4 className="font-display font-bold text-white text-base">High-Fidelity AI Interviews</h4>
+                <p className="text-slate-400 text-caption">Practice in a real-time conversational session with semantic performance tracking.</p>
               </div>
             </div>
 
-            <div className="flex gap-4 p-4 bg-white/5 border border-white/10 rounded-xl backdrop-blur-sm hover:bg-white/8 transition-all">
-              <div className="p-3 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg h-fit shrink-0">
+ <div className="flex gap-4 p-4 bg-primary-900/40 border border-white/10 rounded-card backdrop-blur-sm hover:border-white/20 transition-colors">
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-card h-fit shrink-0">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="font-bold text-white text-base">Intelligent Pathways & Matching</h4>
-                <p className="text-slate-400 text-sm">Generate visual skill roadmaps and evaluate applicant suitability scores for role profiles.</p>
+                <h4 className="font-display font-bold text-white text-base">Intelligent Pathways & Matching</h4>
+                <p className="text-slate-400 text-caption">Generate visual skill roadmaps and evaluate applicant suitability scores for role profiles.</p>
               </div>
             </div>
           </div>
@@ -211,46 +213,47 @@ export default function LoginPage() {
 
         {/* Footer info */}
         <div className="z-10 flex items-center justify-between border-t border-white/10 pt-6">
-          <div className="flex items-center gap-2 text-slate-400 text-xs">
+          <div className="flex items-center gap-2 text-slate-400 text-caption">
             <Sparkles className="w-4 h-4 text-primary-400" />
-            <span>Powered by Gemini 1.5 Pro</span>
+            <span>Powered by DeepSeek</span>
           </div>
-          <span className="text-[10px] text-slate-500 tracking-wider font-semibold uppercase">v2.1 Stable</span>
+          <span className="text-[10px] text-slate-500 tracking-[0.14em] font-semibold uppercase">v2.1 Stable</span>
         </div>
       </div>
 
       {/* Right form panel */}
-      <div className="w-full md:w-1/2 lg:w-2/5 flex flex-col justify-center p-8 sm:p-12 md:p-16 relative bg-white dark:bg-slate-900 transition-colors duration-200">
+      <div className="w-full md:w-1/2 lg:w-2/5 flex flex-col justify-center p-8 sm:p-12 md:p-16 relative bg-canvas transition-colors duration-200">
         
         {/* Floating Theme Toggle (Local fallback for auth pages) */}
         <button
           onClick={toggleTheme}
           type="button"
-          className="absolute top-6 right-6 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-850 text-slate-500 dark:text-slate-405 transition-all cursor-pointer z-50 shadow-sm"
+ className="absolute top-6 right-6 p-2.5 rounded-card border border-hairline bg-surface-raised text-ink-muted hover:text-ink hover:border-hairline-strong transition-all cursor-pointer z-50 shadow-soft-xs"
           aria-label="Toggle Theme"
         >
-          {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-505" />}
+          {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
         </button>
 
         <div className="w-full max-w-md mx-auto">
           {/* Logo visible only on mobile/tablet */}
           <div className="flex md:hidden items-center space-x-3 mb-8">
             <img src="/logo.png" alt="CareerSync Logo" className="w-8 h-8 object-contain" />
-            <span className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">CareerSync AI</span>
+            <span className="font-display text-title font-bold text-ink tracking-[-0.02em]">CareerSync AI</span>
           </div>
 
           <div className="mb-8">
-            <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mb-2">Sign In</h2>
-            <p className="text-slate-500 dark:text-slate-400">Enter your credentials to access your CareerSync portal.</p>
+            <p className="eyebrow mb-2">Student Portal</p>
+            <h2 className="app-page-title mb-2">Sign In</h2>
+            <p className="text-body text-ink-muted">Enter your credentials to access your CareerSync portal.</p>
           </div>
 
           {message && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start space-x-3 text-emerald-600 dark:text-emerald-400 text-sm font-medium"
+              className="mb-6 p-4 bg-success/10 border border-success/20 rounded-card flex items-start space-x-3 text-success text-caption font-medium"
             >
-              <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-500" />
+              <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-success" />
               <span>{message}</span>
             </motion.div>
           )}
@@ -259,25 +262,25 @@ export default function LoginPage() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start space-x-3 text-rose-600 dark:text-rose-400 text-sm font-medium"
+              className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-card flex items-start space-x-3 text-rose-600 dark:text-rose-400 text-caption font-medium"
             >
-              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-505" />
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-500" />
               <span>{error}</span>
             </motion.div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">
+              <label className="app-label block mb-2">
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500" />
+                <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-ink-subtle" />
                 <input
                   type="email"
                   required
                   placeholder="you@example.com"
-                  className="input pl-12 w-full h-12 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                  className="app-input pl-12"
                   value={formData.username}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                 />
@@ -285,23 +288,23 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">
+              <label className="app-label block mb-2">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500" />
+                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-ink-subtle" />
                 <input
                   type={showPassword ? "text" : "password"}
                   required
                   placeholder="Enter your password"
-                  className="input pl-12 pr-12 w-full h-12 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-500/10 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                  className="app-input pl-12 pr-12"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-350 focus:outline-none"
+                  className="absolute right-4 top-1/2 transform -translate-y-1/2 text-ink-subtle hover:text-ink focus:outline-none transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -311,14 +314,16 @@ export default function LoginPage() {
             <div className="flex items-center justify-between">
               <label className="flex items-center cursor-pointer">
                 <input 
-                  type="checkbox" 
-                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 text-primary-500 focus:ring-primary-500 focus:ring-offset-0 cursor-pointer" 
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="app-checkbox" 
                 />
-                <span className="ml-2.5 text-sm text-slate-605 dark:text-slate-400 select-none">Remember me</span>
+                <span className="ml-2.5 text-caption text-ink-muted select-none">Remember me</span>
               </label>
               <Link 
                 to="/forgot-password" 
-                className="text-sm font-semibold text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-350 transition-colors"
+                className="text-caption font-semibold text-primary-600 dark:text-primary-400 hover:underline transition-colors"
               >
                 Forgot password?
               </Link>
@@ -327,51 +332,25 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full h-12 rounded-xl flex items-center justify-center space-x-2 text-base font-semibold group cursor-pointer bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 border-0 shadow-md shadow-primary-500/10"
+              aria-busy={loading}
+              className="app-btn-primary w-full"
             >
-              <span>{loading ? 'Signing in...' : 'Sign In'}</span>
-              {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
+              <span>Sign In</span>
+              {loading ? (
+                <Spinner className="h-5 w-5" />
+              ) : (
+                <ArrowRight className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1" />
+              )}
             </button>
           </form>
 
           <div className="mt-8">
             <div className="relative mb-6">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
+                <div className="w-full border-t border-hairline"></div>
               </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 font-medium transition-colors">Or continue with</span>
-              </div>
-            </div>
-
-            {/* Google Role Selector */}
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-slate-400 dark:text-slate-505 uppercase tracking-wider mb-2 text-center select-none">
-                Sign in / Register as:
-              </label>
-              <div className="grid grid-cols-2 gap-2 max-w-xs mx-auto">
-                <button
-                  type="button"
-                  onClick={() => setGoogleRole('student')}
-                  className={`py-2 px-3 text-xs font-bold border rounded-xl transition-all cursor-pointer ${
-                    googleRole === 'student'
-                      ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-400 dark:border-primary-500 shadow-sm'
-                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-350 dark:hover:border-slate-700 text-slate-650 dark:text-slate-400 bg-transparent'
-                  }`}
-                >
-                  Student
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGoogleRole('employer')}
-                  className={`py-2 px-3 text-xs font-bold border rounded-xl transition-all cursor-pointer ${
-                    googleRole === 'employer'
-                      ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-400 dark:border-primary-500 shadow-sm'
-                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-350 dark:hover:border-slate-700 text-slate-650 dark:text-slate-400 bg-transparent'
-                  }`}
-                >
-                  Recruiter
-                </button>
+              <div className="relative flex justify-center text-caption">
+                <span className="px-4 bg-canvas text-ink-subtle font-medium transition-colors">Or continue with</span>
               </div>
             </div>
 
@@ -379,31 +358,36 @@ export default function LoginPage() {
               type="button"
               onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full h-12 flex items-center justify-center space-x-3 border border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-950 transition-all font-semibold text-slate-700 dark:text-slate-300 bg-transparent cursor-pointer shadow-sm"
+              aria-busy={loading}
+              className="app-btn-secondary w-full"
             >
-              <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
-                <path
-                  fill="#EA4335"
-                  d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114-3.57 0-6.477-2.907-6.477-6.477s2.907-6.477 6.477-6.477c1.77 0 3.35.686 4.5 1.8l3.15-3.15C19.23 1.943 15.96 0 12.24 0 5.48 0 0 5.48 0 12.24s5.48 12.24 12.24 12.24c6.8 0 12.24-5.44 12.24-12.24 0-.783-.069-1.543-.195-2.285H12.24z"
-                />
-              </svg>
-              <span>{loading ? 'Connecting...' : 'Sign in with Google'}</span>
+              {loading ? (
+                <Spinner className="h-5 w-5" />
+              ) : (
+                <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="#EA4335"
+                    d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114-3.57 0-6.477-2.907-6.477-6.477s2.907-6.477 6.477-6.477c1.77 0 3.35.686 4.5 1.8l3.15-3.15C19.23 1.943 15.96 0 12.24 0 5.48 0 0 5.48 0 12.24s5.48 12.24 12.24 12.24c6.8 0 12.24-5.44 12.24-12.24 0-.783-.069-1.543-.195-2.285H12.24z"
+                  />
+                </svg>
+              )}
+              <span>Sign in with Google</span>
             </button>
           </div>
 
           <div className="mt-8 space-y-4">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
+                <div className="w-full border-t border-hairline"></div>
               </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 transition-colors">New to CareerSync?</span>
+              <div className="relative flex justify-center text-caption">
+                <span className="px-4 bg-canvas text-ink-subtle transition-colors">New to CareerSync?</span>
               </div>
             </div>
 
             <Link 
               to="/register"
-              className="block w-full text-center px-4 py-3 border border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-950 hover:border-primary-500/30 dark:hover:border-primary-500/30 transition-all text-slate-700 dark:text-slate-300 font-semibold shadow-sm"
+              className="app-btn-secondary w-full"
             >
               Create an Account
             </Link>
@@ -411,7 +395,7 @@ export default function LoginPage() {
             <div className="text-center mt-4">
               <a 
                 href="mailto:support@careersync.com" 
-                className="text-sm font-semibold text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-350 transition-colors inline-flex items-center space-x-1"
+                className="text-caption font-semibold text-primary-600 dark:text-primary-400 hover:underline inline-flex items-center space-x-1 transition-colors"
               >
                 <span>Need help? Contact Support</span>
               </a>

@@ -1,53 +1,34 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useParams, useNavigate } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import { 
+import SafeMarkdown from '../components/SafeMarkdown'
+import {
   ArrowLeft, Briefcase, MapPin, Clock, TrendingUp, Award, Building2, ExternalLink,
-  Check, AlertCircle, Loader2, CheckCircle
+  Check, AlertCircle, Loader2, CheckCircle, Send
 } from 'lucide-react'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from '../components/Toast'
-
-const checkSkillMatch = (candidateSkills, requiredSkillName) => {
-  if (!candidateSkills || !requiredSkillName) return false
-  const reqName = requiredSkillName.toLowerCase().trim()
-  return candidateSkills.some(cand => {
-    const candName = String(cand).toLowerCase().trim()
-    if (candName === reqName) return true
-    if (reqName.length >= 3 || candName.length >= 3) {
-      try {
-        const escapedReq = reqName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-        const escapedCand = candName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-        const regexReq = new RegExp(`\\b${escapedReq}\\b`, 'i')
-        const regexCand = new RegExp(`\\b${escapedCand}\\b`, 'i')
-        return regexReq.test(candName) || regexCand.test(reqName)
-      } catch (e) {
-        return candName.includes(reqName) || reqName.includes(candName)
-      }
-    }
-    return false
-  })
-}
+import { getApiError } from '../utils/apiError'
+import { checkSkillMatch } from '../utils/skillMatch'
 
 const jobMarkdownComponents = {
-  h1: ({ children }) => <h1 className="text-sm font-bold text-slate-900 mb-2">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-sm font-bold text-slate-900 mb-2">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-800 mb-1.5">{children}</h3>,
+  h1: ({ children }) => <h1 className="text-sm font-bold text-ink mb-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-sm font-bold text-ink mb-2">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold text-ink mb-1.5">{children}</h3>,
   p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-inherit">{children}</p>,
   ul: ({ children }) => <ul className="mb-2 ml-4 space-y-1 list-disc text-inherit">{children}</ul>,
   ol: ({ children }) => <ol className="mb-2 ml-4 space-y-1 list-decimal text-inherit">{children}</ol>,
   li: ({ children }) => <li className="leading-relaxed pl-1">{children}</li>,
-  strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+  strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
   code: ({ inline, children }) => {
     if (inline) {
-      return <code className="bg-white text-primary-700 px-1.5 py-0.5 rounded border border-slate-200 font-mono text-[10px]">{children}</code>
+      return <code className="bg-surface-sunken text-primary-700 px-1.5 py-0.5 rounded-card border border-hairline font-mono text-[10px]">{children}</code>
     }
 
     return (
-      <pre className="bg-slate-950 text-slate-100 p-3 rounded-xl overflow-x-auto text-[10px] leading-relaxed border border-slate-800 mb-2">
+      <pre className="bg-slate-950 text-slate-100 p-3 rounded-card overflow-x-auto text-[10px] leading-relaxed border border-slate-800 mb-2">
         <code>{children}</code>
       </pre>
     )
@@ -57,7 +38,7 @@ const jobMarkdownComponents = {
       {children}
     </a>
   ),
-  blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-200 pl-3 italic text-slate-600 mb-2">{children}</blockquote>,
+  blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-200 pl-3 italic text-ink-muted mb-2">{children}</blockquote>,
 }
 
 export default function JobDetailsPage() {
@@ -125,7 +106,7 @@ export default function JobDetailsPage() {
       toast.success('Successfully applied! Your profile has been shared with the recruiter and a confirmation email has been sent.')
       setHasApplied(true)
     } catch (error) {
-      const errorMsg = error.response?.data?.detail || 'Failed to apply'
+      const errorMsg = getApiError(error, 'Failed to apply')
       toast.error(errorMsg)
     } finally {
       setApplying(false)
@@ -134,8 +115,8 @@ export default function JobDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-canvas flex items-center justify-center">
+        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-pill animate-spin"></div>
       </div>
     )
   }
@@ -156,8 +137,10 @@ export default function JobDetailsPage() {
   
   const totalCount = job?.required_skills?.length || 0
 
+  const isAuthenticated = !!secureStorage.getItem('user')
+
   return (
-    <div className="min-h-screen bg-gray-50 pt-24 pb-12">
+    <div className={`min-h-screen bg-canvas pb-12 ${isAuthenticated ? '' : 'pt-24'}`}>
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -166,36 +149,36 @@ export default function JobDetailsPage() {
         >
           <button
             onClick={() => navigate('/jobs')}
-            className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors duration-200 mb-4"
+            className="mb-4 inline-flex items-center gap-2 text-caption font-semibold text-ink-muted transition-colors hover:text-ink"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="h-4 w-4 shrink-0" />
             <span>Back to Jobs</span>
           </button>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column */}
-          <div className="lg:col-span-1 space-y-6">
+          {/* Left Column — sticky rail on lg+ (static below lg where the layout stacks to one column) */}
+          <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-6 self-start">
             {/* Job Info */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="card"
+              className="surface-card p-6"
             >
-              <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-4 mx-auto">
-                <Briefcase className="w-8 h-8 text-green-400" />
+              <div className="w-16 h-16 bg-success/10 border border-success/20 rounded-pill flex items-center justify-center mb-4 mx-auto">
+                <Briefcase className="w-8 h-8 text-success" />
               </div>
-              <h1 className="text-2xl font-bold text-center mb-2">{job?.title}</h1>
+              <h1 className="font-display text-title-lg text-ink text-center mb-2">{job?.title}</h1>
               
               {employer && (
                 <div className="text-center mb-4">
-                  <p className="text-lg text-gray-400">{employer.company_name}</p>
+                  <p className="text-body-lg text-ink-muted">{employer.company_name}</p>
                   {employer.website && (
                     <a
                       href={employer.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center space-x-1 text-sm text-primary-400 hover:text-primary-300 transition-colors mt-2"
+                      className="inline-flex items-center gap-1 text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors mt-2"
                     >
                       <ExternalLink className="w-3 h-3" />
                       <span>Company Website</span>
@@ -204,19 +187,19 @@ export default function JobDetailsPage() {
                 </div>
               )}
               
-              <div className="space-y-3 pt-4 border-t border-gray-200">
-                <div className="flex items-center space-x-2 text-gray-400">
+              <div className="space-y-3 pt-4 border-t border-hairline">
+                <div className="flex items-center space-x-2 text-ink-muted">
                   <MapPin className="w-4 h-4" />
                   <span>{job?.location_city}</span>
                 </div>
                 
-                <div className="flex items-center space-x-2 text-gray-400">
+                <div className="flex items-center space-x-2 text-ink-muted">
                   <Clock className="w-4 h-4" />
                   <span className="capitalize">{job?.work_type}</span>
                 </div>
 
                 {job?.min_experience_years > 0 && (
-                  <div className="flex items-center space-x-2 text-gray-400">
+                  <div className="flex items-center space-x-2 text-ink-muted">
                     <TrendingUp className="w-4 h-4" />
                     <span>{job.min_experience_years}+ years experience</span>
                   </div>
@@ -229,23 +212,23 @@ export default function JobDetailsPage() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1 }}
-              className="card"
+              className="surface-card p-6"
             >
               <div className="flex items-center space-x-2 mb-4">
                 <Award className="w-5 h-5 text-primary-400" />
-                <h2 className="text-xl font-semibold">Requirements</h2>
+                <h2 className="app-section-title">Requirements</h2>
               </div>
               <div className="space-y-3">
                 {job?.min_cgpa && (
                   <div>
-                    <p className="text-sm text-gray-400">Min CGPA</p>
-                    <p className="text-lg font-semibold text-primary-400">{job.min_cgpa}</p>
+                    <p className="app-label">Min CGPA</p>
+                    <p className="text-lg font-semibold text-primary-600 dark:text-primary-400">{job.min_cgpa}</p>
                   </div>
                 )}
                 {job?.expires_at && (
                   <div>
-                    <p className="text-sm text-gray-400">Application Deadline</p>
-                    <p className="text-sm text-white">
+                    <p className="app-label">Application Deadline</p>
+                    <p className="text-sm text-ink">
                       {new Date(job.expires_at).toLocaleDateString()}
                     </p>
                   </div>
@@ -259,16 +242,16 @@ export default function JobDetailsPage() {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2 }}
-                className="card"
+                className="surface-card p-6"
               >
                 <div className="flex items-center space-x-2 mb-4">
                   <Building2 className="w-5 h-5 text-primary-400" />
-                  <h2 className="text-xl font-semibold">About Company</h2>
+                  <h2 className="app-section-title">About Company</h2>
                 </div>
                 <div className="space-y-2">
-                  <p className="font-semibold">{employer.company_name}</p>
+                  <p className="font-semibold text-ink">{employer.company_name}</p>
                   {employer.location_city && (
-                    <p className="text-sm text-gray-400">Based in {employer.location_city}</p>
+                    <p className="text-caption text-ink-muted">Based in {employer.location_city}</p>
                   )}
                 </div>
               </motion.div>
@@ -282,13 +265,13 @@ export default function JobDetailsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="card"
+              className="surface-card p-6"
             >
-              <h2 className="text-2xl font-bold mb-4 text-slate-900">Job Description</h2>
-              <div className="text-slate-650 text-sm leading-relaxed bg-slate-50/50 rounded-2xl p-5 border border-slate-100/80">
-                <ReactMarkdown components={jobMarkdownComponents}>
+              <h2 className="app-section-title mb-4">Job Description</h2>
+              <div className="text-body text-ink-muted leading-relaxed bg-surface-sunken rounded-card p-5 border border-hairline">
+                <SafeMarkdown components={jobMarkdownComponents}>
                   {job?.description || 'No description available.'}
-                </ReactMarkdown>
+                </SafeMarkdown>
               </div>
             </motion.div>
 
@@ -298,12 +281,12 @@ export default function JobDetailsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
-                className="card"
+                className="surface-card p-6"
               >
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900">Required Skills</h2>
+                  <h2 className="app-section-title">Required Skills</h2>
                   {isStudent && totalCount > 0 && (
-                    <span className="text-sm font-semibold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-200">
+                    <span className="text-caption font-semibold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-pill border border-emerald-200">
                       {matchedCount} / {totalCount} Matched
                     </span>
                   )}
@@ -314,8 +297,8 @@ export default function JobDetailsPage() {
                     <span className="flex items-center text-emerald-600 font-medium">
                       <Check className="w-4 h-4 mr-1 text-emerald-600 flex-shrink-0" /> Matched Skill
                     </span>
-                    <span className="flex items-center text-gray-500 font-medium">
-                      <AlertCircle className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> Missing Skill
+                    <span className="flex items-center text-ink-muted font-medium">
+                      <AlertCircle className="w-4 h-4 mr-1 text-ink-subtle flex-shrink-0" /> Missing Skill
                     </span>
                   </div>
                 )}
@@ -335,18 +318,18 @@ export default function JobDetailsPage() {
                     return (
                       <span
                         key={idx}
-                        className={`inline-flex items-center px-3 py-2 border rounded-lg text-sm font-medium transition-all ${
+                        className={`inline-flex items-center px-3 py-2 border rounded-pill text-sm font-medium transition-all ${
                           !isStudent 
                             ? 'bg-primary-50 border-primary-100 text-primary-700' 
                             : matched
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm'
-                              : 'bg-gray-50 border-gray-200 text-gray-500'
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-soft-xs'
+                              : 'bg-surface-sunken border-hairline text-ink-muted'
                         }`}
                       >
                         {isStudent && (
                           matched 
                             ? <Check className="w-3.5 h-3.5 mr-1.5 text-emerald-600 flex-shrink-0" />
-                            : <AlertCircle className="w-3.5 h-3.5 mr-1.5 text-gray-400 flex-shrink-0" />
+                            : <AlertCircle className="w-3.5 h-3.5 mr-1.5 text-ink-subtle flex-shrink-0" />
                         )}
                         <span>{skillName}</span>
                         {skillLevel && (
@@ -365,9 +348,9 @@ export default function JobDetailsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 }}
-                className="card"
+                className="surface-card p-6"
               >
-                <h2 className="text-xl font-semibold mb-4">Nice to Have</h2>
+                <h2 className="app-section-title mb-4">Nice to Have</h2>
                 <div className="flex flex-wrap gap-2">
                   {job.optional_skills.map((skill, idx) => {
                     const skillName = (typeof skill === 'object' && skill !== null)
@@ -379,7 +362,7 @@ export default function JobDetailsPage() {
                     return (
                       <span
                         key={idx}
-                        className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700 inline-flex items-center"
+                        className="px-3 py-2 bg-surface-sunken border border-hairline rounded-pill text-caption text-ink-muted inline-flex items-center"
                       >
                         <span>{skillName}</span>
                         {skillLevel && (
@@ -398,14 +381,14 @@ export default function JobDetailsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 }}
-                className="card"
+                className="surface-card p-6"
               >
-                <h2 className="text-xl font-semibold mb-4">Tags</h2>
+                <h2 className="app-section-title mb-4">Tags</h2>
                 <div className="flex flex-wrap gap-2">
                   {metadata.tags.map((tag, idx) => (
                     <span
                       key={idx}
-                      className="px-3 py-1 bg-green-900/30 border border-green-500/30 rounded-full text-sm text-green-400"
+                      className="px-3 py-1 bg-success/10 border border-success/20 rounded-pill text-sm text-success"
                     >
                       #{tag}
                     </span>
@@ -423,7 +406,7 @@ export default function JobDetailsPage() {
               {hasApplied ? (
                 <button
                   disabled
-                  className="w-full text-lg py-4 bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold rounded-lg cursor-not-allowed text-center flex items-center justify-center gap-2"
+                  className="inline-flex h-11 w-full cursor-not-allowed items-center justify-center gap-2 rounded-card border border-emerald-200 bg-emerald-50 text-sm font-semibold text-emerald-800"
                 >
                   <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
                   Applied for this Position
@@ -432,16 +415,11 @@ export default function JobDetailsPage() {
                 <button
                   onClick={handleApply}
                   disabled={applying}
-                  className="btn-primary w-full text-lg py-4 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-busy={applying}
+                  className="app-btn-primary inline-flex w-full items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {applying ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Applying...
-                    </>
-                  ) : (
-                    'Apply for this Position'
-                  )}
+                  {applying ? <Loader2 className="h-5 w-5 shrink-0 animate-spin" /> : <Send className="h-5 w-5 shrink-0" />}
+                  <span>Apply for this Position</span>
                 </button>
               )}
             </motion.div>

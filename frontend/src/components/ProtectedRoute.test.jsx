@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import ProtectedRoute from './ProtectedRoute'
+import { __resetAuthTokenForTests } from '../utils/authToken'
 
 const enc = (obj) => btoa(JSON.stringify(obj))
 
@@ -10,6 +11,7 @@ const expiredToken = () => `hdr.${enc({ exp: Math.floor(Date.now() / 1000) - 60 
 
 const student = { id: 1, role: 'student', email: 's@example.com' }
 const employer = { id: 2, role: 'employer', email: 'e@example.com' }
+const admin = { id: 3, role: 'admin', email: 'a@example.com' }
 
 function renderAt(path, allowedRoles) {
   return render(
@@ -25,7 +27,6 @@ function renderAt(path, allowedRoles) {
         />
         <Route path="/login" element={<div>LOGIN_PAGE</div>} />
         <Route path="/student/dashboard" element={<div>STUDENT_DASH</div>} />
-        <Route path="/employer/dashboard" element={<div>EMPLOYER_DASH</div>} />
         <Route path="/admin/dashboard" element={<div>ADMIN_DASH</div>} />
       </Routes>
     </MemoryRouter>
@@ -34,6 +35,7 @@ function renderAt(path, allowedRoles) {
 
 describe('ProtectedRoute', () => {
   beforeEach(() => {
+    __resetAuthTokenForTests()
     sessionStorage.clear()
   })
   afterEach(() => {
@@ -67,17 +69,45 @@ describe('ProtectedRoute', () => {
     sessionStorage.setItem('_secure_login_time', btoa(JSON.stringify(Date.now())))
     sessionStorage.setItem('_secure_token', btoa(JSON.stringify(validToken())))
     sessionStorage.setItem('_secure_user', btoa(JSON.stringify(student)))
-    renderAt('/test', ['admin'])
+    renderAt('/test', ['staff'])
     await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
     expect(screen.queryByText('PROTECTED_CONTENT')).not.toBeInTheDocument()
   })
 
-  it('routes employers with wrong roles to the employer dashboard', async () => {
+  it('routes unknown roles to the student dashboard fallback', async () => {
     sessionStorage.setItem('_secure_login_time', btoa(JSON.stringify(Date.now())))
     sessionStorage.setItem('_secure_token', btoa(JSON.stringify(validToken())))
     sessionStorage.setItem('_secure_user', btoa(JSON.stringify(employer)))
     renderAt('/test', ['student'])
-    await waitFor(() => expect(screen.getByText('EMPLOYER_DASH')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
+  })
+
+  it('renders children for an admin on an admin-only route', async () => {
+    sessionStorage.setItem('_secure_login_time', btoa(JSON.stringify(Date.now())))
+    sessionStorage.setItem('_secure_token', btoa(JSON.stringify(validToken())))
+    sessionStorage.setItem('_secure_user', btoa(JSON.stringify(admin)))
+    renderAt('/test', ['admin'])
+    await waitFor(() => expect(screen.getByText('PROTECTED_CONTENT')).toBeInTheDocument())
+  })
+
+  it('bounces an admin off a student-only route to /admin/dashboard', async () => {
+    sessionStorage.setItem('_secure_login_time', btoa(JSON.stringify(Date.now())))
+    sessionStorage.setItem('_secure_token', btoa(JSON.stringify(validToken())))
+    sessionStorage.setItem('_secure_user', btoa(JSON.stringify(admin)))
+    renderAt('/test', ['student'])
+    await waitFor(() => expect(screen.getByText('ADMIN_DASH')).toBeInTheDocument())
+    expect(screen.queryByText('PROTECTED_CONTENT')).not.toBeInTheDocument()
+    expect(screen.queryByText('STUDENT_DASH')).not.toBeInTheDocument()
+  })
+
+  it('bounces a student off an admin-only route to /student/dashboard', async () => {
+    sessionStorage.setItem('_secure_login_time', btoa(JSON.stringify(Date.now())))
+    sessionStorage.setItem('_secure_token', btoa(JSON.stringify(validToken())))
+    sessionStorage.setItem('_secure_user', btoa(JSON.stringify(student)))
+    renderAt('/test', ['admin'])
+    await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
+    expect(screen.queryByText('PROTECTED_CONTENT')).not.toBeInTheDocument()
+    expect(screen.queryByText('ADMIN_DASH')).not.toBeInTheDocument()
   })
 
   it('rejects expired tokens even when session data exists', async () => {

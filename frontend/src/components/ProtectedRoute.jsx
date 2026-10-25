@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import secureStorage, { checkSessionValidity } from '../utils/secureStorage'
+import { getAuthToken, clearAuthToken } from '../utils/authToken'
+import { getDashboardPath } from '../utils/navigation'
 import LoadingTransition from './LoadingTransition'
 
 export default function ProtectedRoute({ children, allowedRoles = [] }) {
@@ -11,13 +13,14 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
   useEffect(() => {
     // Check session validity
     if (!checkSessionValidity()) {
+      clearAuthToken()
       secureStorage.clear()
       setRedirectPath('/login')
       setLoading(false)
       return
     }
 
-    const token = secureStorage.getItem('token')
+    const token = getAuthToken()
     const user = secureStorage.getItem('user')
     
     if (!token || !user) {
@@ -33,6 +36,7 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
       
       if (Date.now() >= exp) {
         console.warn('Token expired')
+        clearAuthToken()
         secureStorage.clear()
         setRedirectPath('/login')
         setLoading(false)
@@ -42,16 +46,7 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
       // Check if user has required role
       if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
         // Wrong role, redirect to appropriate dashboard
-        switch (user.role) {
-          case 'admin':
-            setRedirectPath('/admin/dashboard')
-            break
-          case 'employer':
-            setRedirectPath('/employer/dashboard')
-            break
-          default:
-            setRedirectPath('/student/dashboard')
-        }
+        setRedirectPath(getDashboardPath(user.role, '/student/dashboard'))
         setLoading(false)
         return
       }
@@ -62,6 +57,7 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
     } catch (err) {
       // Invalid user data, clear and redirect
       console.error('Auth validation error:', err)
+      clearAuthToken()
       secureStorage.clear()
       setRedirectPath('/login')
       setLoading(false)

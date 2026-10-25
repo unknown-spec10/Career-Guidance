@@ -1,10 +1,9 @@
 import React, { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import ResultsPage from './pages/ResultsPage'
 import DashboardRouter from './pages/DashboardRouter'
-import ApplicantDetailsPage from './pages/ApplicantDetailsPage'
 import JobsPage from './pages/JobsPage'
 import JobDetailsPage from './pages/JobDetailsPage'
 import LoginPage from './pages/LoginPage'
@@ -24,30 +23,20 @@ import LearningPathPage from './pages/LearningPathPage'
 import MyLearningPathsPage from './pages/MyLearningPathsPage'
 import TransactionHistoryPage from './pages/TransactionHistoryPage'
 import UpgradePage from './pages/UpgradePage'
-import EmployerDashboard from './pages/EmployerDashboard'
-import EmployerProfile from './pages/EmployerProfile'
-import EmployerPostJob from './pages/EmployerPostJob'
-import EmployerJobDetails from './pages/EmployerJobDetails'
-import JobApplicantsPage from './pages/JobApplicantsPage'
-import AdminReviewsPage from './pages/AdminDashboard'
-import AskPage from './pages/AskPage'
-// New pages from mock designs
-import JobModerationPage from './pages/JobModerationPage'
-import UserManagementPage from './pages/UserManagementPage'
 import MyApplicationsPage from './pages/MyApplicationsPage'
-import NetworkHubPage from './pages/NetworkHubPage'
-import TalentPoolPage from './pages/TalentPoolPage'
-import TalentMatchDetailsPage from './pages/TalentMatchDetailsPage'
-import RecruitmentAnalyticsPage from './pages/RecruitmentAnalyticsPage'
-import InterviewSchedulerPage from './pages/InterviewSchedulerPage'
-import InterviewFeedbackPage from './pages/InterviewFeedbackPage'
+import AskPage from './pages/AskPage'
+import AdminDashboardPage from './pages/AdminDashboardPage'
+import AdminUsersPage from './pages/AdminUsersPage'
+import AdminJobsPage from './pages/AdminJobsPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import Footer from './components/Footer'
 import ErrorBoundary from './components/ErrorBoundary'
 import api from './config/api'
 import secureStorage from './utils/secureStorage'
+import { getAuthToken } from './utils/authToken'
 import { Sparkles } from 'lucide-react'
 import DashboardLayout from './components/DashboardLayout'
+import { useTheme } from './hooks/useTheme'
 
 function HomePage() {
   return (
@@ -61,12 +50,9 @@ function AppContent() {
   const location = useLocation()
   const user = secureStorage.getItem('user')
   const isDashboardPath = location.pathname.startsWith('/student') || 
-                          location.pathname.startsWith('/employer') || 
-                          location.pathname.startsWith('/admin') || 
+                          location.pathname.startsWith('/admin') ||
                           location.pathname.startsWith('/dashboard') || 
                           location.pathname.startsWith('/results') || 
-                          location.pathname.startsWith('/applicant') ||
-                          location.pathname === '/applicants' ||
                           (user && (location.pathname === '/jobs' || location.pathname.startsWith('/job/')))
   
   const hideNavbarPaths = ['/login', '/register', '/verify-email', '/verify-code', '/resend-verification', '/forgot-password', '/reset-password']
@@ -122,17 +108,9 @@ function AppContent() {
             }
           />
           <Route
-            path="/student/network"
-            element={
-              <ProtectedRoute allowedRoles={['student']}>
-                <NetworkHubPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/results/:applicantId"
             element={
-              <ProtectedRoute allowedRoles={['student', 'admin']}>
+              <ProtectedRoute allowedRoles={['student']}>
                 <ResultsPage />
               </ProtectedRoute>
             }
@@ -194,106 +172,12 @@ function AppContent() {
             }
           />
 
-          {/* Employer Routes */}
-          <Route
-            path="/employer/dashboard"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <EmployerDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/profile"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <EmployerProfile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/post-job"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <EmployerPostJob />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/jobs/:jobId"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <EmployerJobDetails />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/jobs/:jobId/applicants"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <JobApplicantsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/talent-pool"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <TalentPoolPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/talent/:id"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <TalentMatchDetailsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/analytics"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <RecruitmentAnalyticsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/applicants/:id/schedule-interview"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <InterviewSchedulerPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/employer/applicants/:id/interview-feedback"
-            element={
-              <ProtectedRoute allowedRoles={['employer']}>
-                <InterviewFeedbackPage />
-              </ProtectedRoute>
-            }
-          />
-
           {/* Admin Routes */}
           <Route
             path="/admin/dashboard"
             element={
               <ProtectedRoute allowedRoles={['admin']}>
-                <AdminReviewsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/reviews"
-            element={<Navigate to="/admin/dashboard?tab=resume-reviews" replace />}
-          />
-          <Route
-            path="/admin/moderation"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <JobModerationPage />
+                <AdminDashboardPage />
               </ProtectedRoute>
             }
           />
@@ -301,17 +185,27 @@ function AppContent() {
             path="/admin/users"
             element={
               <ProtectedRoute allowedRoles={['admin']}>
-                <UserManagementPage />
+                <AdminUsersPage />
               </ProtectedRoute>
             }
           />
           <Route
-            path="/applicants"
-            element={<Navigate to="/admin/dashboard?tab=applicants" replace />}
+            path="/admin/jobs"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminJobsPage />
+              </ProtectedRoute>
+            }
           />
+          {/* Unknown /admin paths: admins land on their dashboard, any other
+              role is bounced to its own dashboard by ProtectedRoute. */}
           <Route
-            path="/applicant/:applicantId"
-            element={<ApplicantDetailsPage />}
+            path="/admin/*"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <Navigate to="/admin/dashboard" replace />
+              </ProtectedRoute>
+            }
           />
 
           {/* Smart Dashboard Router - redirects to role-specific dashboard */}
@@ -320,7 +214,7 @@ function AppContent() {
   )
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface-muted dark:bg-inverse-surface">
+    <div className="min-h-screen flex flex-col bg-canvas text-ink">
       {showNavbar && <Navbar />}
       <main className="flex-grow">
         {isDashboardPath ? (
@@ -335,7 +229,7 @@ function AppContent() {
         <Link
           to="/ask"
           aria-label="Open AI assistant"
-          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary-600 text-white shadow-lg shadow-primary-600/25 transition-transform duration-200 hover:scale-105 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 focus:ring-offset-white"
+          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary-600 text-white shadow-lg shadow-primary-600/25 transition-transform duration-200 hover:scale-105 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900"
         >
           <Sparkles className="h-6 w-6" />
         </Link>
@@ -346,12 +240,17 @@ function AppContent() {
 }
 
 function App() {
+  // Global theme initialisation: applies the persisted light/dark choice on
+  // every route (auth screens included), not only pages with their own toggle.
+  useTheme()
+
   useEffect(() => {
     // Migrate from localStorage to secureStorage on first load
     secureStorage.migrateFromLocalStorage()
 
-    // Set authorization header if token exists
-    const token = secureStorage.getItem('token')
+    // Set authorization header if a restored session exists
+    // (warms the in-memory holder; useAuth re-validates right after).
+    const token = getAuthToken()
     if (token) {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`
     }

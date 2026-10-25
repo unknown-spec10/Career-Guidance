@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import api from '../config/api'
+import { getApiError } from '../utils/apiError'
+
+export const MAX_RECORD_SECONDS = 55 // cap stays under the 60s axios timeout
 
 export default function useAudioRecorder() {
   const [status, setStatus] = useState('idle') // 'idle' | 'recording' | 'transcribing'
@@ -7,12 +10,17 @@ export default function useAudioRecorder() {
   const [recordTime, setRecordTime] = useState(0)
   const [micStream, setMicStream] = useState(null)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
+  const [recordLimitHit, setRecordLimitHit] = useState(false)
 
   const mediaRecorderRef = useRef(null)
   const recognitionRef = useRef(null)
   const streamRef = useRef(null)
   const audioChunksRef = useRef([])
   const timerRef = useRef(null)
+  const recordTimeRef = useRef(0)
+  const limitFiredRef = useRef(false)
+  const limitCbRef = useRef(null)
+  const stopRef = useRef(null)
 
   // Check browser SpeechRecognition support on mount
   useEffect(() => {
@@ -26,6 +34,7 @@ export default function useAudioRecorder() {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
+    recordTimeRef.current = 0
     setRecordTime(0)
   }, [])
 
@@ -41,9 +50,14 @@ export default function useAudioRecorder() {
   /**
    * Start recording.
    * @param {function} onLiveTextChange - Callback to receive real-time Web Speech transcriptions
+   * @param {function} onLimit - Called once when the recording cap is hit;
+   *   the handler is expected to call stopRecording() (same as a manual stop).
    */
-  const startRecording = useCallback(async (onLiveTextChange) => {
+  const startRecording = useCallback(async (onLiveTextChange, onLimit) => {
     setError(null)
+    setRecordLimitHit(false)
+    limitFiredRef.current = false
+    limitCbRef.current = onLimit || null
     cleanupTimer()
     audioChunksRef.current = []
 
@@ -74,7 +88,16 @@ export default function useAudioRecorder() {
       mediaRecorder.onstart = () => {
         setStatus('recording')
         timerRef.current = setInterval(() => {
-          setRecordTime(t => t + 1)
+          recordTimeRef.current += 1
+          setRecordTime(recordTimeRef.current)
+          if (recordTimeRef.current >= MAX_RECORD_SECONDS && !limitFiredRef.current) {
+            // Auto-stop at the cap so a long answer never hits the 60s
+            // axios timeout mid-upload with only a generic error.
+            limitFiredRef.current = true
+            setRecordLimitHit(true)
+            if (limitCbRef.current) limitCbRef.current()
+            else stopRef.current?.()
+          }
         }, 1000)
       }
 
@@ -161,10 +184,10 @@ export default function useAudioRecorder() {
 
           setStatus('idle')
           stopStream()
-          resolve({ success: true, text: res.data.transcript })
+          resolve({ success: true, text: res.data.transcript, mock: !!res.data.mock })
         } catch (err) {
           console.error('STT Transcription error:', err)
-          const errMsg = err.response?.data?.detail || err.message || 'Transcription failed.'
+          const errMsg = getApiError(err, err.message || 'Transcription failed.')
           setError(errMsg)
           setStatus('idle')
           stopStream()
@@ -175,6 +198,9 @@ export default function useAudioRecorder() {
       mediaRecorder.stop()
     })
   }, [status, cleanupTimer, stopStream])
+
+  // Latest stopRecording for the auto-cap path (avoids stale closures).
+  stopRef.current = stopRecording
 
   // Reset recorder states and free mic stream
   const clearRecorder = useCallback(() => {
@@ -209,6 +235,8 @@ export default function useAudioRecorder() {
     status,
     error,
     recordTime,
+    recordLimit: MAX_RECORD_SECONDS,
+    recordLimitHit,
     micStream,
     isSpeechSupported,
     startRecording,

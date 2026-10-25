@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
-  Menu, X, LayoutDashboard, Users, Briefcase, LogOut, Shield, 
-  FileText, User, Sparkles, BookOpen, Sun, Moon 
+  Menu, X, LayoutDashboard, Briefcase, LogOut, 
+  User, Sparkles, BookOpen, Sun, Moon 
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import api from '../config/api'
 import secureStorage from '../utils/secureStorage'
+import { useTheme } from '../hooks/useTheme'
+
+const iconButton = 'inline-flex h-10 w-10 items-center justify-center rounded-full border border-hairline bg-surface-raised text-ink-muted shadow-soft-xs transition-colors duration-200 hover:border-hairline-strong hover:text-ink'
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -14,7 +17,7 @@ export default function Navbar() {
   const [prevScrollY, setPrevScrollY] = useState(0)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [user, setUser] = useState(null)
-  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light')
+  const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -48,19 +51,7 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [prevScrollY, location])
 
-  // Theme Sync
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-    localStorage.setItem('theme', theme)
-  }, [theme])
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light')
-  }
+  // Theme Sync (shared useTheme hook owns documentElement + localStorage)
 
   const handleLogout = () => {
     secureStorage.clear()
@@ -101,20 +92,6 @@ export default function Navbar() {
           { to: '/jobs', label: 'Jobs', icon: Briefcase },
           { to: '/student/intelligence', label: 'AI Guru', icon: Sparkles },
         ]
-      case 'employer':
-        return [
-          { to: '/employer/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-          { to: '/employer/post-job', label: 'Post Job', icon: Sparkles },
-          { to: '/employer/profile', label: 'Profile', icon: User },
-        ]
-      case 'admin':
-        return [
-          { to: '/admin/dashboard?tab=overview', label: 'Admin Hub', icon: LayoutDashboard },
-          { to: '/admin/dashboard?tab=all-jobs', label: 'Jobs', icon: Briefcase },
-          { to: '/admin/dashboard?tab=resume-reviews', label: 'Resume Reviews', icon: FileText },
-          { to: '/admin/dashboard?tab=users', label: 'User Management', icon: Users },
-          { to: '/admin/dashboard?tab=system-health', label: 'System Health', icon: Shield },
-        ]
       default:
         return []
     }
@@ -127,110 +104,108 @@ export default function Navbar() {
   }
 
   return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+    <nav className={`fixed inset-x-0 top-0 z-50 transition-transform duration-300 ease-out ${
       navbarVisible ? 'translate-y-0' : '-translate-y-full'
-    } ${
-      scrolled 
-        ? 'bg-white/95 dark:bg-slate-900/95 shadow-md backdrop-blur border-b border-transparent' 
-        : 'bg-white border-b border-gray-200 dark:bg-slate-900 dark:border-slate-800'
     }`}>
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 md:h-20">
-          {/* Logo */}
-          <Link to="/" className="flex items-center space-x-2 group">
-            <img src="/logo.png" alt="CareerSync Logo" className="w-8 h-8 object-contain" />
-            <span className="text-xl font-bold text-gray-900 dark:text-white transition-colors">
-              CareerSync AI
-            </span>
-          </Link>
+      <div className={`nav-glass border-b transition-[border-color,box-shadow] duration-300 ${
+        scrolled ? 'border-hairline shadow-soft-xs' : 'border-transparent'
+      }`}>
+        <div className="landing-shell">
+          <div className="flex h-16 items-center justify-between gap-6 md:h-20">
+            {/* Logo */}
+            <Link to="/" className="group flex items-center gap-2.5">
+              <img
+                src="/logo.png"
+                alt="CareerSync Logo"
+                className="h-8 w-8 rounded-[10px] object-contain transition-transform duration-300 group-hover:scale-[1.04]"
+              />
+              <span className="font-display text-[1.0625rem] font-bold tracking-[-0.02em] text-ink transition-colors">
+                CareerSync AI
+              </span>
+            </Link>
 
-          {/* Desktop Nav Links */}
-          <div className="hidden md:flex flex-grow items-center justify-center space-x-1.5 px-6">
-            {user ? (
-              navLinks.map((link) => {
-                const Icon = link.icon
-                const active = isActive(link.to)
-                return (
+            {/* Desktop Nav Links */}
+            <div className="hidden flex-grow items-center justify-center gap-1 md:flex">
+              {user ? (
+                navLinks.map((link) => {
+                  const Icon = link.icon
+                  const active = isActive(link.to)
+                  return (
+                    <Link
+                      key={link.to}
+                      to={link.to}
+                      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-caption font-semibold transition-colors duration-200 ${
+                        active
+                          ? 'bg-primary-600 text-white shadow-soft-xs dark:bg-primary-500 dark:text-white'
+                          : 'text-ink-muted hover:bg-surface-sunken hover:text-ink'
+                      }`}
+                    >
+                      <Icon className={`h-4 w-4 ${active ? 'text-white' : 'text-primary-500 dark:text-primary-400'}`} />
+                      <span>{link.label}</span>
+                    </Link>
+                  )
+                })
+              ) : (
+                // Public Landing Navigation links
+                navLinks.map((link) => (
                   <Link
                     key={link.to}
                     to={link.to}
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 border ${
-                      active
-                        ? 'bg-gradient-to-r from-primary-600 to-indigo-600 text-white border-transparent shadow-md shadow-primary-500/15'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-primary-50 hover:text-primary-700 hover:border-primary-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:text-white'
-                    }`}
+                    onClick={(e) => handleNavClick(e, link.targetId)}
+                    className="rounded-full px-3.5 py-2 text-caption font-semibold text-ink-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-ink"
                   >
-                    <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-primary-500'}`} />
-                    <span>{link.label}</span>
+                    {link.label}
                   </Link>
-                )
-              })
-            ) : (
-              // Public Landing Navigation links
-              navLinks.map((link) => (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  onClick={(e) => handleNavClick(e, link.targetId)}
-                  className="px-4 py-2 text-sm font-semibold text-slate-650 hover:text-primary-600 dark:text-slate-300 dark:hover:text-primary-400 transition-colors"
-                >
-                  {link.label}
-                </Link>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
 
-          {/* Right Area: Theme Toggle & Login/Signup */}
-          <div className="hidden md:flex items-center space-x-3">
-            <button
-              onClick={toggleTheme}
-              className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              aria-label="Toggle Theme"
-            >
-              {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
-            </button>
-
-            {user ? (
-              <button
-                onClick={handleLogout}
-                className="nav-button inline-flex items-center gap-1.5 px-4 py-2 border rounded-xl text-sm font-semibold text-slate-650 dark:text-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Logout</span>
+            {/* Right Area: Theme Toggle & Login/Signup */}
+            <div className="hidden items-center gap-2.5 md:flex">
+              <button onClick={toggleTheme} className={iconButton} aria-label="Toggle Theme">
+                {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-500" />}
               </button>
-            ) : (
-              <>
-                <Link 
-                  to="/login" 
-                  className="px-4 py-2 text-sm font-semibold text-slate-750 hover:text-primary-600 dark:text-slate-200 dark:hover:text-primary-400 transition-colors"
-                >
-                  Log In
-                </Link>
-                <Link 
-                  to="/register" 
-                  className="bg-primary-600 hover:bg-primary-750 text-white px-5 py-2 rounded-xl text-sm font-semibold shadow-md shadow-primary-500/10 transition-all hover:scale-102"
-                >
-                  Sign Up
-                </Link>
-              </>
-            )}
-          </div>
 
-          {/* Mobile menu toggle */}
-          <div className="flex md:hidden items-center space-x-2">
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400"
-              aria-label="Toggle Theme"
-            >
-              {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
-            </button>
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors duration-200 text-gray-700 dark:text-gray-300"
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
+              {user ? (
+                <button
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-2 rounded-full border border-hairline bg-transparent px-4 py-2.5 text-caption font-semibold text-ink-muted transition-colors duration-200 hover:border-hairline-strong hover:text-ink"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span>Logout</span>
+                </button>
+              ) : (
+                <>
+                  <Link 
+                    to="/login" 
+                    className="rounded-full px-3.5 py-2.5 text-caption font-semibold text-ink-muted transition-colors duration-200 hover:text-ink"
+                  >
+                    Log In
+                  </Link>
+                  <Link 
+                    to="/register" 
+                    className="inline-flex items-center rounded-full bg-primary-600 px-5 py-2.5 text-caption font-semibold text-white shadow-soft-xs transition-[background-color,box-shadow] duration-200 hover:bg-primary-700 hover:shadow-soft-sm dark:bg-primary-500 dark:hover:bg-primary-400"
+                  >
+                    Sign Up
+                  </Link>
+                </>
+              )}
+            </div>
+
+            {/* Mobile menu toggle */}
+            <div className="flex items-center gap-2 md:hidden">
+              <button onClick={toggleTheme} className={iconButton} aria-label="Toggle Theme">
+                {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4 text-amber-500" />}
+              </button>
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className={iconButton}
+                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -241,9 +216,10 @@ export default function Navbar() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="md:hidden overflow-hidden bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800"
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="overflow-hidden border-t border-hairline bg-surface-overlay md:hidden"
             >
-              <div className="py-4 space-y-1">
+              <div className="landing-shell space-y-1 py-4">
                 {user ? (
                   navLinks.map((link) => {
                     const Icon = link.icon
@@ -253,13 +229,13 @@ export default function Navbar() {
                         key={link.to}
                         to={link.to}
                         onClick={() => setMobileMenuOpen(false)}
-                        className={`flex items-center space-x-2 px-3 py-2.5 rounded-xl text-base font-medium transition-colors duration-200 ${
+                        className={`flex items-center gap-2.5 rounded-card px-3 py-2.5 text-sm font-semibold transition-colors duration-200 ${
                           active
-                            ? 'bg-primary-50 text-primary-600 dark:bg-primary-950/20 dark:text-primary-400'
-                            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
+                            ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300'
+                            : 'text-ink-muted hover:bg-surface-sunken hover:text-ink'
                         }`}
                       >
-                        <Icon className="w-5 h-5" />
+                        <Icon className="h-5 w-5" />
                         <span>{link.label}</span>
                       </Link>
                     )
@@ -273,7 +249,7 @@ export default function Navbar() {
                         setMobileMenuOpen(false)
                         handleNavClick(e, link.targetId)
                       }}
-                      className="block px-3 py-2.5 rounded-xl text-base font-medium text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-white transition-colors"
+                      className="block rounded-card px-3 py-2.5 text-sm font-semibold text-ink-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-ink"
                     >
                       {link.label}
                     </Link>
@@ -282,30 +258,30 @@ export default function Navbar() {
 
                 {/* Mobile Logout/Login */}
                 {user ? (
-                  <div className="pt-4 border-t border-gray-200 dark:border-slate-850 space-y-2">
+                  <div className="mt-3 border-t border-hairline pt-3">
                     <button
                       onClick={() => {
                         handleLogout()
                         setMobileMenuOpen(false)
                       }}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-base font-medium text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      className="flex w-full items-center justify-center gap-2 rounded-full border border-hairline px-3 py-2.5 text-sm font-semibold text-ink-muted transition-colors hover:border-hairline-strong hover:text-ink"
                     >
-                      <LogOut className="w-4 h-4" />
+                      <LogOut className="h-4 w-4" />
                       <span>Logout</span>
                     </button>
                   </div>
                 ) : (
-                  <div className="pt-4 border-t border-gray-200 dark:border-slate-850 flex flex-col gap-2">
+                  <div className="mt-3 flex flex-col gap-2 border-t border-hairline pt-3">
                     <Link
                       to="/login"
-                      className="flex justify-center py-2.5 text-base font-semibold text-slate-750 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl"
+                      className="flex justify-center rounded-full px-3 py-2.5 text-sm font-semibold text-ink-muted transition-colors hover:text-ink"
                       onClick={() => setMobileMenuOpen(false)}
                     >
                       Log In
                     </Link>
                     <Link
                       to="/register"
-                      className="flex justify-center py-2.5 bg-primary-600 text-white rounded-xl text-base font-semibold shadow-md shadow-primary-500/10"
+                      className="flex justify-center rounded-full bg-primary-600 px-3 py-2.5 text-sm font-semibold text-white shadow-soft-xs dark:bg-primary-500"
                       onClick={() => setMobileMenuOpen(false)}
                     >
                       Sign Up

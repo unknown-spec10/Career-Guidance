@@ -5,6 +5,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import api, { apiUrl } from '../config/api'
 import secureStorage from '../utils/secureStorage'
+import { getApiError } from '../utils/apiError'
 
 const INITIAL_STATE = {
   sessionId: null,
@@ -15,11 +16,31 @@ const INITIAL_STATE = {
   isComplete: false,
   hint: null,
   hintStreaming: false,
+  hintError: null,
+  lastAnswerId: null,
+  retryAfter: null,
   error: null,
   voiceMode: false,
   questions: [],
   currentIndex: 0,
   interviewerPersona: 'Friendly Senior Engineer',
+}
+
+// Drafts are persisted to localStorage under this prefix (see
+// InterviewSessionPage AUTOSAVE_KEY) so they survive tab scope.
+const DRAFT_KEY_PREFIX = 'interview_draft_'
+
+const hasUnsavedDraft = () => {
+  try {
+    return Object.keys(localStorage).some(k => k.startsWith(DRAFT_KEY_PREFIX))
+  } catch {
+    return false
+  }
+}
+
+const parseRetryAfter = (message) => {
+  const m = String(message || '').match(/(\d+)\s*seconds?/i)
+  return m ? parseInt(m[1], 10) : null
 }
 
 export default function useInterviewSession() {
@@ -71,20 +92,49 @@ export default function useInterviewSession() {
   // Start a new session
   // -------------------------------------------------------------------------
   const startSession = useCallback(async (config) => {
-    setState(prev => ({ ...prev, error: null }))
+    setState(prev => ({ ...prev, error: null, retryAfter: null }))
     try {
       const res = await api.post('/api/interview/start', config)
-      const { session_id, abandon_token } = res.data
+      const { session_id, abandon_token, first_question } = res.data
       abandonTokenRef.current = abandon_token || null
-      await fetchSessionQuestions(session_id, config.voice_mode || false, false)
+      const qRes = await fetchSessionQuestions(session_id, config.voice_mode || false, false)
+      if (!qRes.success && first_question) {
+        // The questions refetch failed after a paid-for start — fall back to
+        // the first question from the start response so the candidate is not
+        // stranded with a session and no questions.
+        setState(prev => ({
+          ...prev,
+          sessionId: session_id,
+          questions: [{
+            id: first_question.id,
+            text: first_question.text,
+            question_number: first_question.question_number || 1,
+            total_questions: first_question.total_questions || 1,
+            skill_tag: first_question.skill_tag,
+            user_answer: null,
+            answer_status: null,
+          }],
+          currentIndex: 0,
+          currentQuestion: {
+            id: first_question.id,
+            text: first_question.text,
+            question_number: first_question.question_number || 1,
+            total_questions: first_question.total_questions || 1,
+            skill_tag: first_question.skill_tag,
+          },
+          questionNumber: first_question.question_number || 1,
+          totalQuestions: first_question.total_questions || 1,
+          voiceMode: config.voice_mode || false,
+        }))
+      }
       setState(prev => ({
         ...prev,
         interviewerPersona: config.interviewer_persona || 'Friendly Senior Engineer',
       }))
       return { success: true, sessionId: session_id }
     } catch (err) {
-      const message = err.response?.data?.detail || 'Failed to start interview session.'
-      setState(prev => ({ ...prev, error: message }))
+      const message = getApiError(err, 'Failed to start interview session.')
+      setState(prev => ({ ...prev, error: message, retryAfter: parseRetryAfter(message) }))
       return { success: false, error: message }
     }
   }, [fetchSessionQuestions])
@@ -97,8 +147,15 @@ export default function useInterviewSession() {
       const res = await api.get(`/api/interview/session/${sessionId}`)
       const data = res.data
       if (data.status !== 'active') {
-        // Session is completed or abandoned — redirect to results
-        return { success: false, redirect: data.status === 'completed' ? 'results' : 'setup' }
+        // Completed sessions go to results; abandoned sessions get their own
+        // guidance screen instead of a generic "Session Not Found" error.
+        if (data.status === 'completed') {
+          return { success: false, redirect: 'results' }
+        }
+        if (data.status === 'abandoned') {
+          return { success: false, redirect: 'abandoned', error: 'This session was abandoned.' }
+        }
+        return { success: false, redirect: 'setup' }
       }
       abandonTokenRef.current = data.abandon_token || null
       await fetchSessionQuestions(sessionId, data.voice_mode || false, true)
@@ -147,7 +204,7 @@ export default function useInterviewSession() {
       setState(prev => ({ ...prev, isSubmitting: false, isComplete: true }))
       return { success: true }
     } catch (err) {
-      const message = err.response?.data?.detail || 'Failed to finish interview session early.'
+      const message = getApiError(err, 'Failed to finish interview session early.')
       setState(prev => ({ ...prev, isSubmitting: false, error: message }))
       return { error: message }
     }
@@ -160,7 +217,7 @@ export default function useInterviewSession() {
     const { sessionId, currentQuestion, currentIndex, questions } = state
     if (!sessionId || !currentQuestion || !answerText.trim()) return
 
-    setState(prev => ({ ...prev, isSubmitting: true, hint: null, hintStreaming: false, error: null }))
+    setState(prev => ({ ...prev, isSubmitting: true, hint: null, hintStreaming: false, hintError: null, error: null, retryAfter: null }))
 
     try {
       const res = await api.post('/api/interview/answer', {
@@ -168,7 +225,7 @@ export default function useInterviewSession() {
         question_id: currentQuestion.id,
         answer_text: answerText,
       })
-      const { status } = res.data
+      const { status, next_question, answer_id } = res.data
 
       // Update answer text dynamically in local state questions array
       const updatedQuestions = [...questions]
@@ -177,22 +234,47 @@ export default function useInterviewSession() {
         user_answer: answerText,
       }
 
-      // Check if early finish or all questions resolved
-      const nextIndex = currentIndex + 1
-      const isLastQuestion = nextIndex >= questions.length
-
-      if (isLastQuestion && status === 'interview_complete') {
+      if (status === 'interview_complete') {
         setState(prev => ({
           ...prev,
           isSubmitting: false,
           isComplete: true,
           questions: updatedQuestions,
+          lastAnswerId: answer_id || null,
         }))
-        return { complete: true }
+        return { complete: true, answerId: answer_id || null }
       }
 
-      // Progress automatically to next question in sequence
-      const targetIdx = isLastQuestion ? currentIndex : nextIndex
+      // Resubmission of an already-answered question: the server returns
+      // next_question=null with status "ok" — stay on the current question
+      // instead of advancing past it.
+      if (!next_question) {
+        setState(prev => ({
+          ...prev,
+          isSubmitting: false,
+          questions: updatedQuestions,
+          lastAnswerId: answer_id || null,
+          hint: null,
+        }))
+        return { complete: false, answerId: answer_id || null, resubmitted: true }
+      }
+
+      // Drive the advance from the server's next_question (adaptive reserve
+      // swaps arrive here). Merge it into the local list in case it is a
+      // reserve question the client has never seen.
+      let targetIdx = updatedQuestions.findIndex(q => q.id === next_question.id)
+      if (targetIdx === -1) {
+        updatedQuestions.push({
+          id: next_question.id,
+          text: next_question.text,
+          question_number: next_question.question_number,
+          total_questions: next_question.total_questions,
+          skill_tag: next_question.skill_tag,
+          user_answer: null,
+          answer_status: null,
+        })
+        targetIdx = updatedQuestions.length - 1
+      }
       const nextQ = updatedQuestions[targetIdx]
 
       setState(prev => ({
@@ -208,14 +290,15 @@ export default function useInterviewSession() {
           skill_tag: nextQ.skill_tag,
         },
         questionNumber: nextQ.question_number,
+        lastAnswerId: answer_id || null,
         hint: null,
       }))
 
-      return { complete: false }
+      return { complete: false, answerId: answer_id || null }
     } catch (err) {
-      const message = err.response?.data?.detail || 'Failed to submit answer.'
-      setState(prev => ({ ...prev, isSubmitting: false, error: message }))
-      return { error: message }
+      const message = getApiError(err, 'Failed to submit answer.')
+      setState(prev => ({ ...prev, isSubmitting: false, error: message, retryAfter: parseRetryAfter(message) }))
+      return { error: message, retryAfter: parseRetryAfter(message) }
     }
   }, [state])
 
@@ -223,15 +306,18 @@ export default function useInterviewSession() {
   // Stream a hint for the last evaluated weak answer
   // -------------------------------------------------------------------------
   const streamHint = useCallback(async (answerId) => {
-    if (!answerId) return
+    if (!answerId) return { error: 'No answer to hint on yet — submit an answer first.' }
 
-    setState(prev => ({ ...prev, hint: '', hintStreaming: true }))
+    setState(prev => ({ ...prev, hint: '', hintStreaming: true, hintError: null }))
 
     try {
       const token = secureStorage.getItem('token') || ''
       const response = await fetch(apiUrl(`/api/interview/hint/${answerId}`), {
         headers: { Authorization: `Bearer ${token}` },
       })
+      if (!response.ok || !response.body) {
+        throw new Error(`Hint request failed (HTTP ${response.status})`)
+      }
       const reader = response.body.getReader()
       hintReaderRef.current = reader
       const decoder = new TextDecoder()
@@ -245,15 +331,23 @@ export default function useInterviewSession() {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
               const data = JSON.parse(line.replace('data: ', ''))
-              setState(prev => ({ ...prev, hint: (prev.hint || '') + (data.token || '') }))
+              if (data.error) {
+                setState(prev => ({ ...prev, hintError: data.error, hint: null }))
+              } else if (data.token) {
+                setState(prev => ({ ...prev, hint: (prev.hint || '') + data.token }))
+              }
             } catch {
               // skip malformed chunks
             }
           }
         }
       }
+      return { success: true }
     } catch (err) {
+      const message = err?.message || 'Hint request failed.'
       console.error('Hint stream error:', err)
+      setState(prev => ({ ...prev, hintError: message, hint: null }))
+      return { error: message }
     } finally {
       setState(prev => ({ ...prev, hintStreaming: false }))
       hintReaderRef.current = null
@@ -279,7 +373,7 @@ export default function useInterviewSession() {
       return { success: true }
     } catch (err) {
       console.error('Failed to abandon session:', err)
-      return { success: false, error: err.response?.data?.detail || 'Failed to end session.' }
+      return { success: false, error: getApiError(err, 'Failed to end session.') }
     }
   }, [state])
 
@@ -291,11 +385,25 @@ export default function useInterviewSession() {
     )
   }, [state])
 
-  // Register beforeunload handler
+  // Register unload handlers:
+  // - beforeunload only prompts when an unsaved draft exists (localStorage),
+  //   so closing a tab with unsaved work requires confirmation;
+  // - pagehide performs the best-effort abandon beacon on actual unload
+  //   (never abandon on close while unsaved work exists without confirmation).
   useEffect(() => {
     if (!state.sessionId || state.isComplete) return
-    window.addEventListener('beforeunload', abandonSession)
-    return () => window.removeEventListener('beforeunload', abandonSession)
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedDraft()) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', abandonSession)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('pagehide', abandonSession)
+    }
   }, [state.sessionId, state.isComplete, abandonSession])
 
   // Cleanup hint reader on unmount

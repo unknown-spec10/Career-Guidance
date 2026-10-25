@@ -1,17 +1,42 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 export default function VoiceWaveform({ stream, width = 300, height = 80 }) {
   const canvasRef = useRef(null)
+  const containerRef = useRef(null)
   const animationRef = useRef(null)
   const audioContextRef = useRef(null)
   const analyserRef = useRef(null)
   const sourceRef = useRef(null)
+  // Responsive: measure the container and size the canvas to it (with a
+  // fixed-height fallback) so narrow phone viewports never clip the wave.
+  const [measuredWidth, setMeasuredWidth] = useState(width)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const measure = () => {
+      const w = containerRef.current?.clientWidth
+      if (w && w > 0) setMeasuredWidth(Math.floor(w - 32)) // minus p-4 padding
+    }
+    measure()
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(measure)
+      : null
+    if (observer) observer.observe(containerRef.current)
+    window.addEventListener('resize', measure)
+    return () => {
+      if (observer) observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [])
+
+  const drawWidth = Math.max(160, Math.min(measuredWidth, 900))
 
   useEffect(() => {
     if (!stream || !canvasRef.current) return
 
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
+    const width = drawWidth
     
     // Set device pixel ratio scaling for crisp rendering on retina displays
     const dpr = window.devicePixelRatio || 1
@@ -127,13 +152,13 @@ export default function VoiceWaveform({ stream, width = 300, height = 80 }) {
         audioContextRef.current.close()
       }
     }
-  }, [stream, width, height])
+  }, [stream, drawWidth, height])
 
   return (
-    <div className="flex items-center justify-center bg-slate-50 border border-slate-200 rounded-2xl p-4 overflow-hidden shadow-inner w-full min-h-[90px]">
+    <div ref={containerRef} className="flex items-center justify-center bg-surface-sunken border border-hairline rounded-card p-4 overflow-hidden w-full min-h-[90px]">
       <canvas
         ref={canvasRef}
-        style={{ width: `${width}px`, height: `${height}px` }}
+        style={{ width: '100%', maxWidth: `${drawWidth}px`, height: `${height}px` }}
         className="block"
       />
     </div>

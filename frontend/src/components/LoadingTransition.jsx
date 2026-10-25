@@ -12,19 +12,19 @@ export const LoadingTransition = ({ isLoading }) => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-canvas backdrop-blur-sm"
         >
           <div className="text-center">
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              className="w-16 h-16 mx-auto mb-4 border-4 border-blue-200 border-t-blue-600 rounded-full"
+              className="w-16 h-16 mx-auto mb-4 border-4 border-hairline border-t-primary-600 rounded-pill"
             />
             <motion.p
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="text-gray-600 font-medium"
+              className="text-ink-muted font-medium"
             >
               Loading...
             </motion.p>

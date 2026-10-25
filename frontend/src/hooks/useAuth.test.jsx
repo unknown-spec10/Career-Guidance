@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import useAuth from './useAuth'
+import { getAuthToken, __resetAuthTokenForTests } from '../utils/authToken'
 
 vi.mock('../config/api', () => ({
   default: {
@@ -22,6 +23,7 @@ const wrapper = ({ children }) => <MemoryRouter>{children}</MemoryRouter>
 describe('useAuth', () => {
   beforeEach(() => {
     sessionStorage.clear()
+    __resetAuthTokenForTests()
     vi.clearAllMocks()
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -47,8 +49,30 @@ describe('useAuth', () => {
     expect(outcome.success).toBe(true)
     expect(outcome.user).toEqual(user)
     expect(JSON.parse(atob(sessionStorage.getItem('_secure_token')))).toBe('tok-1')
+    // H7: the in-memory holder is populated on login (request path reads this)
+    expect(getAuthToken()).toBe('tok-1')
     expect(api.defaults.headers.common.Authorization).toBe('Bearer tok-1')
     expect(result.current.isAuthenticated).toBe(true)
+  })
+
+  it('logout drains the in-memory holder as well as the storage mirror', async () => {
+    const user = { id: 1, role: 'student' }
+    api.post.mockResolvedValueOnce({ data: { access_token: 'tok-1', user } })
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await act(async () => {
+      await result.current.login('a@b.com', 'pw')
+    })
+    expect(getAuthToken()).toBe('tok-1')
+
+    act(() => {
+      result.current.logout(false)
+    })
+
+    expect(getAuthToken()).toBeNull()
+    expect(sessionStorage.getItem('_secure_token')).toBeNull()
   })
 
   it('login failure surfaces the backend detail message without storing a session', async () => {

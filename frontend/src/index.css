@@ -8,11 +8,39 @@
   --color-primary: #003f8b;
   --color-primary-fixed-dim: #adc6ff;
   --color-inverse-on-surface: #eef1f6;
-  --color-outline-variant: #c3c6d3;
-  --color-surface-variant: #e0e3e8;
+  --color-outline-variant: #C4B49A;
+  --color-surface-variant: #FAF7F2;
   --color-on-primary-container: #bdd0ff;
   --color-inverse-surface: #2d3135;
   --color-primary-container: #2557a7;
+
+  /* ---- Premium landing language (phase 1, additive) -------------------
+     Layered warm neutrals instead of a single flat off-white. Every value
+     is consumed through a Tailwind token (bg-canvas, text-ink, …) so the
+     landing page reads as one intentional system in both themes. */
+  --color-canvas: #faf7f2;
+  --color-surface-sunken: #f3eee6;
+  --color-surface-raised: #fffdf9;
+  --color-surface-overlay: #ffffff;
+  --color-hairline: rgba(23, 27, 33, 0.09);
+  --color-hairline-strong: rgba(23, 27, 33, 0.16);
+  --color-ink: #171b21;
+  --color-ink-muted: #59626f;
+  --color-ink-subtle: #7d8794;
+  --color-nav: rgba(250, 247, 242, 0.82);
+
+  /* Soft, layered elevation. Light mode keeps a hint of warm ink in the
+     shadow so depth feels considered rather than grey. */
+  --shadow-soft-xs: 0 1px 2px rgba(23, 27, 33, 0.04);
+  --shadow-soft-sm: 0 1px 2px rgba(23, 27, 33, 0.04), 0 10px 28px -18px rgba(23, 27, 33, 0.16);
+  --shadow-soft: 0 1px 2px rgba(23, 27, 33, 0.05), 0 16px 40px -22px rgba(23, 27, 33, 0.22);
+  --shadow-soft-lg: 0 2px 4px rgba(23, 27, 33, 0.04), 0 28px 64px -28px rgba(23, 27, 33, 0.28);
+  --shadow-soft-xl: 0 4px 8px rgba(23, 27, 33, 0.04), 0 48px 96px -36px rgba(23, 27, 33, 0.32);
+  --shadow-glow-primary: 0 18px 44px -20px rgba(37, 87, 167, 0.55);
+
+  /* Ambient hero light. */
+  --glow-primary: rgba(37, 87, 167, 0.16);
+  --glow-accent: rgba(99, 102, 241, 0.12);
 }
 
 .dark {
@@ -24,19 +52,69 @@
   --color-on-primary-container: #ffffff;
   --color-inverse-surface: #0a0e14;
   --color-primary-container: #3b82f6;
+
+  /* Dark is a designed palette, not an inversion: cool blue-black canvas,
+     progressively lighter raised surfaces, and low-alpha hairlines. */
+  --color-canvas: #0a0e14;
+  --color-surface-sunken: #0c121a;
+  --color-surface-raised: #111923;
+  --color-surface-overlay: #16202c;
+  --color-hairline: rgba(148, 163, 184, 0.14);
+  --color-hairline-strong: rgba(148, 163, 184, 0.26);
+  --color-ink: #f2f6fb;
+  --color-ink-muted: #a6b3c4;
+  --color-ink-subtle: #7e8ca0;
+  --color-nav: rgba(10, 14, 20, 0.78);
+
+  /* Depth survives in dark via soft ambient falloff + a hairline top
+     highlight, which reads as material rather than as a missing shadow. */
+  --shadow-soft-xs: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --shadow-soft-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -20px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-soft: 0 2px 4px rgba(0, 0, 0, 0.42), 0 20px 48px -24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-soft-lg: 0 2px 6px rgba(0, 0, 0, 0.45), 0 32px 72px -28px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-soft-xl: 0 4px 10px rgba(0, 0, 0, 0.5), 0 56px 112px -36px rgba(0, 0, 0, 1), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-glow-primary: 0 20px 48px -20px rgba(37, 99, 235, 0.5);
+
+  --glow-primary: rgba(96, 165, 250, 0.16);
+  --glow-accent: rgba(139, 92, 246, 0.12);
 }
 
 @layer base {
   body {
-    @apply bg-surface-muted dark:bg-inverse-surface text-on-surface dark:text-inverse-on-surface antialiased transition-colors duration-200;
+    @apply bg-canvas text-ink antialiased transition-colors duration-200;
   }
 
   html {
     scroll-behavior: smooth;
   }
 
+  ::selection {
+    background-color: rgba(37, 87, 167, 0.16);
+    color: var(--color-ink);
+  }
+
+  .dark ::selection {
+    background-color: rgba(96, 165, 250, 0.24);
+    color: var(--color-ink);
+  }
+
+  /* Restrained motion is a hard preference: honour it globally. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
   /* Visible keyboard focus for interactive controls that don't define their
-     own focus ring. Inputs/selects already ship focus rings via .input/.select. */
+     own focus ring. Inputs already ship focus rings via .input. */
   button:focus-visible,
   a:focus-visible,
   [role='button']:focus-visible,
@@ -75,77 +153,127 @@
 }
 
 @layer components {
-  .btn-primary {
-    @apply bg-primary-500 hover:bg-primary-600 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg;
+  /* ---- Shared app primitives (premium phase 2) -----------------------
+     Role-token recipes for the authenticated app. Legacy button, card and
+     input recipes are retired. Buttons are inline-flex with centred
+     content and a fixed gap so icon + label + spinner never shift; inputs
+     share one height so forms align across pages. */
+  .app-page-title {
+    @apply font-display text-[1.75rem] font-bold leading-[1.15] tracking-[-0.03em] text-ink sm:text-[2rem];
   }
 
-  /* Smaller primary variant for navbars and compact controls */
-  .btn-primary-sm {
-    @apply bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200;
+  .app-page-subtitle {
+    @apply mt-2 max-w-2xl font-body text-body text-ink-muted;
   }
 
-  /* Neutral button used in nav (profile/logout, nav actions) */
-  .nav-button {
-    @apply inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-primary-50 hover:text-primary-700 hover:border-primary-300 hover:shadow-md;
-  }
-  
-  .btn-secondary {
-    @apply bg-white hover:bg-gray-50 text-primary-500 font-semibold py-3 px-6 rounded-lg transition-all duration-200 border border-gray-300 hover:border-primary-500;
-  }
-  
-  .btn-secondary-sm {
-    @apply bg-white hover:bg-gray-50 text-primary-500 font-semibold py-2 px-4 rounded-lg transition-all duration-200 border border-gray-300 hover:border-primary-500;
-  }
-  
-  .card {
-    @apply bg-white rounded-xl p-6 shadow-md transition-all duration-200 border border-gray-200 hover:shadow-lg;
+  .app-section-title {
+    @apply font-display text-title font-bold tracking-[-0.02em] text-ink;
   }
 
-  .card:hover {
-    @apply border-gray-300;
-  }
-  
-  .input-field {
-    @apply bg-white border border-gray-300 text-gray-900 rounded-lg px-4 py-3 w-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all duration-200 placeholder:text-gray-400;
-  }
-  
-  .input {
-    @apply bg-white border border-gray-300 text-gray-900 rounded-lg px-4 py-3 w-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all duration-200 text-base placeholder:text-gray-400;
-  }
-  
-  .select {
-    @apply bg-white border border-gray-300 text-gray-900 rounded-lg px-4 py-3 w-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all duration-200 text-base cursor-pointer;
-  }
-  
-  .section-title {
-    @apply text-3xl md:text-4xl lg:text-5xl font-bold mb-4 text-gray-900;
-  }
-  
-  .gradient-border {
-    @apply relative before:absolute before:inset-0 before:rounded-2xl before:p-[2px] before:bg-gradient-to-r before:from-primary-500 before:to-primary-600 before:-z-10;
+  .app-label {
+    @apply font-body text-caption font-semibold text-ink-muted;
   }
 
-  /* File upload animation */
-  .file-upload-area {
-    @apply relative overflow-hidden;
+  .app-checkbox {
+    @apply h-4 w-4 shrink-0 cursor-pointer appearance-none rounded border border-hairline bg-surface-raised transition-colors checked:border-primary-600 checked:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/20;
   }
 
-  .file-upload-area::before {
-    content: '';
-    @apply absolute inset-0 bg-gradient-to-r from-transparent via-primary-500/10 to-transparent;
-    animation: shimmer 2s infinite;
-    transform: translateX(-200%);
+  .app-input {
+    @apply h-11 w-full rounded-card border border-hairline bg-surface-raised px-4 font-body text-body text-ink outline-none transition-colors placeholder:text-ink-subtle focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted;
   }
-}
 
-@keyframes shimmer {
-  100% {
-    transform: translateX(200%);
+  .app-input-sm {
+    @apply h-9 w-full rounded-card border border-hairline bg-surface-raised px-3 font-body text-caption text-ink outline-none transition-colors placeholder:text-ink-subtle focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted;
+  }
+
+  .app-textarea {
+    @apply min-h-[6rem] w-full rounded-card border border-hairline bg-surface-raised px-4 py-3 font-body text-body text-ink outline-none transition-colors placeholder:text-ink-subtle focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted;
+  }
+
+  .app-btn-primary {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-card border border-transparent bg-primary-600 px-5 font-body text-sm font-semibold text-white shadow-soft-xs transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-primary-500 dark:hover:bg-primary-400;
+  }
+
+  .app-btn-secondary {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-card border border-hairline bg-surface-raised px-5 font-body text-sm font-semibold text-ink shadow-soft-xs transition-colors hover:border-hairline-strong hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .app-btn-sm {
+    @apply h-9 px-3 text-xs;
+  }
+
+  /* Centralized hover washes: single definition for the surface wash +
+     danger wash previously scattered as one-off hover:bg-surface-* /
+     dark:hover:bg-surface-variant pairs across src/pages + src/components.
+     Light values mirror tailwind.config.js (surface #FAF7F2 via
+     var(--color-surface-variant), rose-50 #fff1f2); dark values mirror the
+     DashboardLayout precedent (surface-variant translucent rgba from the
+     /20 blanket, rose-950/20). Raw CSS on purpose: @apply with opacity
+     modifiers on var()-based colors breaks the Tailwind build. */
+  .hov-surface:hover {
+    background-color: var(--color-surface-variant);
+  }
+  .dark .hov-surface:hover {
+    background-color: rgba(148, 163, 184, 0.2);
+  }
+  .hov-danger:hover {
+    background-color: #fff1f2;
+  }
+  .dark .hov-danger:hover {
+    background-color: rgba(76, 5, 25, 0.2);
+  }
+
+  /* ---- Premium landing primitives -----------------------------------
+     Shared building blocks for the public experience (phase 1). They are
+     opt-in classes; authenticated pages use the app-* primitives above. */
+  .landing-shell {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .landing-section {
+    @apply py-section-sm md:py-section;
+  }
+
+  .surface-card {
+    @apply rounded-panel border border-hairline bg-surface-raised shadow-soft-sm;
+  }
+
+  .surface-card-interactive {
+    @apply transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-0.5 hover:border-hairline-strong hover:shadow-soft;
+  }
+
+  .eyebrow {
+    @apply text-overline uppercase text-ink-subtle;
+  }
+
+  .nav-glass {
+    background-color: var(--color-nav);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
   }
 }
 
 /* Crux-inspired custom styles */
 @layer utilities {
+  /* Hairline grid that fades out — used behind the hero only. */
+  .bg-grid-hairline {
+    background-size: 64px 64px;
+    background-image:
+      linear-gradient(to right, var(--color-hairline) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-hairline) 1px, transparent 1px);
+    -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 35%, transparent 100%);
+    mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 35%, transparent 100%);
+  }
+
+  /* Ambient light wells, deliberately low-contrast and static. */
+  .hero-glow-primary {
+    background: radial-gradient(closest-side, var(--glow-primary), transparent 72%);
+  }
+
+  .hero-glow-accent {
+    background: radial-gradient(closest-side, var(--glow-accent), transparent 72%);
+  }
+
   .bg-grid-pattern {
     background-size: 50px 50px;
     background-image: 
@@ -154,10 +282,10 @@
   }
 
   .glass-panel {
-    background: rgba(255, 255, 255, 0.7);
+    background: rgba(250, 247, 242, 0.7);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(232, 223, 211, 0.5);
   }
 
   .dark .glass-panel {
@@ -165,19 +293,6 @@
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .glass-panel-light {
-    background: rgba(255, 255, 255, 0.65);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(15, 23, 42, 0.06);
-  }
-
-  .dark .glass-panel-light {
-    background: rgba(15, 23, 42, 0.3);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.04);
   }
 
   .soft-shadow {
@@ -190,33 +305,6 @@
   }
 }
 
-/* Infinite loop marquee */
-@keyframes marquee-infinite {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-.ticker-track {
-  display: flex;
-  width: max-content;
-  animation: marquee-infinite 25s linear infinite;
-}
-
-.ticker-track:hover {
-  animation-play-state: paused;
-}
-
-/* Voice waveform bar animations */
-@keyframes voice-wave {
-  0%, 100% { transform: scaleY(0.15); }
-  50% { transform: scaleY(1); }
-}
-
-.voice-bar-anim {
-  animation: voice-wave 1.2s ease-in-out infinite;
-  transform-origin: bottom;
-}
-
 /* High-Fidelity Dark Mode Theme Overrides */
 .dark .bg-white {
   background-color: #161c24 !important;
@@ -227,31 +315,6 @@
 .dark .bg-white\/80,
 .dark .bg-white\/70 {
   background-color: rgba(22, 28, 36, 0.9) !important;
-}
-
-.dark .bg-surface-container-lowest {
-  background-color: #0a0e14 !important;
-}
-.dark .bg-surface-container-low {
-  background-color: #161c24 !important;
-}
-.dark .bg-surface-container {
-  background-color: #161c24 !important;
-}
-.dark .bg-surface-container-high {
-  background-color: #1c252e !important;
-}
-.dark .bg-surface-container-highest {
-  background-color: #1c252e !important;
-}
-
-.dark button:disabled,
-.dark button[disabled],
-.dark .cursor-not-allowed {
-  background-color: #1c252e !important;
-  border-color: #1c252e !important;
-  color: #4b5563 !important;
-  opacity: 0.6 !important;
 }
 
 .dark .dark\:bg-inverse-surface\/5,
@@ -277,6 +340,12 @@
 .dark .dark\:bg-surface-variant\/10 {
   background-color: rgba(148, 163, 184, 0.1) !important;
 }
+/* /5 must be listed explicitly: Tailwind cannot apply an alpha modifier to a
+   var()-backed color, so this utility emitted no rule at all and its light
+   base (bg-surface-muted/60) stayed visible in dark mode. */
+.dark .dark\:bg-surface-variant\/5 {
+  background-color: rgba(148, 163, 184, 0.05) !important;
+}
 
 .dark .bg-white.shadow-2xl,
 .dark .shadow-2xl .bg-white,
@@ -287,50 +356,6 @@
 .dark .modal-content.dark\:bg-inverse-surface {
   background-color: #1c252e !important;
   border-color: #1c252e !important;
-}
-
-.dark .input,
-.dark .select,
-.dark .input-field {
-  background-color: #0a0e14 !important;
-  border-color: #1c252e !important;
-  color: #f1f5f9 !important;
-}
-.dark .input::placeholder,
-.dark .input-field::placeholder {
-  color: #4b5563 !important;
-}
-
-.dark .btn-primary,
-.dark .btn-primary-sm {
-  background-color: #3b82f6 !important;
-  color: #ffffff !important;
-}
-.dark .btn-primary:hover,
-.dark .btn-primary-sm:hover {
-  background-color: #2563eb !important;
-}
-.dark .btn-secondary,
-.dark .btn-secondary-sm {
-  background-color: #222b36 !important;
-  border-color: #3f4e60 !important;
-  color: #60a5fa !important;
-}
-.dark .btn-secondary:hover,
-.dark .btn-secondary-sm:hover {
-  background-color: #2d3846 !important;
-  border-color: #3b82f6 !important;
-  color: #ffffff !important;
-}
-.dark .nav-button {
-  background-color: #161c24 !important;
-  border-color: #1c252e !important;
-  color: #94a3b8 !important;
-}
-.dark .nav-button:hover {
-  background-color: #1c252e !important;
-  color: #f1f5f9 !important;
-  border-color: #3b82f6 !important;
 }
 
 .dark .text-slate-900,
@@ -585,6 +610,250 @@
 .dark .hover\:bg-gray-200:hover,
 .dark .hover\:bg-slate-200:hover {
   background-color: #1c252e !important;
+}
+
+/* Phase 1 extension — one decision, applied everywhere: remap every
+   non-standard shade + uncovered standard step used in src so no class
+   renders as nothing / near-black in dark mode. */
+/* Non-standard slate text */
+.dark .text-slate-150,
+.dark .text-slate-250,
+.dark .text-slate-350,
+.dark .text-slate-450,
+.dark .text-slate-550,
+.dark .text-slate-650 {
+  color: #94a3b8 !important;
+}
+.dark .text-slate-750,
+.dark .text-slate-850,
+.dark .text-slate-855,
+.dark .text-slate-950 {
+  color: #f1f5f9 !important;
+}
+.dark .text-slate-250,
+.dark .dark\:text-slate-250,
+.dark .text-slate-350,
+.dark .dark\:text-slate-350 {
+  color: #cbd5e1 !important;
+}
+.dark .dark\:text-slate-405,
+.dark .dark\:text-slate-505,
+.dark .text-slate-605 {
+  color: #94a3b8 !important;
+}
+/* Non-standard slate fills */
+.dark .bg-slate-105,
+.dark .bg-slate-150 {
+  background-color: #161c24 !important;
+}
+.dark .border-slate-150,
+.dark .border-slate-250,
+.dark .border-gray-250 {
+  border-color: #1c252e !important;
+}
+.dark .border-slate-300,
+.dark .border-slate-350,
+.dark .border-slate-300\/60,
+.dark .border-slate-850,
+.dark .dark\:border-slate-850,
+.dark .border-gray-100 {
+  border-color: #1c252e !important;
+}
+.dark .dark\:text-slate-350 {
+  color: #cbd5e1 !important;
+}
+/* Non-standard indigo */
+.dark .text-indigo-150,
+.dark .text-indigo-650,
+.dark .text-indigo-750 {
+  color: #818cf8 !important;
+}
+.dark .bg-indigo-55,
+.dark .bg-indigo-150 {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+}
+.dark .border-indigo-150 {
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+.dark .border-indigo-650 {
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+/* Non-standard amber/red/green/gray/rose/emerald */
+.dark .text-amber-505,
+.dark .text-amber-650,
+.dark .text-amber-800,
+.dark .text-amber-900,
+.dark .text-amber-950 {
+  color: #fbbf24 !important;
+}
+.dark .border-amber-150 {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+.dark .text-red-550,
+.dark .text-red-650,
+.dark .text-red-800,
+.dark .text-red-900,
+.dark .text-red-950,
+.dark .text-rose-505,
+.dark .text-rose-800,
+.dark .text-rose-900 {
+  color: #f87171 !important;
+}
+.dark .text-green-650,
+.dark .text-green-800,
+.dark .text-green-900,
+.dark .text-emerald-800,
+.dark .text-emerald-900 {
+  color: #4ade80 !important;
+}
+.dark .border-green-150,
+.dark .border-emerald-150,
+.dark .border-amber-400 {
+  border-color: rgba(34, 197, 94, 0.3) !important;
+}
+.dark .text-gray-450,
+.dark .text-gray-650,
+.dark .text-gray-950,
+.dark .text-gray-300 {
+  color: #94a3b8 !important;
+}
+.dark .text-gray-950 {
+  color: #f1f5f9 !important;
+}
+.dark .bg-gray-300,
+.dark .bg-slate-300,
+.dark .bg-slate-400 {
+  background-color: #1c252e !important;
+}
+.dark .text-yellow-800 {
+  color: #facc15 !important;
+}
+.dark .text-blue-900,
+.dark .text-primary-700,
+.dark .text-primary-900 {
+  color: #60a5fa !important;
+}
+.dark .border-primary-200,
+.dark .border-blue-300 {
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+.dark .text-primary-400 {
+  color: #93c5fd !important;
+}
+/* Uncovered color families: dim to translucent tints */
+.dark .bg-purple-50,
+.dark .bg-teal-50,
+.dark .bg-pink-50,
+.dark .bg-orange-50 {
+  background-color: rgba(139, 92, 246, 0.08) !important;
+}
+.dark .border-purple-100,
+.dark .border-purple-200,
+.dark .border-teal-100,
+.dark .border-pink-100,
+.dark .border-orange-100,
+.dark .border-orange-200 {
+  border-color: rgba(139, 92, 246, 0.25) !important;
+}
+.dark .text-purple-500,
+.dark .text-purple-600,
+.dark .text-purple-700,
+.dark .text-teal-700,
+.dark .text-pink-700,
+.dark .text-orange-700 {
+  color: #c084fc !important;
+}
+/* Phase 2 systemic: opacity variants, hover/focus/placeholder states,
+   shadow softening, native controls. One place — no per-file churn. */
+.dark .bg-slate-50\/60,
+.dark .bg-slate-50\/70,
+.dark .bg-slate-100\/70,
+.dark .bg-gray-50\/70 {
+  background-color: rgba(10, 14, 20, 0.6) !important;
+}
+.dark .bg-white\/50,
+.dark .bg-white\/60 {
+  background-color: rgba(22, 28, 36, 0.6) !important;
+}
+.dark .bg-red-50\/50 {
+  background-color: rgba(239, 68, 68, 0.04) !important;
+}
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-100:hover {
+  background-color: #1c252e !important;
+}
+.dark .hover\:text-slate-900:hover,
+.dark .hover\:text-slate-700:hover,
+.dark .hover\:text-gray-900:hover,
+.dark .hover\:text-gray-600:hover {
+  color: #f1f5f9 !important;
+}
+.dark .hover\:bg-slate-200:hover {
+  background-color: #1c252e !important;
+}
+.dark .group-hover\:text-primary-900 {
+  color: inherit !important;
+}
+.dark .group:hover .group-hover\:text-primary-900 {
+  color: #93c5fd !important;
+}
+.dark .dark\:hover\:bg-slate-850:hover {
+  background-color: #1c252e !important;
+}
+/* Shadows vanish on dark — pair every elevation with a border instead. */
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-xl,
+.dark .shadow-2xl,
+.dark .shadow-inner,
+.dark .hover\:shadow-md:hover,
+.dark .hover\:shadow-lg:hover {
+  box-shadow: none !important;
+  border-color: #1c252e !important;
+}
+/* Placeholders + focus rings tuned for dark inputs. */
+.dark .placeholder\:text-slate-400::placeholder,
+.dark .placeholder\:text-gray-400::placeholder,
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--color-ink-subtle) !important;
+}
+/* Native dropdown lists stay white in dark — flag dark scheme. */
+.dark select,
+.dark option {
+  color-scheme: dark;
+}
+/* Border opacity variants used on cards/pills. */
+.dark .border-slate-200\/80,
+.dark .border-slate-200\/60,
+.dark .border-slate-200\/50,
+.dark .border-slate-100\/80,
+.dark .border-slate-50 {
+  border-color: #1c252e !important;
+}
+.dark .border-indigo-150\/60 {
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+.dark .border-indigo-50 {
+  border-color: rgba(99, 102, 241, 0.2) !important;
+}
+/* Missed text token from the audit (S4). */
+.dark .text-primary-650 {
+  color: #60a5fa !important;
+}
+.dark .border-yellow-200 {
+  border-color: rgba(234, 179, 8, 0.3) !important;
+}
+.dark .bg-emerald-50\/60,
+.dark .bg-amber-50\/60,
+.dark .bg-rose-50\/60 {
+  background-color: rgba(16, 185, 129, 0.05) !important;
+}
+.dark .text-yellow-500 {
+  color: #facc15 !important;
 }
 
 /* stylelint-enable */

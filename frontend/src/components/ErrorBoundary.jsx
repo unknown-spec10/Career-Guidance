@@ -80,11 +80,11 @@ class ErrorBoundary extends React.Component {
 
       // Default fallback UI
       return (
-        <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-canvas text-ink flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="max-w-2xl w-full bg-white rounded-xl shadow-2xl overflow-hidden"
+            className="max-w-2xl w-full rounded-panel border border-hairline bg-surface-raised shadow-soft-xl overflow-hidden"
           >
             {/* Header */}
             <div className="bg-gradient-to-r from-red-500 to-orange-500 p-6 text-white">
@@ -102,7 +102,7 @@ class ErrorBoundary extends React.Component {
             {/* Body */}
             <div className="p-6 space-y-6">
               {/* Error Message */}
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-card p-4">
                 <h3 className="font-semibold text-red-900 mb-2">Error Details:</h3>
                 <p className="text-red-800 text-sm font-mono">
                   {this.state.error?.toString() || 'Unknown error occurred'}
@@ -111,7 +111,7 @@ class ErrorBoundary extends React.Component {
 
               {/* Error Count Warning */}
               {this.state.errorCount > 1 && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 rounded-card p-4">
                   <p className="text-yellow-800 text-sm">
                     ⚠️ This error has occurred {this.state.errorCount} times. 
                     Consider refreshing the page or going home.
@@ -123,9 +123,7 @@ class ErrorBoundary extends React.Component {
               <div className="flex flex-wrap gap-3">
                 <button
                   onClick={this.handleReset}
-                  className="flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 
-                           bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors
-                           shadow-md hover:shadow-lg"
+                  className="app-btn-primary flex-1 min-w-[140px]"
                 >
                   <RefreshCw className="w-4 h-4" />
                   Try Again
@@ -133,9 +131,7 @@ class ErrorBoundary extends React.Component {
 
                 <button
                   onClick={this.handleGoHome}
-                  className="flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 
-                           bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors
-                           shadow-md hover:shadow-lg"
+                  className="app-btn-secondary flex-1 min-w-[140px]"
                 >
                   <Home className="w-4 h-4" />
                   Go Home
@@ -143,9 +139,7 @@ class ErrorBoundary extends React.Component {
 
                 <button
                   onClick={this.handleReportError}
-                  className="flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 
-                           bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors
-                           shadow-md hover:shadow-lg"
+                  className="app-btn-secondary flex-1 min-w-[140px] text-amber-700 dark:text-amber-400"
                 >
                   <Bug className="w-4 h-4" />
                   Report Bug
@@ -154,15 +148,15 @@ class ErrorBoundary extends React.Component {
 
               {/* Stack Trace (Development Only) */}
               {process.env.NODE_ENV === 'development' && this.state.error?.stack && (
-                <details className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <summary className="cursor-pointer font-semibold text-gray-700 hover:text-gray-900">
+                <details className="bg-surface-sunken border border-hairline rounded-card p-4">
+                  <summary className="cursor-pointer font-semibold text-ink-muted hover:text-ink">
                     Show Technical Details
                   </summary>
-                  <pre className="mt-3 text-xs text-gray-600 overflow-auto max-h-64 font-mono">
+                  <pre className="mt-3 text-xs text-ink-muted overflow-auto max-h-64 font-mono">
                     {this.state.error.stack}
                   </pre>
                   {this.state.errorInfo?.componentStack && (
-                    <pre className="mt-3 text-xs text-gray-600 overflow-auto max-h-64 font-mono border-t pt-3">
+                    <pre className="mt-3 text-xs text-ink-muted overflow-auto max-h-64 font-mono border-t border-hairline pt-3">
                       {this.state.errorInfo.componentStack}
                     </pre>
                   )}
@@ -170,7 +164,7 @@ class ErrorBoundary extends React.Component {
               )}
 
               {/* Help Text */}
-              <div className="text-sm text-gray-600 border-t pt-4">
+              <div className="text-sm text-ink-muted border-t border-hairline pt-4">
                 <p className="mb-2">If this problem persists, try:</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li>Clearing your browser cache and cookies</li>

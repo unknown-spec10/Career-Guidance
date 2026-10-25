@@ -9,6 +9,7 @@ import api, { apiUrl } from '../config/api'
 import secureStorage from '../utils/secureStorage'
 import { useToast } from '../hooks/useToast'
 import { ToastContainer } from './Toast'
+import { getApiError } from '../utils/apiError'
 
 export default function SkillGapModal({ 
   isOpen, 
@@ -146,7 +147,7 @@ export default function SkillGapModal({
       // Try parsing the final accumulated buffer
       try {
         const cleanedBuffer = cleanJsonBuffer(accumulated)
-        console.log("Structured Skill Gap Analysis JSON compiled from Groq:", cleanedBuffer)
+        console.log("Structured Skill Gap Analysis JSON compiled from DeepSeek:", cleanedBuffer)
         const parsed = JSON.parse(cleanedBuffer)
         setGapData(parsed)
         if (onGapAnalysisCompleted) {
@@ -201,7 +202,7 @@ export default function SkillGapModal({
       )
     } catch (err) {
       console.error('Error generating roadmap:', err)
-      const msg = err.response?.data?.detail || 'Failed to generate pathway.'
+      const msg = getApiError(err, 'Failed to generate pathway.')
       setPhase('gap') // return to gap analysis if failed
       toast.addToast(msg, 'error')
     } finally {
@@ -228,7 +229,7 @@ export default function SkillGapModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6 overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 sm:p-6 overflow-y-auto"
         >
           {/* Modal Box */}
           <motion.div 
@@ -236,39 +237,39 @@ export default function SkillGapModal({
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.95, y: 30, opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-            className="relative w-full max-w-5xl bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh] text-slate-800 font-sans"
+            className="relative w-full max-w-5xl bg-surface-overlay border border-hairline rounded-panel overflow-hidden shadow-soft-xl flex flex-col max-h-[92vh] text-ink font-body"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-150 bg-slate-50/80 sticky top-0 z-10 backdrop-blur-sm">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-hairline bg-surface-raised sticky top-0 z-10 backdrop-blur-sm">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-indigo-650">
+                <div className="p-2.5 bg-indigo-500/10 rounded-card border border-indigo-500/20 text-indigo-650">
                   <Sparkles className="w-5 h-5 animate-pulse" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-750 bg-clip-text text-transparent">
+                  <h3 className="font-display text-title font-bold tracking-tight text-ink">
                     {phase === 'gap' ? 'AI Skill Gap Interpretation' : 'Personalized Learning Pathway'}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-caption text-ink-muted mt-0.5">
                     Target Role: <span className="text-indigo-600 font-semibold">{targetRole}</span> ({experienceLevel})
                   </p>
                 </div>
               </div>
               <button 
                 onClick={onClose}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-750 border border-slate-200 transition-all"
+ className="p-2 rounded-card bg-surface-sunken hover:bg-surface-raised text-ink-muted hover:text-ink border border-hairline transition-all"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body Scroll Container */}
-            <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-8 bg-slate-50/20">
+            <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-8 bg-surface-sunken">
               
               {phase === 'gap' && (
                 <div className="space-y-8">
                   {/* Skill Progress Grid */}
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-450 mb-4 flex items-center gap-2">
+                    <h4 className="app-label mb-4 flex items-center gap-2">
                       <Activity className="w-4 h-4 text-indigo-500" />
                       Mock Performance Scorecard
                     </h4>
@@ -280,18 +281,18 @@ export default function SkillGapModal({
                         return (
                           <div 
                             key={skill} 
-                            className="bg-white border border-slate-200/80 rounded-2xl p-5 hover:border-indigo-150/60 shadow-[0_2px_8px_rgba(0,0,0,0.015)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.025)] transition-all flex flex-col justify-between space-y-4"
+                            className="surface-card surface-card-interactive p-5 flex flex-col justify-between space-y-4"
                           >
                             <div>
                               <div className="flex items-center justify-between mb-2">
-                                <span className="font-semibold text-slate-900">{skill}</span>
-                                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${scheme.bg} ${scheme.border} ${scheme.text}`}>
+                                <span className="font-semibold text-ink">{skill}</span>
+                                <span className={`text-caption font-bold px-2.5 py-0.5 rounded-pill ${scheme.bg} ${scheme.border} ${scheme.text}`}>
                                   {Math.round(score * 100)}% · {label}
                                 </span>
                               </div>
-                              <div className="h-2 bg-slate-105 rounded-full overflow-hidden mb-4">
+                              <div className="h-2 bg-surface-sunken rounded-pill overflow-hidden mb-4">
                                 <motion.div
-                                  className={`h-full rounded-full ${scheme.bar}`}
+                                  className={`h-full rounded-pill ${scheme.bar}`}
                                   initial={{ width: 0 }}
                                   animate={{ width: `${Math.round(score * 100)}%` }}
                                   transition={{ duration: 1, ease: 'easeOut' }}
@@ -299,21 +300,21 @@ export default function SkillGapModal({
                               </div>
 
                               {/* Live/Streaming detailed content mapping */}
-                              <div className="text-sm">
+                              <div className="text-caption">
                                 {parsedGap ? (
                                   <div className="space-y-3.5 mt-2">
-                                    <p className="text-slate-650 text-xs sm:text-sm leading-relaxed border-l-2 border-indigo-500/20 pl-3">
+                                    <p className="text-ink-muted text-caption leading-relaxed border-l-2 border-indigo-500/20 pl-3">
                                       {parsedGap.why_it_matters}
                                     </p>
                                     
                                     {parsedGap.key_gaps && parsedGap.key_gaps.length > 0 && (
                                       <div>
-                                        <span className="text-[10px] font-bold text-slate-400 block uppercase mb-1">Key Gaps</span>
+                                        <span className="text-overline font-bold text-ink-subtle block uppercase mb-1">Key Gaps</span>
                                         <div className="flex flex-wrap gap-1.5">
                                           {parsedGap.key_gaps.map((gap, i) => (
                                             <span 
                                               key={i} 
-                                              className="px-2.5 py-0.5 bg-rose-50 border border-rose-100 text-rose-600 text-[11px] font-semibold rounded"
+                                              className="px-2.5 py-0.5 bg-rose-50 border border-rose-100 text-rose-600 text-[11px] font-semibold rounded-pill"
                                             >
                                               {gap}
                                             </span>
@@ -324,20 +325,20 @@ export default function SkillGapModal({
                                   </div>
                                 ) : !gapStreamDone ? (
                                   <div className="space-y-2 mt-2">
-                                    <div className="h-3.5 bg-slate-100 rounded animate-pulse w-5/6" />
-                                    <div className="h-3.5 bg-slate-100 rounded animate-pulse w-3/4" />
-                                    <div className="h-3.5 bg-slate-100 rounded animate-pulse w-1/2" />
+                                    <div className="h-3.5 bg-surface-sunken rounded animate-pulse w-5/6" />
+                                    <div className="h-3.5 bg-surface-sunken rounded animate-pulse w-3/4" />
+                                    <div className="h-3.5 bg-surface-sunken rounded animate-pulse w-1/2" />
                                   </div>
                                 ) : (
                                   // Verified Proficient State (No gaps identified from JSON)
                                   <div className="space-y-3.5 mt-2">
-                                    <p className="text-slate-500 text-xs sm:text-sm leading-relaxed border-l-2 border-emerald-500/20 pl-3">
+                                    <p className="text-ink-muted text-caption leading-relaxed border-l-2 border-emerald-500/20 pl-3">
                                       Verified Proficient — No significant conceptual gaps identified. You demonstrated solid, complete command of this topic during the technical practice session.
                                     </p>
                                     <div>
-                                      <span className="text-[10px] font-bold text-slate-450 block uppercase mb-1">Skill Status</span>
+                                      <span className="text-overline font-bold text-ink-subtle block uppercase mb-1">Skill Status</span>
                                       <div className="flex flex-wrap gap-1.5">
-                                        <span className="px-2.5 py-0.5 bg-emerald-50 border border-emerald-100 text-emerald-600 text-[11px] font-semibold rounded flex items-center gap-1">
+                                        <span className="px-2.5 py-0.5 bg-emerald-50 border border-emerald-100 text-emerald-600 text-[11px] font-semibold rounded-pill flex items-center gap-1">
                                           <Check className="w-3 h-3 text-emerald-500" />
                                           Strong Competence
                                         </span>
@@ -350,19 +351,19 @@ export default function SkillGapModal({
 
                             {/* Quick win block or Proficient badge */}
                             {parsedGap?.quick_win ? (
-                              <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3.5 flex gap-2.5 items-start mt-4">
+                              <div className="bg-indigo-50/50 border border-indigo-100 rounded-card p-3.5 flex gap-2.5 items-start mt-4">
                                 <Zap className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5 animate-pulse" />
                                 <div>
-                                  <span className="text-[10px] font-bold text-indigo-650 block uppercase">Quick Win</span>
-                                  <p className="text-xs text-slate-700 leading-relaxed mt-0.5">{parsedGap.quick_win}</p>
+                                  <span className="text-overline font-bold text-indigo-650 block uppercase">Quick Win</span>
+                                  <p className="text-caption text-ink-muted leading-relaxed mt-0.5">{parsedGap.quick_win}</p>
                                 </div>
                               </div>
                             ) : gapStreamDone ? (
-                              <div className="bg-emerald-50/40 border border-emerald-100 rounded-xl p-3.5 flex gap-2.5 items-start mt-4">
+                              <div className="bg-emerald-50/40 border border-emerald-100 rounded-card p-3.5 flex gap-2.5 items-start mt-4">
                                 <Check className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
                                 <div>
-                                  <span className="text-[10px] font-bold text-emerald-600 block uppercase">Continuous Growth</span>
-                                  <p className="text-xs text-slate-600 leading-relaxed mt-0.5">Maintain this strength! Apply your proficiency to advanced design challenges and architectural practice.</p>
+                                  <span className="text-overline font-bold text-emerald-600 block uppercase">Continuous Growth</span>
+                                  <p className="text-caption text-ink-muted leading-relaxed mt-0.5">Maintain this strength! Apply your proficiency to advanced design challenges and architectural practice.</p>
                                 </div>
                               </div>
                             ) : null}
@@ -378,7 +379,7 @@ export default function SkillGapModal({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0 }}
-                      className="bg-indigo-50/30 border border-indigo-150 rounded-2xl p-5 flex items-center justify-between shadow-sm relative overflow-hidden backdrop-blur"
+                      className="bg-indigo-50/30 border border-indigo-150 rounded-card p-5 flex items-center justify-between shadow-soft-sm relative overflow-hidden backdrop-blur"
                     >
                       <div className="absolute top-0 left-0 w-1 h-full bg-indigo-600 animate-pulse" />
                       <div className="flex items-center gap-4">
@@ -387,13 +388,13 @@ export default function SkillGapModal({
                           <Sparkles className="w-3.5 h-3.5 text-indigo-500 absolute animate-pulse" />
                         </div>
                         <div>
-                          <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest block">AI Technical Reasoner Active</span>
-                          <p className="text-xs sm:text-sm font-semibold text-slate-750 mt-0.5 animate-pulse">
+                          <span className="text-overline font-bold text-indigo-600 uppercase tracking-widest block">AI Technical Reasoner Active</span>
+                          <p className="text-caption font-semibold text-ink mt-0.5 animate-pulse">
                             {activeConsoleLog}
                           </p>
                         </div>
                       </div>
-                      <span className="text-[10px] font-bold text-slate-400 tracking-wider hidden sm:inline-block">
+                      <span className="text-overline font-bold text-ink-subtle tracking-wider hidden sm:inline-block">
                         COMPILING KNOWLEDGE GRAPH • GROQ STREAM
                       </span>
                     </motion.div>
@@ -404,25 +405,25 @@ export default function SkillGapModal({
                     <motion.div 
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="bg-slate-50 border border-slate-200 rounded-2xl p-6 flex flex-col md:flex-row gap-5 items-start md:items-center justify-between shadow-sm"
+                      className="bg-surface-raised border border-hairline rounded-card p-6 flex flex-col md:flex-row gap-5 items-start md:items-center justify-between shadow-soft-sm"
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <Lightbulb className="w-5 h-5 text-indigo-600" />
-                          <h4 className="font-bold text-slate-800">AI Executive Verdict</h4>
+                          <h4 className="font-bold text-ink">AI Executive Verdict</h4>
                         </div>
-                        <p className="text-slate-650 text-sm leading-relaxed max-w-3xl font-normal">
+                        <p className="text-ink-muted text-caption leading-relaxed max-w-3xl font-normal">
                           {gapData.overall_verdict}
                         </p>
                       </div>
                       
                       {gapData.priority_order && gapData.priority_order.length > 0 && (
-                        <div className="flex-shrink-0 min-w-[200px] border-t md:border-t-0 md:border-l border-slate-200 pt-4 md:pt-0 md:pl-5 space-y-2">
-                          <span className="text-[10px] font-bold text-slate-450 block uppercase tracking-wider">Priority Roadmap Order</span>
-                          <ol className="space-y-1 text-xs">
+                        <div className="flex-shrink-0 min-w-[200px] border-t md:border-t-0 md:border-l border-hairline pt-4 md:pt-0 md:pl-5 space-y-2">
+                          <span className="text-overline font-bold text-ink-subtle block uppercase tracking-wider">Priority Roadmap Order</span>
+                          <ol className="space-y-1 text-caption">
                             {gapData.priority_order.map((skill, index) => (
-                              <li key={index} className="flex items-center gap-2 text-slate-750 font-medium">
-                                <span className="w-5 h-5 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-[10px]">
+                              <li key={index} className="flex items-center gap-2 text-ink font-medium">
+                                <span className="w-5 h-5 rounded-card bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-overline">
                                   {index + 1}
                                 </span>
                                 {skill}
@@ -445,8 +446,8 @@ export default function SkillGapModal({
                         <Compass className="w-6 h-6 text-indigo-500 absolute animate-pulse" />
                       </div>
                       <div className="text-center space-y-2">
-                        <h4 className="text-lg font-bold text-slate-800">Constructing Your Interactive Journey</h4>
-                        <p className="text-xs text-slate-500 max-w-md leading-relaxed">
+                        <h4 className="font-display text-title font-bold text-ink">Constructing Your Interactive Journey</h4>
+                        <p className="text-caption text-ink-muted max-w-md leading-relaxed">
                           Performing YouTube API search discovery, fetching video stats, computing quality scoring parameters, and organizing LeetCode practice problem sets. This can take ~10 seconds.
                         </p>
                       </div>
@@ -456,12 +457,12 @@ export default function SkillGapModal({
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         {/* Flowchart Timeline (Left Column: 2-span) */}
                         <div className="lg:col-span-2 space-y-8">
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-450 mb-6 flex items-center gap-2">
+                          <h4 className="app-label mb-6 flex items-center gap-2">
                             <Compass className="w-4 h-4 text-indigo-500" />
                             Vertical Flowchart Milestone Roadmap
                           </h4>
                           
-                          <div className="relative pl-8 border-l border-slate-200 space-y-12 ml-4">
+                          <div className="relative pl-8 border-l border-hairline space-y-12 ml-4">
                             {roadmapData.topics_outline?.map((stage, idx) => {
                               const isVideoPlaying = playingVideoId === stage.video?.video_id
 
@@ -474,46 +475,46 @@ export default function SkillGapModal({
                                   className="relative group"
                                 >
                                   {/* Week Node Bubble */}
-                                  <div className="absolute -left-[45px] top-0.5 w-8 h-8 rounded-full bg-white border-2 border-indigo-650 flex items-center justify-center text-xs font-bold text-indigo-650 group-hover:bg-indigo-650 group-hover:text-white transition-all shadow-sm">
+                                  <div className="absolute -left-[45px] top-0.5 w-8 h-8 rounded-pill bg-surface-raised border-2 border-indigo-650 flex items-center justify-center text-caption font-bold text-indigo-650 group-hover:bg-indigo-650 group-hover:text-white transition-all shadow-soft-xs">
                                     {idx + 1}
                                   </div>
 
-                                  <div className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-indigo-150 hover:bg-slate-50/10 transition-all space-y-4 shadow-[0_2px_8px_rgba(0,0,0,0.01)]">
+ <div className="surface-card surface-card-interactive p-6 space-y-4">
                                     {/* Week Badge + Skill focus */}
                                     <div className="flex flex-wrap items-center justify-between gap-3">
-                                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-indigo-55 border border-indigo-100 text-indigo-750">
+                                      <span className="text-caption font-bold px-2.5 py-0.5 rounded-pill bg-indigo-55 border border-indigo-100 text-indigo-750">
                                         {stage.week}
                                       </span>
-                                      <h5 className="text-base font-bold text-slate-800 flex-1 pl-1">
+                                      <h5 className="font-display text-body-lg font-bold text-ink flex-1 pl-1">
                                         {stage.skill_focus}
                                       </h5>
                                     </div>
 
                                     {/* Action instructions */}
-                                    <p className="text-sm text-slate-650 leading-relaxed border-l-2 border-slate-150 pl-3.5 font-normal">
+                                    <p className="text-caption text-ink-muted leading-relaxed border-l-2 border-hairline-strong pl-3.5 font-normal">
                                       {stage.action}
                                     </p>
 
                                     {/* Why recommended & What it achieves explanations */}
-                                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50/80 border border-slate-200 rounded-xl p-4 text-xs sm:text-sm">
+                                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-surface-sunken border border-hairline rounded-card p-4 text-caption">
                                       {stage.why_recommended && (
                                         <div className="space-y-1">
                                           <span className="font-bold text-indigo-700 flex items-center gap-1.5">
                                             <Lightbulb className="w-3.5 h-3.5" />
                                             Why Recommended
                                           </span>
-                                          <p className="text-slate-600 leading-relaxed font-normal">
+                                          <p className="text-ink-muted leading-relaxed font-normal">
                                             {stage.why_recommended}
                                           </p>
                                         </div>
                                       )}
                                       {stage.what_it_achieves && (
-                                        <div className="space-y-1 border-t md:border-t-0 md:border-l border-slate-200 pt-3 md:pt-0 md:pl-4">
+                                        <div className="space-y-1 border-t md:border-t-0 md:border-l border-hairline pt-3 md:pt-0 md:pl-4">
                                           <span className="font-bold text-emerald-700 flex items-center gap-1.5">
                                             <CheckCircle className="w-3.5 h-3.5" />
                                             What It Achieves
                                           </span>
-                                          <p className="text-slate-600 leading-relaxed font-normal">
+                                          <p className="text-ink-muted leading-relaxed font-normal">
                                             {stage.what_it_achieves}
                                           </p>
                                         </div>
@@ -522,7 +523,7 @@ export default function SkillGapModal({
 
                                     {/* In-app Autoplay YouTube IFrame Player Pattern */}
                                     {stage.video && (
-                                      <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden bg-slate-100 relative">
+                                      <div className="mt-4 border border-hairline rounded-card overflow-hidden bg-surface-sunken relative">
                                         {isVideoPlaying ? (
                                           <div className="aspect-video w-full">
                                             <iframe
@@ -536,7 +537,7 @@ export default function SkillGapModal({
                                         ) : (
                                           <div 
                                             onClick={() => setPlayingVideoId(stage.video.video_id)}
-                                            className="relative aspect-video w-full overflow-hidden cursor-pointer group/thumb bg-slate-50"
+                                            className="relative aspect-video w-full overflow-hidden cursor-pointer group/thumb bg-surface-sunken"
                                           >
                                             <img 
                                               src={stage.video.thumbnail_url} 
@@ -546,19 +547,19 @@ export default function SkillGapModal({
                                             {/* Video Metadata Panel overlay */}
                                             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent flex flex-col justify-between p-4">
                                               <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-white/95 rounded border border-slate-200 text-slate-700 backdrop-blur-sm">
+                                                <span className="text-overline font-bold px-2 py-0.5 bg-surface-overlay rounded-card border border-hairline text-ink backdrop-blur-sm">
                                                   {stage.video.channel_title}
                                                 </span>
-                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-white/95 rounded border border-slate-200 text-slate-700 backdrop-blur-sm">
+                                                <span className="text-overline font-bold px-2 py-0.5 bg-surface-overlay rounded-card border border-hairline text-ink backdrop-blur-sm">
                                                   {stage.video.duration_minutes} Mins
                                                 </span>
                                               </div>
                                               
                                               <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-indigo-650 group-hover/thumb:bg-indigo-700 text-white flex items-center justify-center shadow-lg transition-colors flex-shrink-0">
+                                                <div className="w-10 h-10 rounded-pill bg-indigo-650 group-hover/thumb:bg-indigo-700 text-white flex items-center justify-center shadow-soft-lg transition-colors flex-shrink-0">
                                                   <Play className="w-5 h-5 fill-current ml-0.5" />
                                                 </div>
-                                                <p className="text-xs sm:text-sm font-semibold text-white line-clamp-2 pr-1.5 leading-snug drop-shadow pr-2">
+                                                <p className="text-caption font-semibold text-white line-clamp-2 pr-1.5 leading-snug drop-shadow pr-2">
                                                   {stage.video.title}
                                                 </p>
                                               </div>
@@ -578,8 +579,8 @@ export default function SkillGapModal({
                         <div className="space-y-6">
                           
                           {/* Recommended Projects */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-450 flex items-center gap-2">
+                          <div className="bg-surface-raised border border-hairline rounded-card p-5 space-y-4">
+                            <h4 className="app-label flex items-center gap-2">
                               <Code className="w-4 h-4 text-indigo-500" />
                               Interactive Projects
                             </h4>
@@ -588,17 +589,17 @@ export default function SkillGapModal({
                               {roadmapData.recommended_projects?.map((proj, idx) => (
                                 <div 
                                   key={idx} 
-                                  className="bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-150 transition-all space-y-2.5 shadow-[0_2px_6px_rgba(0,0,0,0.01)]"
+                                  className="bg-surface-sunken border border-hairline rounded-card p-4 hover:border-hairline-strong transition-all space-y-2.5 shadow-soft-xs"
                                 >
-                                  <h5 className="font-bold text-slate-800 text-sm">{proj.title}</h5>
-                                  <p className="text-xs text-slate-500 leading-relaxed font-normal">
+                                  <h5 className="font-bold text-ink text-caption">{proj.title}</h5>
+                                  <p className="text-caption text-ink-muted leading-relaxed font-normal">
                                     {proj.description}
                                   </p>
                                   <div className="flex flex-wrap gap-1 pt-1">
                                     {proj.skills_practiced?.map(skill => (
                                       <span 
                                         key={skill} 
-                                        className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded text-[10px] font-bold text-indigo-650"
+                                        className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded-pill text-overline font-bold text-indigo-650"
                                       >
                                         {skill}
                                       </span>
@@ -610,8 +611,8 @@ export default function SkillGapModal({
                           </div>
 
                           {/* LeetCode Practice Problems */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-450 flex items-center gap-2">
+                          <div className="bg-surface-raised border border-hairline rounded-card p-5 space-y-4">
+                            <h4 className="app-label flex items-center gap-2">
                               <MedalIcon className="w-4 h-4 text-indigo-500" />
                               Practice Challenges
                             </h4>
@@ -632,21 +633,21 @@ export default function SkillGapModal({
                                     href={prob.url} 
                                     target="_blank" 
                                     rel="noopener noreferrer" 
-                                    className="flex items-center justify-between p-3.5 bg-white hover:bg-slate-50/50 border border-slate-200 rounded-xl transition-all hover:border-indigo-150 group shadow-[0_2px_6px_rgba(0,0,0,0.01)]"
+ className="flex items-center justify-between p-3.5 bg-surface-sunken hover:bg-surface-overlay border border-hairline rounded-card transition-all hover:border-hairline-strong group shadow-soft-xs"
                                   >
                                     <div className="space-y-1 pr-3">
-                                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-500 block">
+                                      <span className="text-overline font-bold uppercase tracking-wider text-indigo-500 block">
                                         {prob.platform || 'LeetCode'}
                                       </span>
-                                      <h5 className="font-bold text-slate-800 text-xs sm:text-sm group-hover:text-indigo-600 line-clamp-1 leading-snug">
+                                      <h5 className="font-bold text-ink text-caption group-hover:text-indigo-600 line-clamp-1 leading-snug">
                                         {prob.title}
                                       </h5>
                                     </div>
                                     <div className="flex items-center gap-2.5 flex-shrink-0">
-                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${diffColor}`}>
+                                      <span className={`text-overline font-bold px-2 py-0.5 rounded-pill border ${diffColor}`}>
                                         {prob.difficulty}
                                       </span>
-                                      <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                                      <ExternalLink className="w-3.5 h-3.5 text-ink-subtle group-hover:text-indigo-500 transition-colors" />
                                     </div>
                                   </a>
                                 )
@@ -664,8 +665,8 @@ export default function SkillGapModal({
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-shrink-0">
-              <span className="text-[10px] font-bold text-slate-450 tracking-wider flex items-center gap-1">
+            <div className="px-6 py-4 bg-surface-raised border-t border-hairline flex items-center justify-between flex-shrink-0">
+              <span className="text-overline font-bold text-ink-subtle tracking-wider flex items-center gap-1">
                 <MedalIcon className="w-3.5 h-3.5" />
                 POWERED BY LLaMA-3 TECHNICAL REASONING
               </span>
@@ -675,7 +676,7 @@ export default function SkillGapModal({
                   <button
                     onClick={handleGeneratePath}
                     disabled={!gapStreamDone || !!gapStreamError}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20 active:scale-98"
+                    className="app-btn-primary app-btn-sm flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <BookOpen className="w-4 h-4" />
                     <span>View Your Interactive Learning Path</span>
@@ -685,7 +686,7 @@ export default function SkillGapModal({
                   <button
                     onClick={handleGeneratePath}
                     disabled={!gapStreamDone || !!gapStreamError}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-md shadow-indigo-600/10 hover:shadow-indigo-600/20 active:scale-98"
+                    className="app-btn-primary app-btn-sm flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <BookOpen className="w-4 h-4" />
                     <span>Build Interactive Pathway (10 Credits)</span>
@@ -702,7 +703,7 @@ export default function SkillGapModal({
                     }
                   }}
                   disabled={roadmapLoading}
-                  className="px-6 py-2.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-2 border border-slate-200 transition-colors"
+ className="app-btn-secondary app-btn-sm flex items-center gap-2"
                 >
                   <Check className="w-4 h-4" />
                   <span>Save to Dashboard & Close</span>

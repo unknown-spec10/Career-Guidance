@@ -21,6 +21,8 @@ const questions = [
   { id: 'q2', text: 'Explain indexing.', question_number: 2, total_questions: 2, skill_tag: 'DB' },
 ]
 
+const nextQ2 = { id: 'q2', text: 'Explain indexing.', question_number: 2, total_questions: 2, skill_tag: 'DB' }
+
 const mockStart = ({ abandonToken = 'hmac-token-1' } = {}) => {
   api.post.mockImplementation((url) => {
     if (url === '/api/interview/start') {
@@ -90,16 +92,17 @@ describe('useInterviewSession — interview lifecycle contract', () => {
     expect(result.current.error).toBe('Not enough credits. 10 required.')
   })
 
-  it('submits answers with the correct body and advances to the next question', async () => {
+  it('advances from the server next_question and stores the answer_id for hints', async () => {
     mockStart()
     const { result } = renderHook(() => useInterviewSession())
     await act(async () => {
       await result.current.startSession({})
     })
 
-    api.post.mockResolvedValueOnce({ data: { status: 'answered' } })
+    api.post.mockResolvedValueOnce({ data: { status: 'ok', next_question: nextQ2, answer_id: 'ans-1' } })
+    let outcome
     await act(async () => {
-      await result.current.submitAnswer('REST is an architectural style.')
+      outcome = await result.current.submitAnswer('REST is an architectural style.')
     })
 
     expect(api.post).toHaveBeenCalledWith('/api/interview/answer', {
@@ -107,8 +110,43 @@ describe('useInterviewSession — interview lifecycle contract', () => {
       question_id: 'q1',
       answer_text: 'REST is an architectural style.',
     })
+    // H1: the advance is driven by AnswerResponse.next_question, not local index.
     expect(result.current.currentQuestion?.id).toBe('q2')
+    // H2: the answer_id is surfaced so the client can request a hint for it.
+    expect(outcome.answerId).toBe('ans-1')
+    expect(result.current.lastAnswerId).toBe('ans-1')
     expect(result.current.isSubmitting).toBe(false)
+  })
+
+  it('stays on the current question when the server returns a resubmission (next_question null)', async () => {
+    mockStart()
+    const { result } = renderHook(() => useInterviewSession())
+    await act(async () => { await result.current.startSession({}) })
+
+    api.post.mockResolvedValueOnce({ data: { status: 'ok', next_question: null, answer_id: 'ans-1' } })
+    let outcome
+    await act(async () => {
+      outcome = await result.current.submitAnswer('Edited answer.')
+    })
+
+    expect(result.current.currentQuestion?.id).toBe('q1')
+    expect(outcome.resubmitted).toBe(true)
+    expect(outcome.answerId).toBe('ans-1')
+  })
+
+  it('surfaces an adaptive reserve question the client has never seen', async () => {
+    mockStart()
+    const { result } = renderHook(() => useInterviewSession())
+    await act(async () => { await result.current.startSession({}) })
+
+    const reserve = { id: 'qr-1', text: 'Harder follow-up.', question_number: 2, total_questions: 2, skill_tag: 'API' }
+    api.post.mockResolvedValueOnce({ data: { status: 'ok', next_question: reserve, answer_id: 'ans-1' } })
+    await act(async () => {
+      await result.current.submitAnswer('First answer.')
+    })
+
+    expect(result.current.currentQuestion?.id).toBe('qr-1')
+    expect(result.current.questions.map(q => q.id)).toContain('qr-1')
   })
 
   it('marks the session complete after the last answer reports interview_complete', async () => {
@@ -116,19 +154,20 @@ describe('useInterviewSession — interview lifecycle contract', () => {
     const { result } = renderHook(() => useInterviewSession())
     await act(async () => { await result.current.startSession({}) })
 
-    api.post.mockResolvedValueOnce({ data: { status: 'answered' } })
+    api.post.mockResolvedValueOnce({ data: { status: 'ok', next_question: nextQ2, answer_id: 'ans-1' } })
     await act(async () => {
       await result.current.submitAnswer('First answer.')
     })
     expect(result.current.currentQuestion?.id).toBe('q2')
 
-    api.post.mockResolvedValueOnce({ data: { status: 'interview_complete' } })
+    api.post.mockResolvedValueOnce({ data: { status: 'interview_complete', next_question: null, answer_id: 'ans-2' } })
     let outcome
     await act(async () => {
       outcome = await result.current.submitAnswer('Indexing speeds up reads.')
     })
 
     expect(outcome.complete).toBe(true)
+    expect(outcome.answerId).toBe('ans-2')
     expect(result.current.isComplete).toBe(true)
   })
 
@@ -262,6 +301,74 @@ describe('useInterviewSession — interview lifecycle contract', () => {
     expect(outcome.redirect).toBe('results')
   })
 
+  it('redirects abandoned sessions to the abandoned guidance path', async () => {
+    api.get.mockResolvedValueOnce({ data: { status: 'abandoned' } })
+    const { result } = renderHook(() => useInterviewSession())
+
+    let outcome
+    await act(async () => {
+      outcome = await result.current.recoverSession('sess-old')
+    })
+
+    expect(outcome.success).toBe(false)
+    expect(outcome.redirect).toBe('abandoned')
+  })
+
+  it('exposes retryAfter when the server rate-limits an answer', async () => {
+    mockStart()
+    const { result } = renderHook(() => useInterviewSession())
+    await act(async () => { await result.current.startSession({}) })
+
+    api.post.mockRejectedValueOnce({
+      response: { status: 429, data: { detail: 'Please wait 7 seconds between submitting answers to allow AI evaluation to process.' } },
+    })
+    let outcome
+    await act(async () => {
+      outcome = await result.current.submitAnswer('answer')
+    })
+
+    expect(outcome.error).toContain('Please wait 7 seconds')
+    expect(outcome.retryAfter).toBe(7)
+    expect(result.current.retryAfter).toBe(7)
+  })
+
+  it('surfaces SSE error events from the hint stream instead of swallowing them', async () => {
+    sessionStorage.setItem('_secure_token', btoa(JSON.stringify('tok-hint')))
+    global.fetch = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"error":"Hints are disabled for the Tough FAANG Interviewer persona."}\n',
+        'data: [DONE]\n',
+      ])
+    )
+
+    const { result } = renderHook(() => useInterviewSession())
+
+    let outcome
+    await act(async () => {
+      outcome = await result.current.streamHint('ans-9')
+    })
+
+    expect(result.current.hintError).toBe('Hints are disabled for the Tough FAANG Interviewer persona.')
+    expect(result.current.hint).toBeNull()
+    expect(result.current.hintStreaming).toBe(false)
+    expect(outcome.success).toBe(true)
+    sessionStorage.removeItem('_secure_token')
+  })
+
+  it('reports a failed hint fetch instead of leaving a silent empty hint', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, body: null })
+    const { result } = renderHook(() => useInterviewSession())
+
+    let outcome
+    await act(async () => {
+      outcome = await result.current.streamHint('ans-9')
+    })
+
+    expect(outcome.error).toBeTruthy()
+    expect(result.current.hintError).toBeTruthy()
+    expect(result.current.hintStreaming).toBe(false)
+  })
+
   // -------------------------------------------------------------------------
   // Hint streaming (raw fetch + SSE parsing through apiUrl)
   // -------------------------------------------------------------------------
@@ -305,5 +412,22 @@ describe('useInterviewSession — interview lifecycle contract', () => {
     expect(result.current.hint).toBe('ok')
     expect(result.current.hintStreaming).toBe(false)
     warn.mockRestore()
+  })
+
+  it('quitSession reports failure so the page can stay put instead of navigating away (H7)', async () => {
+    mockStart()
+    const { result } = renderHook(() => useInterviewSession())
+    await act(async () => { await result.current.startSession({}) })
+
+    api.post.mockRejectedValueOnce({
+      response: { status: 500, data: { detail: 'Could not end session.' } },
+    })
+    let outcome
+    await act(async () => {
+      outcome = await result.current.quitSession()
+    })
+
+    expect(outcome.success).toBe(false)
+    expect(outcome.error).toBe('Could not end session.')
   })
 })

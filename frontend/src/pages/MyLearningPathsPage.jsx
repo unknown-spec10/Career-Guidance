@@ -97,7 +97,7 @@ const MyLearningPathsPage = () => {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600"></div>
+                <div className="animate-spin rounded-pill h-16 w-16 border-b-2 border-primary-500"></div>
             </div>
         )
     }
@@ -107,28 +107,29 @@ const MyLearningPathsPage = () => {
 
     return (
         <div className="max-w-6xl mx-auto px-4 py-8">
-            <div className="flex items-center justify-between mb-8 border-b border-gray-100 pb-6">
+            <div className="flex items-center justify-between mb-8 border-b border-hairline pb-6">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-                        <BookOpen className="mr-3 text-indigo-650" />
+                    <p className="eyebrow mb-2">Learning</p>
+                    <h1 className="app-page-title flex items-center gap-3">
+                        <BookOpen className="text-primary-600 dark:text-primary-400" size={28} />
                         My Learning Paths
                     </h1>
-                    <p className="text-gray-600 mt-2">
+                    <p className="app-page-subtitle">
                         Track your personalized learning progress from past mock practices
                     </p>
                 </div>
             </div>
 
             {activePaths.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-12 text-center shadow-sm">
-                    <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Active Learning Paths Yet</h3>
-                    <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                <div className="surface-card border-dashed p-12 text-center">
+                    <Target className="w-16 h-16 text-ink-subtle mx-auto mb-4" />
+                    <h3 className="text-title text-ink mb-2">No Active Learning Paths Yet</h3>
+                    <p className="text-body text-ink-muted mb-6 max-w-md mx-auto">
                         Complete mock practices to compile structured skill gap analyses and interactive roadmaps.
                     </p>
                     <button
                         onClick={() => navigate('/dashboard/interview')}
-                        className="px-6 py-3 bg-indigo-650 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-650/15"
+                        className="app-btn-primary"
                     >
                         Start Interview Practice
                     </button>
@@ -139,38 +140,38 @@ const MyLearningPathsPage = () => {
                         <div
                             key={path.id}
                             onClick={() => navigate(`/dashboard/learning-path/${path.id}`)}
-                            className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer border border-gray-200 overflow-hidden group flex flex-col justify-between"
+                            className="surface-card surface-card-interactive cursor-pointer overflow-hidden group flex h-full flex-col justify-between"
                         >
                             <div className="p-6">
                                 <div className="flex justify-between items-center mb-4">
-                                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                                    <span className={`px-2.5 py-0.5 rounded-pill text-caption font-bold border ${
                                         path.status === 'completed' 
-                                            ? 'bg-green-50 border border-green-150 text-green-600' 
-                                            : 'bg-indigo-50 border border-indigo-100 text-indigo-750'
+                                            ? 'bg-success/10 border-success/20 text-success' 
+                                            : 'bg-primary-50 border-primary-200 text-primary-700 dark:bg-primary-500/10 dark:border-primary-500/30 dark:text-primary-300'
                                     }`}>
                                         {path.status === 'completed' ? 'Completed' : 'Active'}
                                     </span>
-                                    <span className="text-xs text-gray-400 flex items-center">
+                                    <span className="text-caption text-ink-subtle flex items-center">
                                         <Calendar className="w-3 h-3 mr-1" />
                                         {new Date(path.created_at).toLocaleDateString()}
                                     </span>
                                 </div>
 
-                                <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-indigo-650 transition-colors">
+                                <h3 className="text-title text-ink mb-2 group-hover:text-primary-700 dark:group-hover:text-primary-300 transition-colors">
                                     Learning Path #{path.id}
                                 </h3>
 
                                 {path.priority_skills && path.priority_skills.length > 0 && (
                                     <div className="mb-4">
-                                        <p className="text-[10px] font-bold text-gray-450 block uppercase tracking-wider mb-2">Focus Skills</p>
+                                        <p className="app-label block mb-2">Focus Skills</p>
                                         <div className="flex flex-wrap gap-1">
                                             {path.priority_skills.slice(0, 3).map((skill, idx) => (
-                                                <span key={idx} className="px-2 py-0.5 bg-slate-50 border border-slate-150 text-gray-600 text-xs rounded font-medium">
+                                                <span key={idx} className="px-2 py-0.5 bg-surface-sunken border border-hairline text-ink-muted text-caption rounded-pill font-medium">
                                                     {skill}
                                                 </span>
                                             ))}
                                             {path.priority_skills.length > 3 && (
-                                                <span className="px-2 py-0.5 bg-slate-50 border border-slate-150 text-gray-500 text-xs rounded font-medium">
+                                                <span className="px-2 py-0.5 bg-surface-sunken border border-hairline text-ink-subtle text-caption rounded-pill font-medium">
                                                     +{path.priority_skills.length - 3}
                                                 </span>
                                             )}
@@ -178,9 +179,9 @@ const MyLearningPathsPage = () => {
                                     </div>
                                 )}
 
-                                <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
-                                    <div className="flex items-center text-sm text-slate-500 font-medium">
-                                        <Clock className="w-4 h-4 mr-1.5 text-slate-400" />
+                                <div className="flex items-center justify-between mt-6 pt-4 border-t border-hairline">
+                                    <div className="flex items-center text-caption text-ink-muted font-medium">
+                                        <Clock className="w-4 h-4 mr-1.5 text-ink-subtle" />
                                         {path.progress_percentage || 0}% Complete
                                     </div>
                                     
@@ -191,7 +192,7 @@ const MyLearningPathsPage = () => {
                                                 onClick={(e) => handleMarkCompleted(e, path.id)}
                                                 title="Mark as completed"
                                                 aria-label="Mark learning path as completed"
-                                                className="p-1.5 rounded-lg bg-green-50 hover:bg-green-100 border border-green-150 text-green-600 hover:text-green-700 transition-colors"
+                                                className="p-1.5 rounded-card bg-success/10 hover:bg-success/20 border border-success/20 text-success hover:text-success transition-colors"
                                             >
                                                 <Check className="w-4 h-4" />
                                             </button>
@@ -200,16 +201,16 @@ const MyLearningPathsPage = () => {
                                             onClick={(e) => handleDeletePath(e, path.id)}
                                             title="Delete learning path"
                                             aria-label="Delete learning path"
-                                            className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 border border-red-150 text-red-550 hover:text-red-700 transition-colors"
+ className="p-1.5 rounded-card bg-error/10 hov-danger border border-error/20 text-error hover:text-error transition-colors"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                            <div className="bg-gray-100 h-1 w-full">
+                            <div className="bg-surface-sunken h-1 w-full">
                                 <div
-                                    className={`h-1 transition-all duration-500 ${path.status === 'completed' ? 'bg-green-500' : 'bg-indigo-650'}`}
+                                    className={`h-1 transition-all duration-500 ${path.status === 'completed' ? 'bg-success' : 'bg-primary-500'}`}
                                     style={{ width: `${path.progress_percentage || 0}%` }}
                                 />
                             </div>
@@ -220,9 +221,9 @@ const MyLearningPathsPage = () => {
 
             {/* Trash recovery section */}
             {deletedPaths.length > 0 && (
-                <div className="mt-16 pt-8 border-t border-gray-200">
-                    <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                        <Trash2 className="text-red-500" />
+                <div className="mt-16 pt-8 border-t border-hairline">
+                    <h2 className="app-section-title mb-6 flex items-center gap-2">
+                        <Trash2 className="text-error" size={22} />
                         Trash & Recovery (Soft Deleted)
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -235,19 +236,19 @@ const MyLearningPathsPage = () => {
                             return (
                                 <div 
                                     key={path.id} 
-                                    className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-6 relative flex flex-col justify-between"
+                                    className="rounded-panel border border-dashed border-hairline-strong bg-surface-sunken p-6 relative flex flex-col justify-between"
                                 >
                                     <div>
-                                        <h3 className="text-sm font-bold text-slate-500 mb-1">Learning Path #{path.id}</h3>
-                                        <p className="text-xs text-red-600 font-semibold mb-4 flex items-center gap-1.5">
+                                        <h3 className="text-caption font-bold text-ink-subtle mb-1">Learning Path #{path.id}</h3>
+                                        <p className="text-caption text-error font-semibold mb-4 flex items-center gap-1.5">
                                             <Clock className="w-3.5 h-3.5" />
                                             Will be permanently deleted in {remainingDays} days
                                         </p>
                                     </div>
-                                    <div className="flex gap-2 border-t border-slate-200/60 pt-4 mt-2">
+                                    <div className="flex gap-2 border-t border-hairline pt-4 mt-2">
                                         <button
                                             onClick={(e) => handleRestorePath(e, path.id)}
-                                            className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 text-indigo-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
+                                            className="app-btn-secondary app-btn-sm flex items-center gap-1.5"
                                         >
                                             <RotateCcw className="w-3.5 h-3.5" />
                                             Restore Pathway

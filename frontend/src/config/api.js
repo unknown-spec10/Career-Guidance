@@ -1,5 +1,6 @@
 import axios from 'axios'
 import secureStorage from '../utils/secureStorage'
+import { getAuthToken, clearAuthToken } from '../utils/authToken'
 import { makeRetryable } from '../utils/apiRetry'
 
 // API Base URL configuration
@@ -31,8 +32,10 @@ export const api = axios.create({
 // Request interceptor for adding auth tokens
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available from secure storage
-    const token = secureStorage.getItem('token')
+    // Auth token from the in-memory holder (restored from session storage
+    // once per page load). Never read the stored copy directly here, so the
+    // future httpOnly-cookie migration only touches authToken.js.
+    const token = getAuthToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -60,8 +63,18 @@ api.interceptors.response.use(
       const message = error.response.data?.detail || error.message
 
       if (status === 401) {
-        // Token expired or invalid - clear auth and redirect
+        // Token expired or invalid - clear auth and redirect, but preserve
+        // the current location so an interrupted interview can resume after login.
         console.error('Unauthorized:', message)
+        try {
+          const path = window.location.pathname + window.location.search
+          if (path.startsWith('/dashboard/interview/')) {
+            sessionStorage.setItem('post_login_redirect', path)
+          }
+        } catch {
+          // storage may be unavailable — still redirect to login
+        }
+        clearAuthToken()
         secureStorage.clear()
 
         // Only redirect if not already on login/register pages

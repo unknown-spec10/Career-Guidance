@@ -25,26 +25,22 @@ vi.mock('framer-motion', () => {
     ...rest
   }) => rest
 
-  const createMotionProxy = () =>
-    new Proxy({}, {
-      get: (_, tag) => {
-        if (typeof tag !== 'string') return undefined
+  // NOTE: components are cached per tag so `motion.div` (etc.) is
+  // referentially stable across renders — matching real framer-motion.
+  // Returning a fresh component on every access would make React unmount +
+  // remount the whole subtree on each re-render, letting async queries
+  // (findBy*) resolve with detached nodes.
+  const motionProxy = new Proxy({}, {
+    get: (target, tag) => {
+      if (typeof tag !== 'string') return undefined
+      if (!target[tag]) {
         const MotionComponent = React.forwardRef((props, ref) =>
           React.createElement(tag, { ...stripAnimationProps(props), ref })
         )
         MotionComponent.displayName = `motion.${String(tag)}`
-        return MotionComponent
-      },
-    })
-
-  const motionProxy = new Proxy({}, {
-    get: (_, tag) => {
-      if (typeof tag !== 'string') return undefined
-      const MotionComponent = React.forwardRef((props, ref) =>
-        React.createElement(tag, { ...stripAnimationProps(props), ref })
-      )
-      MotionComponent.displayName = `motion.${String(tag)}`
-      return MotionComponent
+        target[tag] = MotionComponent
+      }
+      return target[tag]
     },
   })
 
