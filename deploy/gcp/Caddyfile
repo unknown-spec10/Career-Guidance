@@ -1,0 +1,20 @@
+# Caddy on the demo VM: automatic HTTPS (Let's Encrypt HTTP-01) for the
+# DuckDNS hostname, reverse-proxying every request to the FastAPI container.
+#
+# The hostname below MUST match DUCKDNS_SUBDOMAIN in deploy/gcp/user-data.sh;
+# that script re-points the DuckDNS record at this VM's ephemeral IP on every
+# boot, and docker-compose.yml publishes 80/443 for Caddy.
+#
+# Certificates and ACME state persist in the `caddy_data` / `caddy_config`
+# compose volumes, so restarts do not re-issue certificates.
+
+deepsync.duckdns.org {
+	encode zstd gzip
+	reverse_proxy backend:8000
+}
+
+# Plain HTTP (port 80): Caddy answers ACME HTTP-01 challenges on :80 before
+# this route runs, then permanently redirects every other request to HTTPS.
+http://deepsync.duckdns.org {
+	redir https://{host}{uri} permanent
+}

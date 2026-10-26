@@ -138,7 +138,7 @@ Set this variable in the **Vercel Project Dashboard → Settings → Environment
 
 | Variable Key | Suggested Placeholder Value | Description |
 |---|---|---|
-| `VITE_API_BASE_URL` | `http://<your-vm-ip-or-domain>:8000` | The URL of your active backend VM service (do not include a trailing `/`). |
+| `VITE_API_BASE_URL` | `https://deepsync.duckdns.org` | Public HTTPS origin of the backend VM (Caddy terminates TLS; no port, no trailing `/`). |
 
 ---
 
@@ -149,7 +149,7 @@ Set this variable in the **Vercel Project Dashboard → Settings → Environment
 > deploy-path cleanup, and the `ec2-deploy` CI job is parked (`if: false` in
 > `.github/workflows/ci-cd.yml`). The documented deploy path is the **manual GCE
 > bring-up**: `deploy/gcp/BRINGUP.md` (startup script `deploy/gcp/user-data.sh`),
-> the single root `docker-compose.yml` (backend-only), and
+> the single root `docker-compose.yml` (backend + Caddy TLS), and
 > `resume_pipeline/Dockerfile`.
 
 For teams utilizing managed services, the platform is structured to run the database on **Supabase**, the React frontend SPA on **Vercel**, and the FastAPI backend API on a small **GCP e2-small VM** (see `deploy/gcp/BRINGUP.md` for the console click path, IP, start/stop, and warm-up checklist).
@@ -177,7 +177,9 @@ This tags the backend image with `:latest` and a unique `:yyyyMMdd-HHmmss` times
 
 Follow the console click path in `deploy/gcp/BRINGUP.md`: `e2-small` (2 vCPU,
 2 GB), Ubuntu 22.04 LTS, 30 GB disk, network tags `http-server`/`https-server`,
-plus a VPC firewall rule allowing `tcp:8000`. Paste the contents of
+plus VPC firewall rules allowing `tcp:80` and `tcp:443` for Caddy's Let's
+Encrypt challenge and public HTTPS API (exact commands in BRINGUP §1a; port
+`8000` stays loopback-only). Paste the contents of
 `deploy/gcp/user-data.sh` into the GCE **Automation > Startup script** field.
 Edit its config block (`REPO_URL`, `GCP_PROJECT`, `DOCKER_HUB_USERNAME`, plus the
 non-secret `PG_HOST`/`PG_USER`/`CORS_ORIGINS`/`FRONTEND_URL` values) before boot.
@@ -198,10 +200,13 @@ Documented secret names (env-var name == secret name):
 * **Optional (feature keys, may stay absent):** `OPENCODE_API_KEY`,
   `GROQ_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_SEARCH_API_KEY`,
   `GOOGLE_CLIENT_SECRET`, `YOUTUBE_DATA_API_KEY`, `GMAIL_APP_PASSWORD`.
+* **Boot-time only (read by the startup script, never the container):**
+  `DUCKDNS_TOKEN` (refreshes `deepsync.duckdns.org` on every boot).
 
 Non-secret config (`PG_HOST`, `PG_PORT`, `PG_USER`, `PG_DB`, `APP_ENV`,
-`CORS_ORIGINS`, `FRONTEND_URL`, `BACKEND_URL`, `GOOGLE_CLIENT_ID`, `GMAIL_USER`,
-storage flags) is exported by the startup script and passed through by compose.
+`DUCKDNS_SUBDOMAIN`, `CORS_ORIGINS`, `FRONTEND_URL`, `BACKEND_URL`,
+`GOOGLE_CLIENT_ID`, `GMAIL_USER`, storage flags) is exported by the startup
+script and passed through by compose.
 Creation commands, the per-secret `roles/secretmanager.secretAccessor` binding
 (least privilege — never project-wide), and the no-`.env` verification sequence
 live in `deploy/gcp/BRINGUP.md` §6.
@@ -228,6 +233,10 @@ startup-script variables and secrets from Secret Manager):
 * **View backend logs**:
   ```bash
   docker compose logs -f backend
+  ```
+* **View TLS / proxy logs** (Let's Encrypt issuance, HTTPS redirects):
+  ```bash
+  docker compose logs -f caddy
   ```
 * **Database Seeding** (schema itself is managed by Alembic — `alembic upgrade head` from `resume_pipeline/`; legacy `init_db.py` is dev-only and must never run against a real database):
   ```bash

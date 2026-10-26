@@ -1,0 +1,3 @@
+# Deployment shell scripts run on Linux and are often copied from a Windows
+# checkout. Force LF so a CRLF shebang/`set -e` line cannot break the boot.
+deploy/gcp/*.sh text eol=lf

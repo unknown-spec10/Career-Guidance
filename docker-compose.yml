@@ -1,12 +1,17 @@
-# Single deploy compose — backend-only, external Supabase, low-RAM profile.
-# Frontend ships on Vercel (no container). Database is external Supabase
-# (no db service). Folded from deploy/docker/docker-compose.prod.yml +
+# Single deploy compose — backend + Caddy TLS terminator, external Supabase,
+# low-RAM profile. Frontend ships on Vercel (no container). Database is external
+# Supabase (no db service). Folded from deploy/docker/docker-compose.prod.yml +
 # deploy/gcp/docker-compose.gcp.yml (both deleted).
+#
+# Caddy (deploy/gcp/Caddyfile) owns the public ports 80/443, obtains a
+# Let's Encrypt certificate for deepsync.duckdns.org via HTTP-01, redirects
+# HTTP to HTTPS, and reverse-proxies to backend:8000.
 #
 # Usage (VM repo root, env in root .env):
 #   docker compose --env-file .env pull && docker compose --env-file .env up -d
-#   docker compose logs -f backend
-#   curl -fsS http://localhost:8000/health
+#   docker compose logs -f backend caddy
+#   curl -fsS https://deepsync.duckdns.org/health
+#   curl -fsS http://localhost:8000/health   # loopback-only debug path
 #
 # Images are built on a laptop/CI box via deploy/docker/build-and-push.sh and
 # pushed to Docker Hub — never `up --build` on the VM (see deploy/gcp/).
@@ -130,7 +135,10 @@ services:
       # Skip heavy RAG warm-up on small boxes; RAG lazy-loads on first query.
       RAG_PRELOAD_ON_STARTUP: "false"
     ports:
-      - "8000:8000"
+      # Loopback-only: kept for SSH-tunnel debugging (ssh -L 8000:localhost:8000)
+      # so no plaintext API port is exposed publicly; Caddy is the only public
+      # entrypoint (80/443 below).
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data/raw_files:/app/data/raw_files
       - ./resume_pipeline/logs:/app/logs
@@ -147,3 +155,35 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # --- Public TLS terminator (Let's Encrypt HTTP-01 for the DuckDNS host) ---
+  caddy:
+    image: caddy:2-alpine
+    container_name: career-guidance-caddy
+    # Caddy's automatic HTTPS listens on 443 (TCP) and answers the ACME HTTP-01
+    # challenge on 80. UDP/443 (HTTP/3) is deliberately not published: it would
+    # need an extra firewall rule and browsers fall back to HTTPS-over-TCP.
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/gcp/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persist issued certificates + ACME state across restarts.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      # Start order only: Caddy may return 502 while the API warms up, and the
+      # startup script waits for /health separately. Do NOT use
+      # condition: service_healthy here — the backend's cold start on e2-small
+      # can outlast the healthcheck's retry budget and would fail `up -d`.
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

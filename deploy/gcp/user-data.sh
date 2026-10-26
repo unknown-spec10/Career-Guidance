@@ -8,9 +8,11 @@
 #         network tags http-server/https-server.
 #
 # SECRETS MODEL (firm): the VM keeps NO local .env file. Non-secret runtime
-# config is exported below and consumed by docker compose interpolation; all
+# config is exported below and consumed by docker compose interpolation; app
 # credentials are fetched inside the container at startup from GCP Secret
-# Manager by resume_pipeline/docker-entrypoint.py (GCP_PROJECT is set).
+# Manager by resume_pipeline/docker-entrypoint.py (GCP_PROJECT is set). The
+# DuckDNS token is the one exception read by THIS script (§5b), into memory
+# only, to refresh the hostname before the containers boot.
 # See deploy/gcp/BRINGUP.md §6.
 set -euo pipefail
 
@@ -20,6 +22,10 @@ APP_DIR="/opt/career-guidance"
 REPO_URL="https://github.com/unknown-spec10/Career-Guidance.git"
 GCP_PROJECT="gen-lang-client-0977081292"
 DOCKER_HUB_USERNAME="deepdocker2023"
+# Public hostname served by Caddy (deepsync.duckdns.org). Keep in sync with the
+# site address in deploy/gcp/Caddyfile. The DuckDNS token is NEVER set here: it
+# lives only in Secret Manager as DUCKDNS_TOKEN and is read in §5b.
+DUCKDNS_SUBDOMAIN="deepsync"
 
 # ---------------------------------------------------------------------------
 # NON-SECRET runtime config (exported; compose `${VAR:-}` interpolation reads it).
@@ -35,10 +41,13 @@ export PG_HOST="aws-1-ap-northeast-2.pooler.supabase.com"  # Supabase pooler hos
 export PG_PORT="5432"
 export PG_USER="postgres.nzmgknwblgeiijxgtobx"  # pooler user for this project
 export PG_DB="postgres"
-# Public URLs (frontend stays on Vercel).
+# Public URLs. The frontend stays on Vercel; the API is served over TLS at the
+# DuckDNS hostname (refreshed every boot in §5b, terminated by Caddy in
+# docker-compose.yml). No port suffix: Caddy owns 443.
 export FRONTEND_URL="https://career-guidance-flame.vercel.app"
-export BACKEND_URL="http://35.232.79.105:8000"
-export CORS_ORIGINS="https://career-guidance-flame.vercel.app"
+export PUBLIC_HOSTNAME="${DUCKDNS_SUBDOMAIN}.duckdns.org"
+export BACKEND_URL="https://${PUBLIC_HOSTNAME}"
+export CORS_ORIGINS="https://career-guidance-flame.vercel.app,https://${PUBLIC_HOSTNAME}"
 export GOOGLE_CLIENT_ID=""        # OAuth client id (public identifier, not a secret)
 export GOOGLE_SEARCH_ENGINE_ID="957a8463ab6f24e38"  # Custom Search engine id (public identifier)
 export GMAIL_USER=""              # sender address (identifier; app password is a secret)
@@ -53,8 +62,11 @@ export RAG_PRELOAD_ON_STARTUP="false"
 # Required at boot: the entrypoint aborts naming any that are missing/empty.
 REQUIRED_SECRETS=(PG_PASSWORD SECRET_KEY ADMIN_EMAIL ADMIN_PASSWORD)
 # Optional feature keys (create later when you paste the values; absent = empty).
+# DUCKDNS_TOKEN is read by THIS script at boot (§5b) — never by the container —
+# and is included here only so the VM service account gets read access to it.
 OPTIONAL_SECRETS=(OPENCODE_API_KEY GROQ_API_KEY GOOGLE_API_KEY GOOGLE_SEARCH_API_KEY \
-                  GOOGLE_CLIENT_SECRET YOUTUBE_DATA_API_KEY GMAIL_APP_PASSWORD)
+                  GOOGLE_CLIENT_SECRET YOUTUBE_DATA_API_KEY GMAIL_APP_PASSWORD \
+                  DUCKDNS_TOKEN)
 
 log() { echo "[startup-script] $*"; }
 fail() { log "FATAL: $*"; exit 1; }
@@ -83,6 +95,9 @@ for pair in "REPO_URL:${REPO_URL}" "GCP_PROJECT:${GCP_PROJECT}" \
 done
 if [[ -z "${PG_HOST}" || -z "${PG_USER}" ]]; then
   fail "PG_HOST / PG_USER are empty — set the non-secret DB config block in deploy/gcp/user-data.sh."
+fi
+if [[ -z "${DUCKDNS_SUBDOMAIN}" ]]; then
+  fail "DUCKDNS_SUBDOMAIN is empty — set it in deploy/gcp/user-data.sh (must match deploy/gcp/Caddyfile)."
 fi
 command -v gcloud >/dev/null 2>&1 || fail "gcloud CLI not found — required for Secret Manager IAM binding."
 
@@ -116,7 +131,7 @@ fi
 # GCP firewall is controlled by network tags (http-server/https-server) + VPC
 # firewall rules, NOT on-VM iptables. Do NOT enable ufw here — a default
 # "deny incoming" ufw profile would conflict with the GCP-tagged rules and
-# lock out port 8000/80/443. Manage ports in VPC network > Firewall only.
+# lock out ports 80/443. Manage ports in VPC network > Firewall only.
 
 # --- 4. Clone-or-sync app code (no .env is ever created on the VM) ---
 if [ ! -d "${APP_DIR}/.git" ]; then
@@ -154,6 +169,64 @@ else
   done
 fi
 
+# --- 5b. DuckDNS: repoint the public hostname at this boot's ephemeral IP ---
+# Runs BEFORE the containers start so Caddy's HTTP-01 challenge and the app's
+# BACKEND_URL (Google OAuth redirect) are valid on the very first request.
+# The update URL deliberately carries NO `ip=` parameter: DuckDNS records the
+# public source address it sees, which follows the ephemeral VM IP across
+# stop/start cycles. Every failure here logs loudly but never aborts the boot —
+# the API remains reachable on localhost for debugging, and the script
+# re-verifies DNS instead of trusting the HTTP response alone.
+DUCKDNS_TOKEN_VALUE=""
+if ! gcloud secrets describe DUCKDNS_TOKEN --project="${GCP_PROJECT}" >/dev/null 2>&1; then
+  log "WARNING: Secret Manager secret DUCKDNS_TOKEN does not exist — DNS/TLS will not work (create it per BRINGUP.md §6b)."
+else
+  # Retry briefly: the IAM binding in §5 may still be propagating. The value
+  # lives in this shell variable only — never echoed, never written to disk.
+  for _ in $(seq 1 6); do
+    DUCKDNS_TOKEN_VALUE="$(gcloud secrets versions access latest \
+      --secret=DUCKDNS_TOKEN --project="${GCP_PROJECT}" 2>/dev/null | tr -d '\r\n' || true)"
+    if [[ -n "${DUCKDNS_TOKEN_VALUE}" ]]; then break; fi
+    sleep 5
+  done
+fi
+
+if [[ -z "${DUCKDNS_TOKEN_VALUE}" ]]; then
+  log "WARNING: could not read DUCKDNS_TOKEN — skipping DuckDNS update; ${PUBLIC_HOSTNAME} may point at a stale IP."
+else
+  # Feed the URL through a curl config on stdin so the token never appears in
+  # the process argument list (`ps`) either.
+  duck_response="$(printf 'url = "https://www.duckdns.org/update?domains=%s&token=%s"\nsilent\nshow-error\nfail\nmax-time = 20\n' \
+      "${DUCKDNS_SUBDOMAIN}" "${DUCKDNS_TOKEN_VALUE}" | curl --config - 2>/dev/null || true)"
+  if [[ "${duck_response}" == "OK" ]]; then
+    log "DuckDNS update accepted for ${PUBLIC_HOSTNAME}."
+  else
+    log "WARNING: DuckDNS update did not return OK (got '${duck_response:-no response}')."
+  fi
+  unset duck_response
+fi
+unset DUCKDNS_TOKEN_VALUE
+
+# Verify success by resolving the hostname and comparing it with this VM's
+# external IP (metadata server). DuckDNS propagates within seconds; retry ~60s.
+EXTERNAL_IP="$(curl -fsS -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip' 2>/dev/null || true)"
+dns_ok="false"
+resolved_ip=""
+for _ in $(seq 1 12); do
+  resolved_ip="$(getent ahostsv4 "${PUBLIC_HOSTNAME}" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+  if [[ -n "${resolved_ip}" && ( -z "${EXTERNAL_IP}" || "${resolved_ip}" == "${EXTERNAL_IP}" ) ]]; then
+    dns_ok="true"
+    break
+  fi
+  sleep 5
+done
+if [[ "${dns_ok}" == "true" ]]; then
+  log "DNS verified: ${PUBLIC_HOSTNAME} -> ${resolved_ip}${EXTERNAL_IP:+ (VM external IP ${EXTERNAL_IP})}."
+else
+  log "WARNING: ${PUBLIC_HOSTNAME} did not resolve to ${EXTERNAL_IP:-this VM} within 60s — Caddy certificate issuance will fail until DNS propagates. Backend still boots on localhost."
+fi
+
 # --- 6. Boot backend from the PREBUILT Hub image (never build on the VM) ---
 # No --env-file: compose interpolates the exported non-secret config above and
 # the container entrypoint pulls secrets from Secret Manager (GCP_PROJECT).
@@ -162,14 +235,28 @@ docker compose -f docker-compose.yml pull \
   || fail "docker compose pull failed — did build-and-push.sh run for this commit?"
 docker compose -f docker-compose.yml up -d
 
-# --- 7. Healthcheck against /health (up to ~3 min for cold start) ---
+# --- 7. Healthcheck: backend first (loopback), then public TLS (non-fatal) ---
 log "Waiting for backend health..."
+backend_healthy="false"
 for _ in $(seq 1 36); do
   if curl -fsS --max-time 5 http://localhost:8000/health > /dev/null; then
-    log "Backend healthy."
-    exit 0
+    backend_healthy="true"
+    break
   fi
   sleep 5
 done
-log "Backend did not become healthy in time; check 'docker logs career-guidance-backend'."
-exit 1
+if [[ "${backend_healthy}" != "true" ]]; then
+  log "Backend did not become healthy in time; check 'docker logs career-guidance-backend'."
+  exit 1
+fi
+log "Backend healthy."
+
+# Public TLS is expected but not fatal: on a cold boot DNS may still be
+# propagating and Caddy may still be completing the HTTP-01 challenge.
+log "Checking public TLS endpoint https://${PUBLIC_HOSTNAME}/health..."
+if curl -fsS --max-time 10 "https://${PUBLIC_HOSTNAME}/health" > /dev/null; then
+  log "Public TLS healthy: https://${PUBLIC_HOSTNAME}"
+else
+  log "WARNING: https://${PUBLIC_HOSTNAME}/health not reachable yet — check the 80/443 firewall rules and 'docker compose logs caddy' (BRINGUP.md §1a)."
+fi
+exit 0
