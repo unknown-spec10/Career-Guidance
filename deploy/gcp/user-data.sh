@@ -48,7 +48,7 @@ export FRONTEND_URL="https://career-guidance-flame.vercel.app"
 export PUBLIC_HOSTNAME="${DUCKDNS_SUBDOMAIN}.duckdns.org"
 export BACKEND_URL="https://${PUBLIC_HOSTNAME}"
 export CORS_ORIGINS="https://career-guidance-flame.vercel.app,https://${PUBLIC_HOSTNAME}"
-export GOOGLE_CLIENT_ID=""        # OAuth client id (public identifier, not a secret)
+export GOOGLE_CLIENT_ID="803645689505-51sumkplnjfavvdhj2tettptakt828on.apps.googleusercontent.com"  # OAuth client id (public identifier, not a secret)
 export GOOGLE_SEARCH_ENGINE_ID="957a8463ab6f24e38"  # Custom Search engine id (public identifier)
 export GMAIL_USER=""              # sender address (identifier; app password is a secret)
 # Storage (local by default; gcs + bucket when using Cloud Storage).
