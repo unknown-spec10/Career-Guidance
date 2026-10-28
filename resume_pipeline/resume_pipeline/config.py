@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     OPENCODE_API_BASE_URL: str = "https://opencode.ai/zen/v1"
     OPENCODE_API_KEY: str = ""
     OPENCODE_CHAT_MODEL: str = "deepseek-v4.1-flash"
+    # The OpenCode Go gateway models are reasoning models: with long prompts
+    # they can spend the whole max_tokens budget on reasoning_content and
+    # return empty content (the adapter rejects that empty response). When
+    # true, the adapter sends "reasoning_effort": "none" so the gateway skips
+    # reasoning entirely. Defaults to False, which leaves the request body
+    # byte-identical to the historical payload.
+    OPENCODE_DISABLE_REASONING: bool = False
 
     # Removed (Oct 2026 cutover): GEMINI_* keys, legacy Groq chat-model keys,
     # GROQ_TTS_*, NVIDIA_NIM_*, OPENROUTER_*, GOOGLE_EMBEDDING_ENABLED,

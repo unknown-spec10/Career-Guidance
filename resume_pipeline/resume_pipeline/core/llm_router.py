@@ -133,6 +133,11 @@ class OpenCodeAdapter:
         }
         if response_format:
             body["response_format"] = response_format
+        # Reasoning models on the Go gateway can burn the whole max_tokens
+        # budget on reasoning_content and return empty content. Opt-in only:
+        # when the flag is false the body stays exactly as before.
+        if settings.OPENCODE_DISABLE_REASONING:
+            body["reasoning_effort"] = "none"
         return body
 
     def has_credentials(self) -> bool:

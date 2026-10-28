@@ -55,11 +55,14 @@ def run_around_tests():
     orig_opencode_chat = settings.OPENCODE_CHAT_MODEL
     orig_primary_provider = settings.MODEL_CHAT_PRIMARY_PROVIDER
     orig_primary_name = settings.MODEL_CHAT_PRIMARY_NAME
+    orig_disable_reasoning = settings.OPENCODE_DISABLE_REASONING
 
     settings.OPENCODE_API_KEY = "oc_test_key"
     # Pin slots to the defaults; individual tests override via settings.
     settings.MODEL_CHAT_PRIMARY_PROVIDER = "opencode"
     settings.MODEL_CHAT_PRIMARY_NAME = ""
+    # Flag defaults off; reasoning_effort tests opt in explicitly.
+    settings.OPENCODE_DISABLE_REASONING = False
 
     yield
 
@@ -68,6 +71,7 @@ def run_around_tests():
     settings.OPENCODE_CHAT_MODEL = orig_opencode_chat
     settings.MODEL_CHAT_PRIMARY_PROVIDER = orig_primary_provider
     settings.MODEL_CHAT_PRIMARY_NAME = orig_primary_name
+    settings.OPENCODE_DISABLE_REASONING = orig_disable_reasoning
 
 
 def test_json_cleaning():
@@ -354,4 +358,96 @@ def test_opencode_headers_sent_on_chat_and_stream(mock_post):
     stream_headers = mock_post.call_args.kwargs["headers"]
     assert stream_headers["x-opencode-session"] == _SESSION_ID
     assert stream_headers["User-Agent"] == "career-guidance-backend/1.0"
+
+
+# ---------------------------------------------------------------------------
+# OpenCode reasoning suppression flag (OPENCODE_DISABLE_REASONING)
+# ---------------------------------------------------------------------------
+
+
+@patch("resume_pipeline.core.llm_router.requests.post")
+def test_opencode_disable_reasoning_flag_true_on_chat_and_stream(mock_post):
+    from resume_pipeline.core.llm_router import OpenCodeAdapter
+
+    settings.OPENCODE_DISABLE_REASONING = True
+    adapter = OpenCodeAdapter()
+
+    # _body() is shared: both chat() and stream() must carry the field.
+    chat_body = adapter._body(
+        [{"role": "user", "content": "long prompt"}], "m", 0.1, 4096, None
+    )
+    assert chat_body["reasoning_effort"] == "none"
+
+    mock_post.return_value = _opencode_ok("ok")
+    llm_router.generate_chat_completion(
+        [{"role": "user", "content": "Hello"}], provider="opencode"
+    )
+    sent_chat = mock_post.call_args.kwargs["json"]
+    assert sent_chat["reasoning_effort"] == "none"
+    # Existing payload fields are untouched.
+    assert sent_chat["model"] == settings.OPENCODE_CHAT_MODEL
+    assert sent_chat["messages"] == [{"role": "user", "content": "Hello"}]
+
+    mock_post.return_value = MockOpenAIResponse(
+        status_code=200,
+        sse_lines=[_sse_chunk("hi"), "data: [DONE]"],
+    )
+    assert "".join(
+        llm_router.generate_chat_completion_stream(
+            [{"role": "user", "content": "Hi"}], provider="opencode"
+        )
+    ) == "hi"
+    sent_stream = mock_post.call_args.kwargs["json"]
+    assert sent_stream["stream"] is True
+    assert sent_stream["reasoning_effort"] == "none"
+
+
+@patch("resume_pipeline.core.llm_router.requests.post")
+def test_opencode_disable_reasoning_flag_false_omits_field(mock_post):
+    from resume_pipeline.core.llm_router import OpenCodeAdapter
+
+    settings.OPENCODE_DISABLE_REASONING = False
+    adapter = OpenCodeAdapter()
+
+    # Byte-identical body to the historical payload: no extra keys at all.
+    body = adapter._body(
+        [{"role": "user", "content": "hi"}], "m", 0.1, 128, None
+    )
+    assert body == {
+        "model": "m",
+        "messages": [{"role": "user", "content": "hi"}],
+        "temperature": 0.1,
+        "max_tokens": 128,
+    }
+    assert "reasoning_effort" not in body
+
+    mock_post.return_value = _opencode_ok("ok")
+    llm_router.generate_chat_completion(
+        [{"role": "user", "content": "Hello"}], provider="opencode"
+    )
+    assert "reasoning_effort" not in mock_post.call_args.kwargs["json"]
+
+    mock_post.return_value = MockOpenAIResponse(
+        status_code=200,
+        sse_lines=[_sse_chunk("hi"), "data: [DONE]"],
+    )
+    assert "".join(
+        llm_router.generate_chat_completion_stream(
+            [{"role": "user", "content": "Hi"}], provider="opencode"
+        )
+    ) == "hi"
+    assert "reasoning_effort" not in mock_post.call_args.kwargs["json"]
+
+
+def test_opencode_disable_reasoning_settings_default_is_false():
+    # The env-driven field exists on Settings and defaults to False, so an
+    # unset OPENCODE_DISABLE_REASONING keeps the old request body exactly.
+    from resume_pipeline.config import Settings
+
+    assert "OPENCODE_DISABLE_REASONING" in Settings.model_fields
+    assert Settings.model_fields["OPENCODE_DISABLE_REASONING"].default is False
+    # Standard pydantic-style bool parsing (truthy/falsey env strings).
+    assert Settings(OPENCODE_DISABLE_REASONING="true").OPENCODE_DISABLE_REASONING is True
+    assert Settings(OPENCODE_DISABLE_REASONING="0").OPENCODE_DISABLE_REASONING is False
+
 

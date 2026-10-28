@@ -69,6 +69,9 @@ services:
       OPENCODE_API_BASE_URL: ${OPENCODE_API_BASE_URL:-https://opencode.ai/zen/v1}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       OPENCODE_CHAT_MODEL: ${OPENCODE_CHAT_MODEL:-deepseek-v4.1-flash}
+      # Go-gateway reasoning models can exhaust max_tokens on reasoning and
+      # return empty content; true sends reasoning_effort=none (see llm_router).
+      OPENCODE_DISABLE_REASONING: ${OPENCODE_DISABLE_REASONING:-false}
       # --- Groq (STT only; no chat-model keys) ---
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3}

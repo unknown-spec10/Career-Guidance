@@ -60,6 +60,9 @@ export GCS_PROJECT_ID=""
 # The adapter also sends x-opencode-session + a product user-agent (required
 # by the Go gateway; see resume_pipeline/core/llm_router.py OpenCodeAdapter).
 export OPENCODE_API_BASE_URL="https://opencode.ai/inference/go/v1"
+# Go gateway models reason before answering and can exhaust the token budget
+# on reasoning_content (empty content -> offline fallback). Skip reasoning.
+export OPENCODE_DISABLE_REASONING="true"
 # RAG stays lazy on 2 GB boxes.
 export RAG_PRELOAD_ON_STARTUP="false"
 
