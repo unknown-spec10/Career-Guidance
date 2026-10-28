@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Mail, Lock, AlertTriangle, CheckCircle, ArrowRight, Eye, EyeOff, Sparkles, Sun, Moon } from 'lucide-react'
@@ -34,12 +34,73 @@ export default function LoginPage() {
   // Local Theme Sync (shared hook)
   const { theme, toggleTheme } = useTheme()
 
+  // Exchange codes are single-use, so remember which one has already been
+  // sent. React 18 StrictMode invokes mount effects twice, and this effect
+  // re-runs whenever location.search changes — without this guard the same
+  // code would be redeemed twice and the second attempt would fail.
+  const redeemedExchangeRef = useRef(null)
+
+  /**
+   * Shared post-login success path: persist the session, then route by role
+   * (or resume an interview redirect preserved by a 401). Used by both the
+   * password flow and the Google OAuth exchange flow.
+   */
+  const completeLogin = (accessToken, user, { replace = false } = {}) => {
+    // Store session via the in-memory holder (mirrored for reload restore)
+    setAuthToken(accessToken)
+    secureStorage.setItem('user', user)
+    secureStorage.setItem('login_time', Date.now())
+
+    // Set default authorization header
+    api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`
+
+    // Navigate based on role — or back to the preserved location
+    // (e.g. an interview interrupted by a 401) when present.
+    const postLoginRedirect = sessionStorage.getItem('post_login_redirect')
+    if (postLoginRedirect && postLoginRedirect.startsWith('/dashboard/interview/')) {
+      sessionStorage.removeItem('post_login_redirect')
+      navigate(postLoginRedirect, { replace: true })
+    } else {
+      navigate(getDashboardPath(user.role, '/student/dashboard'), { replace })
+    }
+    toast.success('Login successful!')
+  }
+
   useEffect(() => {
     const params = new URLSearchParams(location.search)
+    const exchangeCode = params.get('exchange')
     const token = params.get('token')
     const errorParam = params.get('error')
 
-    if (errorParam) {
+    if (exchangeCode) {
+      if (redeemedExchangeRef.current === exchangeCode) return
+      redeemedExchangeRef.current = exchangeCode
+
+      setError('')
+      setLoading(true)
+      const redeemExchangeCode = async () => {
+        try {
+          const response = await api.post('/api/auth/google/exchange', { code: exchangeCode })
+          const { access_token, user } = response.data
+
+          // Drop the single-use code from the URL before redirecting, so a
+          // refresh or Back navigation cannot replay it.
+          navigate('/login', { replace: true })
+          completeLogin(access_token, user, { replace: true })
+        } catch (err) {
+          console.error('Failed to complete Google sign-in:', err)
+          const errorMsg = getApiError(err, 'Google sign-in failed. Please try again.')
+          setError(errorMsg)
+          toast.error(errorMsg)
+          // The code is single-use and already spent — strip it from the URL
+          // so reloading the page does not retry a dead code.
+          navigate('/login', { replace: true })
+        } finally {
+          setLoading(false)
+        }
+      }
+      redeemExchangeCode()
+    } else if (errorParam) {
       const decodedError = decodeURIComponent(errorParam)
       setError(decodedError)
       toast.error(decodedError)
@@ -58,19 +119,7 @@ export default function LoginPage() {
           const response = await api.get('/api/auth/me')
           const user = response.data
 
-          secureStorage.setItem('user', user)
-          secureStorage.setItem('login_time', Date.now())
-
-          // Navigate based on role — or back to the preserved location
-          // (e.g. an interview interrupted by a 401) when present.
-          const postLoginRedirect = sessionStorage.getItem('post_login_redirect')
-          if (postLoginRedirect && postLoginRedirect.startsWith('/dashboard/interview/')) {
-            sessionStorage.removeItem('post_login_redirect')
-            navigate(postLoginRedirect, { replace: true })
-          } else {
-            navigate(getDashboardPath(user.role, '/student/dashboard'), { replace: true })
-          }
-          toast.success('Login successful!')
+          completeLogin(token, user, { replace: true })
         } catch (err) {
           console.error('Failed to login via Google token:', err)
           const errorMsg = getApiError(err, 'Authentication failed')
@@ -123,24 +172,8 @@ export default function LoginPage() {
         // storage may be unavailable (private mode) — login still succeeds
       }
 
-      // Store session via the in-memory holder (mirrored for reload restore)
-      setAuthToken(access_token)
-      secureStorage.setItem('user', user)
-      secureStorage.setItem('login_time', Date.now())
-
-      // Set default authorization header
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
-
-      // Navigate based on role — or back to the preserved location
-      // (e.g. an interview interrupted by a 401) when present.
-      const postLoginRedirect = sessionStorage.getItem('post_login_redirect')
-      if (postLoginRedirect && postLoginRedirect.startsWith('/dashboard/interview/')) {
-        sessionStorage.removeItem('post_login_redirect')
-        navigate(postLoginRedirect, { replace: true })
-      } else {
-        navigate(getDashboardPath(user.role, '/student/dashboard'))
-      }
-      toast.success('Login successful!')
+      // Store session and route by role (same path as the Google exchange flow)
+      completeLogin(access_token, user)
     } catch (err) {
       const errorMsg = getApiError(err, 'Login failed')
       setError(errorMsg)

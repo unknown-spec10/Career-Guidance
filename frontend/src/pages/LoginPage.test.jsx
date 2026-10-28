@@ -1,7 +1,8 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 
 vi.mock('../config/api', () => ({
   default: {
@@ -16,15 +17,34 @@ import api from '../config/api'
 import LoginPage from './LoginPage'
 import { __resetAuthTokenForTests } from '../utils/authToken'
 
-function renderLogin() {
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="location-search">{location.search}</div>
+}
+
+function loginRoutes() {
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={(
+          <>
+            <LoginPage />
+            <LocationProbe />
+          </>
+        )}
+      />
+      <Route path="/student/dashboard" element={<div>STUDENT_DASH</div>} />
+      <Route path="/forgot-password" element={<div>FORGOT</div>} />
+      <Route path="/register" element={<div>REGISTER</div>} />
+    </Routes>
+  )
+}
+
+function renderLogin(initialEntry = '/login') {
   return render(
-    <MemoryRouter initialEntries={['/login']}>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/student/dashboard" element={<div>STUDENT_DASH</div>} />
-        <Route path="/forgot-password" element={<div>FORGOT</div>} />
-        <Route path="/register" element={<div>REGISTER</div>} />
-      </Routes>
+    <MemoryRouter initialEntries={[initialEntry]}>
+      {loginRoutes()}
     </MemoryRouter>
   )
 }
@@ -162,5 +182,92 @@ describe('LoginPage — credential login contract', () => {
 
     await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
     expect(localStorage.getItem('remembered_email')).toBeNull()
+  })
+})
+
+describe('LoginPage - Google OAuth exchange redemption', () => {
+  beforeEach(() => {
+    __resetAuthTokenForTests()
+    sessionStorage.clear()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    sessionStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('redeems the exchange code, stores the session and routes by role', async () => {
+    api.post.mockResolvedValueOnce({
+      data: {
+        access_token: 'tok-oauth',
+        token_type: 'bearer',
+        user: { id: 9, email: 'oauth@example.com', name: 'OAuth User', role: 'student' },
+      },
+    })
+    renderLogin('/login?exchange=code-123')
+
+    await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(api.post).toHaveBeenCalledWith('/api/auth/google/exchange', { code: 'code-123' })
+
+    // Same session persistence as the password flow
+    expect(JSON.parse(atob(sessionStorage.getItem('_secure_token')))).toBe('tok-oauth')
+    expect(JSON.parse(atob(sessionStorage.getItem('_secure_user')))).toEqual({
+      id: 9,
+      email: 'oauth@example.com',
+      name: 'OAuth User',
+      role: 'student',
+    })
+    expect(api.defaults.headers.common.Authorization).toBe('Bearer tok-oauth')
+  })
+
+  it('redeems the single-use code exactly once under StrictMode double effects', async () => {
+    api.post.mockResolvedValueOnce({
+      data: { access_token: 'tok-strict', user: { id: 10, role: 'student' } },
+    })
+    render(
+      <React.StrictMode>
+        <MemoryRouter initialEntries={['/login?exchange=strict-code']}>
+          {loginRoutes()}
+        </MemoryRouter>
+      </React.StrictMode>
+    )
+
+    await waitFor(() => expect(screen.getByText('STUDENT_DASH')).toBeInTheDocument())
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(api.post).toHaveBeenCalledWith('/api/auth/google/exchange', { code: 'strict-code' })
+  })
+
+  it('shows the backend error and stays on the login page for an invalid or expired code', async () => {
+    api.post.mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: { detail: 'Invalid or expired exchange code. Please sign in again.' },
+      },
+    })
+    renderLogin('/login?exchange=stale-code')
+
+    // Inline alert + toast, matching the failed-password-login display
+    await waitFor(() => {
+      const notices = screen.getAllByText('Invalid or expired exchange code. Please sign in again.')
+      expect(notices.length).toBeGreaterThanOrEqual(1)
+    })
+
+    expect(screen.queryByText('STUDENT_DASH')).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('_secure_token')).toBeNull()
+    // The dead code is stripped from the URL, and the request is not retried
+    expect(screen.getByTestId('location-search')).toHaveTextContent('')
+    expect(api.post).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call the exchange endpoint when no exchange param is present', async () => {
+    renderLogin()
+
+    await waitFor(() => expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument())
+    expect(api.post).not.toHaveBeenCalled()
+    expect(api.get).not.toHaveBeenCalled()
   })
 })
