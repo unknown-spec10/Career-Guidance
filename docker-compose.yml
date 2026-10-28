@@ -140,7 +140,11 @@ services:
       # entrypoint (80/443 below).
       - "127.0.0.1:8000:8000"
     volumes:
-      - ./data/raw_files:/app/data/raw_files
+      # GCS bucket career-sync is gcsfuse-mounted here at boot
+      # (user-data.sh → /home/user/career-sync-data). Binding it under
+      # /app/data makes the local storage backend persist straight into the
+      # bucket. Directory must be chowned to the container's appuser (10001).
+      - /home/user/career-sync-data/raw_files:/app/data/raw_files
       - ./resume_pipeline/logs:/app/logs
     healthcheck:
       # stdlib urllib only — no curl/requests needed inside the image.
