@@ -232,6 +232,67 @@ else
   log "WARNING: ${PUBLIC_HOSTNAME} did not resolve to ${EXTERNAL_IP:-this VM} within 60s — Caddy certificate issuance will fail until DNS propagates. Backend still boots on localhost."
 fi
 
+# --- 5c. DuckDNS self-heal timer (runs every 5 min, independent of boot) ---
+# The boot-time refresh above runs ONCE and only if the whole script reaches
+# it — this boot proved an early apt/download timeout (exit 28) can abort the
+# script before 5b, leaving DNS stale until the next reboot. The timer
+# re-points DNS unconditionally so a failed boot refresh self-heals in
+# minutes. Same token handling as 5b: memory only, never echoed, never disk.
+install -m 755 /dev/stdin /usr/local/bin/duckdns-refresh.sh <<'DUCKDNS_SCRIPT'
+#!/bin/bash
+# Self-healing DuckDNS refresh for deepsync.duckdns.org.
+# Re-points the hostname at this VM's current public IP. Safe to run
+# repeatedly — DuckDNS updates are idempotent.
+# Token lives in this process's memory only; never echoed, never on disk.
+set -u
+PROJECT=gen-lang-client-0977081292
+SUBDOMAIN=deepsync
+
+TOKEN=$(gcloud secrets versions access latest --secret=DUCKDNS_TOKEN --project=$PROJECT 2>/dev/null | tr -d '[:cntrl:]')
+if [[ -z "$TOKEN" ]]; then
+  echo "duckdns-refresh: could not read DUCKDNS_TOKEN"
+  exit 1
+fi
+
+RESP=$(printf 'url = "https://www.duckdns.org/update?domains=%s&token=%s"\nsilent\nshow-error\nfail\nmax-time = 20\n' \
+    "$SUBDOMAIN" "$TOKEN" | curl --config - 2>/dev/null)
+
+if [[ "$RESP" == "OK" ]]; then
+  echo "duckdns-refresh: OK"
+else
+  echo "duckdns-refresh: unexpected response '${RESP:-none}'"
+  exit 1
+fi
+DUCKDNS_SCRIPT
+
+cat > /etc/systemd/system/duckdns-refresh.service <<'UNIT_SERVICE'
+[Unit]
+Description=DuckDNS refresh for deepsync.duckdns.org
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/duckdns-refresh.sh
+UNIT_SERVICE
+
+cat > /etc/systemd/system/duckdns-refresh.timer <<'UNIT_TIMER'
+[Unit]
+Description=Refresh DuckDNS every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT_TIMER
+
+systemctl daemon-reload
+systemctl enable --now duckdns-refresh.timer
+log "DuckDNS self-heal timer installed (5 min cadence)."
+
 # --- 6. Boot backend from the PREBUILT Hub image (never build on the VM) ---
 # No --env-file: compose interpolates the exported non-secret config above and
 # the container entrypoint pulls secrets from Secret Manager (GCP_PROJECT).
