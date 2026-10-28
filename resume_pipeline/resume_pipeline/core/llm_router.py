@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import requests
@@ -15,6 +16,14 @@ from ..config import settings
 from .rate_limiter import opencode_limiter
 
 logger = logging.getLogger(__name__)
+
+# Stable per-process session identifier for the OpenCode Go gateway, which
+# requires ``x-opencode-session`` on every request (used for routing/caching).
+_SESSION_ID = "careerguidance-" + uuid.uuid4().hex
+
+# Product user agent for the Go gateway (must identify our own app, not a
+# generic SDK/library name).
+_USER_AGENT = "career-guidance-backend/1.0"
 
 
 class AdapterClientError(Exception):
@@ -104,6 +113,8 @@ class OpenCodeAdapter:
         return {
             "Authorization": f"Bearer {settings.OPENCODE_API_KEY}",
             "Content-Type": "application/json",
+            "x-opencode-session": _SESSION_ID,
+            "User-Agent": _USER_AGENT,
         }
 
     def _body(

@@ -55,6 +55,11 @@ export GMAIL_USER=""              # sender address (identifier; app password is 
 export STORAGE_BACKEND="local"
 export GCS_BUCKET_NAME="mine-career-guidance-bucket"
 export GCS_PROJECT_ID=""
+# LLM transport: the OPENCODE_API_KEY secret is an OpenCode Go subscription
+# key — it only works against the Go gateway (402 on pay-as-you-go zen/v1).
+# The adapter also sends x-opencode-session + a product user-agent (required
+# by the Go gateway; see resume_pipeline/core/llm_router.py OpenCodeAdapter).
+export OPENCODE_API_BASE_URL="https://opencode.ai/inference/go/v1"
 # RAG stays lazy on 2 GB boxes.
 export RAG_PRELOAD_ON_STARTUP="false"
 

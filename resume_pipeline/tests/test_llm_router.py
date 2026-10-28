@@ -299,3 +299,59 @@ def test_primary_name_override_and_unknown_primary():
     settings.MODEL_CHAT_PRIMARY_PROVIDER = "nim"
     with pytest.raises(ValueError, match="Unknown provider"):
         llm_router.generate_chat_completion([{"role": "user", "content": "hi"}], provider=None, capability="chat")
+
+
+# ---------------------------------------------------------------------------
+# OpenCode Go gateway headers
+# ---------------------------------------------------------------------------
+
+
+def test_opencode_headers_include_go_gateway_fields():
+    import uuid as _uuid
+
+    from resume_pipeline.core.llm_router import _SESSION_ID, OpenCodeAdapter
+
+    adapter = OpenCodeAdapter()
+    headers = adapter._headers()
+
+    assert headers["Authorization"] == "Bearer oc_test_key"
+    assert headers["Content-Type"] == "application/json"
+    assert headers["x-opencode-session"] == _SESSION_ID
+    assert headers["User-Agent"] == "career-guidance-backend/1.0"
+
+    # Session id is process-stable: identical across calls (and across
+    # adapter instances), and generated once at import time.
+    assert adapter._headers()["x-opencode-session"] == headers["x-opencode-session"]
+    assert OpenCodeAdapter()._headers()["x-opencode-session"] == _SESSION_ID
+
+    # Stable per process, not a fresh uuid per call.
+    assert _SESSION_ID.startswith("careerguidance-")
+    _uuid.UUID(_SESSION_ID[len("careerguidance-"):])
+
+
+@patch("resume_pipeline.core.llm_router.requests.post")
+def test_opencode_headers_sent_on_chat_and_stream(mock_post):
+    from resume_pipeline.core.llm_router import _SESSION_ID
+
+    mock_post.return_value = _opencode_ok("ok")
+    llm_router.generate_chat_completion(
+        [{"role": "user", "content": "Hello"}], provider="opencode"
+    )
+    chat_headers = mock_post.call_args.kwargs["headers"]
+    assert chat_headers["x-opencode-session"] == _SESSION_ID
+    assert chat_headers["User-Agent"] == "career-guidance-backend/1.0"
+    assert chat_headers["Authorization"] == "Bearer oc_test_key"
+
+    mock_post.return_value = MockOpenAIResponse(
+        status_code=200,
+        sse_lines=[_sse_chunk("hi"), "data: [DONE]"],
+    )
+    assert "".join(
+        llm_router.generate_chat_completion_stream(
+            [{"role": "user", "content": "Hi"}], provider="opencode"
+        )
+    ) == "hi"
+    stream_headers = mock_post.call_args.kwargs["headers"]
+    assert stream_headers["x-opencode-session"] == _SESSION_ID
+    assert stream_headers["User-Agent"] == "career-guidance-backend/1.0"
+
