@@ -1,5 +1,5 @@
 import React from 'react'
-import { Globe, Github, Linkedin } from 'lucide-react'
+import { Github, Linkedin } from 'lucide-react'
 
 const socialLink = 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-surface-raised text-ink-subtle shadow-soft-xs transition-colors duration-200 hover:border-hairline-strong hover:text-primary-700 dark:hover:text-primary-300'
 
@@ -22,14 +22,16 @@ export default function Footer() {
               Empowering academic and professional transitions through advanced AI intelligence.
             </p>
             <div className="flex gap-2.5 pt-2">
-              <a href="#" aria-label="Website" className={socialLink}>
-                <Globe className="h-4 w-4" />
-              </a>
-              <a href="#" aria-label="GitHub" className={socialLink}>
+              <a href="https://github.com/unknown-spec10" aria-label="GitHub" target="_blank" rel="noopener noreferrer" className={socialLink}>
                 <Github className="h-4 w-4" />
               </a>
-              <a href="#" aria-label="LinkedIn" className={socialLink}>
+              <a href="https://www.linkedin.com/in/deeppodder2005" aria-label="LinkedIn" target="_blank" rel="noopener noreferrer" className={socialLink}>
                 <Linkedin className="h-4 w-4" />
+              </a>
+              <a href="https://x.com/deep_podder17" aria-label="X (Twitter)" target="_blank" rel="noopener noreferrer" className={socialLink}>
+                <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
               </a>
             </div>
           </div>
@@ -70,8 +72,15 @@ export default function Footer() {
 
         {/* Bottom Bar */}
         <div className="flex flex-col items-center justify-between gap-4 border-t border-hairline pt-8 text-caption font-medium text-ink-subtle sm:flex-row">
-          <p>© {new Date().getFullYear()} CareerSync AI Inc. All rights reserved.</p>
-          
+          <div className="flex flex-col items-center gap-1.5">
+            <p>© {new Date().getFullYear()} CareerSync AI Inc. All rights reserved.</p>
+            <p className="flex flex-wrap items-center justify-center gap-1.5">
+              <span>Developed by Deep Podder</span>
+              <span aria-hidden="true">·</span>
+              <a href="mailto:conect.deeppodder@gmail.com" className={footerLink}>conect.deeppodder@gmail.com</a>
+            </p>
+          </div>
+
           <div className="flex select-none items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             <span>Systems Operational</span>
