@@ -323,7 +323,7 @@ CREDIT_CONFIG = {
 
     # Credit limits (free tier)
     'DEFAULT_WEEKLY_CREDITS': 60,  # 60 credits per week (4 full + 20 micro)
-    'MAX_DAILY_CREDITS_USAGE': 0,  # <= 0 disables daily credit cap (temporary)
+    'MAX_DAILY_CREDITS_USAGE': 20,  # Daily cap of 20 credits protects the 2 GB VM from burst LLM load; <= 0 disables the cap.
     'CREDITS_REFILL_DAYS': 7,  # Refill every 7 days from last refill
 
     # Session limits
