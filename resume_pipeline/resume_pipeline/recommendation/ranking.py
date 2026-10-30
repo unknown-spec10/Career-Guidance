@@ -31,6 +31,10 @@ from .scorers.semantic_scorer import SemanticScorer
 from .scorers.temporal_scorer import TemporalScorer
 from .scorers.tfidf_scorer import TfidfScorer
 
+# A recommendation row that failed to get an explanation this many times
+# stops being retried; rewriting the row (a fresh generation) resets it.
+MAX_EXPLANATION_ATTEMPTS = 3
+
 logger = logging.getLogger(__name__)
 
 
@@ -286,9 +290,17 @@ def retry_null_explanations(applicant_id: int, db: Session, limit: int = 10) -> 
     # one generation (a bump here fragments the run into two computed_at
     # batches ~1s apart).
     for rec in null_recs:
+        # Bound the retries: rows that keep failing would otherwise re-buy a
+        # call on every single recommendation generation, forever.
+        breakdown = dict(rec.score_breakdown or {})
+        attempts = int(breakdown.get("explanation_attempts") or 0)
+        if attempts >= MAX_EXPLANATION_ATTEMPTS:
+            continue
+        breakdown["explanation_attempts"] = attempts + 1
+        rec.score_breakdown = breakdown
         try:
             explanation, explanation_source = generate_explanation(
-                applicant, rec.job, rec.score_breakdown or {}, db=db
+                applicant, rec.job, breakdown, db=db
             )
             if explanation:
                 rec.explanation = explanation

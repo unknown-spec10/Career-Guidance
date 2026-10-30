@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     MODEL_STT_PROVIDER: str = "groq"
     MODEL_STT_NAME: str = ""
 
+    # Hard ceiling on outbound LLM calls per process per day (0 = unlimited).
+    # Exceeding it raises LLMCallBudgetExceeded instead of silently spending:
+    # a runaway loop or a long dev session can no longer drain the account.
+    LLM_MAX_CALLS_PER_DAY: int = 0
+
     # ============================================================================
     # OPENCODE PROVIDER (OpenAI-compatible, e.g. OpenCode Zen)
     # Registered in core/llm_router.py as the `opencode` adapter. Selectable via

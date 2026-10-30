@@ -192,6 +192,7 @@ def attach_explanations(
         explanation_source = None
         employer_reasons = None
         employer_gaps = None
+        analysis_source = None
 
         if existing and existing.explanation and getattr(existing, "engine_version", "v1") == "v2":
             explanation = existing.explanation
@@ -206,10 +207,29 @@ def attach_explanations(
                 explanation, explanation_source = generate_explanation(
                     applicant, job, breakdown, db=db
                 )
-            analysis = generate_employer_match_analysis(applicant, job, breakdown, db=db)
-            employer_reasons = analysis.get("reasons")
-            employer_gaps = analysis.get("gaps")
-            analysis_source = analysis.get("source", "offline_fallback")
+            # A cached analysis is derived from the same job, breakdown and
+            # candidate profile, so regenerating it on every pass only re-buys
+            # the same tokens. Fallback text is never treated as a cache hit.
+            cached_analysis = bool(
+                employer_reasons
+                and employer_gaps
+                and existing is not None
+                and not getattr(existing, "is_fallback", False)
+            )
+            if cached_analysis:
+                analysis_source = (existing.explain or {}).get(
+                    "employer_analysis_source", "cache"
+                )
+                logger.debug(
+                    "Reused cached employer analysis for applicant_id=%s job_id=%s",
+                    applicant.id,
+                    job.id,
+                )
+            else:
+                analysis = generate_employer_match_analysis(applicant, job, breakdown, db=db)
+                employer_reasons = analysis.get("reasons")
+                employer_gaps = analysis.get("gaps")
+                analysis_source = analysis.get("source", "offline_fallback")
             entry["is_fallback"] = explanation_source == "offline_fallback" or (
                 analysis_source == "offline_fallback"
             )
@@ -249,6 +269,7 @@ def attach_explanations(
             "improvement_areas": [],
             "employer_reasons": employer_reasons,
             "employer_gaps": employer_gaps,
+            "employer_analysis_source": analysis_source,
         }
     return reranked
 

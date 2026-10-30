@@ -1,8 +1,10 @@
 import json
 import logging
 import re
+import threading
 import time
 import uuid
+from datetime import date
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import requests
@@ -16,6 +18,43 @@ from ..config import settings
 from .rate_limiter import opencode_limiter
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Daily call budget — a hard ceiling so a bug (or a long dev session) can never
+# drain the provider account without anyone noticing.
+# ---------------------------------------------------------------------------
+
+_budget_lock = threading.Lock()
+_budget_day = None
+_budget_calls = 0
+
+
+class LLMCallBudgetExceeded(RuntimeError):
+    """Raised when LLM_MAX_CALLS_PER_DAY is exhausted."""
+
+
+def _consume_call_budget() -> None:
+    """Count one outbound LLM call against the daily ceiling (0 = unlimited)."""
+    global _budget_day, _budget_calls
+    limit = int(getattr(settings, "LLM_MAX_CALLS_PER_DAY", 0) or 0)
+    if limit <= 0:
+        return
+    today = date.today()
+    with _budget_lock:
+        if _budget_day != today:
+            _budget_day, _budget_calls = today, 0
+        if _budget_calls >= limit:
+            logger.error(
+                "LLMRouter: daily LLM call budget exhausted (%s/%s) — refusing call.",
+                _budget_calls,
+                limit,
+            )
+            raise LLMCallBudgetExceeded(
+                f"LLM_MAX_CALLS_PER_DAY={limit} reached; refusing further LLM calls today."
+            )
+        _budget_calls += 1
+        if _budget_calls % 50 == 0:
+            logger.info("LLMRouter: %s/%s daily LLM calls used.", _budget_calls, limit)
 
 # Stable per-process session identifier for the OpenCode Go gateway, which
 # requires ``x-opencode-session`` on every request (used for routing/caching).
@@ -371,6 +410,7 @@ class LLMRouter:
         pname = names[0]
         adapter = self._adapters[pname]
         model = model_name or self.model_for(pname, slot_cap)
+        _consume_call_budget()
         logger.info(f"LLMRouter: Sending request to {pname} (model={model})")
         limiter = self._limiter_for(pname)
         if not limiter.allow_call():
@@ -436,6 +476,7 @@ class LLMRouter:
         pname = names[0]
         adapter = self._adapters[pname]
         model = model_name or self.model_for(pname, slot_cap)
+        _consume_call_budget()
         logger.info(f"LLMRouter: Starting stream from {pname} (model={model})")
         limiter = self._limiter_for(pname)
         if not limiter.allow_call():
