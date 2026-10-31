@@ -33,6 +33,7 @@ from .routers.recommendations import router as recommendations_router
 from .routers.credits import router as credits_router
 from .routers.rag import router as rag_router
 from .routers.misc import router as misc_router
+from .routers.media import router as media_router
 from .routers.admin import router as admin_router
 
 logging.basicConfig(level=logging.INFO)
@@ -65,6 +66,10 @@ app.add_middleware(
 async def add_cache_control_header(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
+    # /api/media/ serves images: it sets its own Cache-Control, and blanket
+    # no-store would force a refetch of every avatar on every render.
+    if path.startswith("/api/media/"):
+        return response
     if path.startswith("/api/") or path.startswith("/parse/") or path.startswith("/upload"):
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
@@ -84,6 +89,7 @@ app.include_router(recommendations_router)
 app.include_router(credits_router)
 app.include_router(rag_router)
 app.include_router(misc_router)
+app.include_router(media_router)
 app.include_router(admin_router)
 
 

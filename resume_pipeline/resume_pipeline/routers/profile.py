@@ -132,15 +132,10 @@ async def get_student_profile(
     
     # Generate a presigned URL for the profile picture if stored in GCS
     profile_pic = getattr(current_user, "profile_picture_url", None)
-    if settings.STORAGE_BACKEND == "gcs" and profile_pic:
-        if "avatars/" in profile_pic:
-            key = "avatars/" + profile_pic.split("avatars/")[-1]
-            from ..core.storage import get_storage_client
-            try:
-                storage_client = get_storage_client()
-                profile_pic = storage_client.get_file_url(key, expires_in=3600)
-            except Exception as e:
-                logger.warning(f"Failed to generate presigned URL for avatar: {e}")
+    if profile_pic:
+        from .media import public_avatar_url
+
+        profile_pic = public_avatar_url(current_user.id)
 
     return {
         "applicant_id": applicant.id,

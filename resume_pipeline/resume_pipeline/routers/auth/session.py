@@ -203,16 +203,12 @@ async def get_current_user_info(current_user=Depends(get_current_user)):
     logger.info(f"get_current_user_info called for user: {current_user.email} (id: {current_user.id})")
     logger.info(f"current_user.profile_picture_url in DB: {current_user.profile_picture_url}")
     user_response = UserResponse.model_validate(current_user)
-    if settings.STORAGE_BACKEND == "gcs" and user_response.profile_picture_url:
-        url = user_response.profile_picture_url
-        if "avatars/" in url:
-            key = "avatars/" + url.split("avatars/")[-1]
-            from ...core.storage import get_storage_client
-            try:
-                storage_client = get_storage_client()
-                user_response.profile_picture_url = storage_client.get_file_url(key, expires_in=3600)
-            except Exception as e:
-                logger.warning(f"Failed to generate presigned URL for avatar: {e}")
+    if user_response.profile_picture_url:
+        # Serve through the API: the bucket stays private (it also holds resumes)
+        # and the URL stays valid no matter where the object physically lives.
+        from ..media import public_avatar_url
+
+        user_response.profile_picture_url = public_avatar_url(current_user.id)
     logger.info(f"user_response.profile_picture_url returned: {user_response.profile_picture_url}")
     return user_response
 
@@ -340,18 +336,12 @@ async def upload_profile_picture(
 
     # 5. Save URL to database
     # 5. Save URL to database
-    if settings.STORAGE_BACKEND == "gcs":
-        try:
-            avatar_display_url = storage_client.get_file_url(avatar_key, expires_in=3600)
-            avatar_url = avatar_display_url
-        except Exception:
-            avatar_url = f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{avatar_key}"
-            avatar_display_url = avatar_url
-    else:
-        avatar_url = f"/static/{avatar_key}"
-        avatar_display_url = avatar_url
+    # Store the object key, never an absolute bucket URL: the bucket, the
+    # credentials or the serving path can change without breaking the row.
+    from ..media import public_avatar_url
 
-    setattr(user, "profile_picture_url", avatar_url)
+    setattr(user, "profile_picture_url", avatar_key)
+    avatar_display_url = public_avatar_url(user.id)
     db.commit()
 
     return {

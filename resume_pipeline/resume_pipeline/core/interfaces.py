@@ -65,6 +65,11 @@ class FileStorage(ABC):
         ...
 
     @abstractmethod
+    def read_bytes(self, remote_path: str) -> Optional[bytes]:
+        """Return the object's bytes, or None when it does not exist."""
+        ...
+
+    @abstractmethod
     def delete_file(self, remote_path: str) -> None:
         """Delete a file from the storage backend."""
         ...

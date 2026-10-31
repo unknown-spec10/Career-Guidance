@@ -77,6 +77,12 @@ class LocalFileStorage(FileStorage):
         if file_path.exists() and file_path.is_file():
             file_path.unlink()
 
+    def read_bytes(self, remote_path: str):
+        path = self._get_absolute_path(remote_path)
+        if not path.exists() or not path.is_file():
+            return None
+        return path.read_bytes()
+
     def get_file_url(self, remote_path: str, expires_in: int = 900) -> str:
         # For local backend, return file URL or absolute path string
         # Since it's a web API, we can route it through /static or return the key
@@ -196,6 +202,17 @@ class GCSFileStorage(FileStorage):
         except Exception as e:
             logger.error(f"GCS generate_signed_url error: {e}")
             return f"https://storage.googleapis.com/{self.bucket_name}/{remote_path}"
+
+    def read_bytes(self, remote_path: str):
+        from google.cloud.exceptions import NotFound
+
+        try:
+            return self.bucket.blob(remote_path).download_as_bytes()
+        except NotFound:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.error("GCS read_bytes failed for %s: %s", remote_path, exc)
+            return None
 
     def list_files(self, prefix: str) -> List[str]:
         try:
