@@ -96,7 +96,7 @@ def _redeem_oauth_exchange(code: str) -> int:
 
 @router.get("/api/auth/google/login")
 async def google_login(
-    role: str = Query("student", regex="^(student|employer)$"),
+    role: str = Query("student", pattern="^(student|employer)$"),
 ):
     """
     Redirects the user to Google's OAuth2 authorization URL.

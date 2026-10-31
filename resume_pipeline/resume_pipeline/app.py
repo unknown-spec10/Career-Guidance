@@ -286,13 +286,14 @@ async def startup_event():
             _docs_dir = _DocsPath(__file__).resolve().parents[1] / "docs"
             if not _docs_dir.is_dir() or not any(_docs_dir.iterdir()):
                 logger.info("RAG disabled: no documentation corpus at %s", _docs_dir)
-                raise ImportError("no docs corpus")
-            from .rag.rag_service import get_rag_service
-            rag_service = get_rag_service()
+                rag_service = None
+            else:
+                from .rag.rag_service import get_rag_service
+                rag_service = get_rag_service()
             
             # Optional: Initialize on startup to avoid first-query latency
             # Comment out if you prefer lazy initialization for faster startup
-            if settings.RAG_PRELOAD_ON_STARTUP:
+            if rag_service is not None and settings.RAG_PRELOAD_ON_STARTUP:
                 logger.info("Pre-initializing RAG system (docs indexing may take a few seconds)...")
                 init_success = rag_service.initialize(force_rebuild=False)
                 if init_success:
@@ -303,7 +304,9 @@ async def startup_event():
                 logger.info("RAG system will initialize on first query (lazy mode)")
             
             # Start file watcher for automatic doc rebuild
-            watcher_started = rag_service.start_file_watcher()
+            watcher_started = (
+                rag_service.start_file_watcher() if rag_service is not None else False
+            )
             if watcher_started:
                 logger.info("✓ Documentation file watcher started")
             else:
