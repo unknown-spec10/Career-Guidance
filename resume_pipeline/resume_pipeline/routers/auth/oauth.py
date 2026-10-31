@@ -136,7 +136,6 @@ async def google_login(
     return RedirectResponse(url=auth_uri)
 
 
-@router.get("/api/auth/google/callback")
 def _resolve_oauth_user(db, *, email, subject, name, role, provider):
     """Find or create the account behind a verified third-party identity.
 
@@ -202,6 +201,7 @@ def _resolve_oauth_user(db, *, email, subject, name, role, provider):
     return user
 
 
+@router.get("/api/auth/google/callback")
 async def google_callback(
     code: str = Query(...),
     state: Optional[str] = Query(None),
