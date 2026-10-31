@@ -155,6 +155,21 @@ async def startup_event():
         try:
             from sqlalchemy import text
             from .db import SessionLocal
+
+            # Columns added after databases were created: create_all() never
+            # adds columns to existing tables.
+            from .db import engine as _schema_engine
+            for statement in (
+                "ALTER TABLE users ADD COLUMN login_method VARCHAR(20) DEFAULT 'password'",
+                "ALTER TABLE users ADD COLUMN login_subject VARCHAR(255)",
+            ):
+                try:
+                    with _schema_engine.begin() as _conn:
+                        _conn.execute(text(statement))
+                    logger.info("✓ added missing column: %s", statement.split("ADD COLUMN ")[-1])
+                except Exception:
+                    pass  # already present
+
             with SessionLocal() as db_session:
                 try:
                     db_session.execute(text("ALTER TYPE activity_type ADD VALUE 'recommendation_refresh'"))

@@ -137,6 +137,71 @@ async def google_login(
 
 
 @router.get("/api/auth/google/callback")
+def _resolve_oauth_user(db, *, email, subject, name, role, provider):
+    """Find or create the account behind a verified third-party identity.
+
+    Resolution order matters:
+      1. provider subject — the stable id, survives an email change at Google
+      2. email address    — covers accounts created with a password before the
+                            user ever touched the provider
+
+    Claiming a row that was never verified is treated as an ownership claim:
+    such a row may have been pre-registered with a password by someone who
+    cannot read the mailbox, so that password is rotated away before the
+    account is marked verified.
+    """
+    from ...auth import OAUTH_PASSWORD_SENTINEL
+    from ...db import Employer, User
+
+    user = None
+    if subject:
+        user = db.query(User).filter(User.login_subject == subject).first()
+    if user is None:
+        user = db.query(User).filter(User.email == email).first()
+
+    if user is None:
+        user = User(
+            email=email,
+            password_hash=OAUTH_PASSWORD_SENTINEL,
+            name=name,
+            role=role,
+            is_active=True,
+            is_verified=True,
+            verification_token=None,
+            verification_token_created_at=dt.datetime.utcnow(),
+            login_method=provider,
+            login_subject=subject,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        if role == "employer":
+            db.add(Employer(user_id=user.id, company_name=name, is_verified=False))
+            db.commit()
+
+        logger.info("Registered new %s OAuth user: %s with role: %s", provider, email, role)
+        return user
+
+    changed = False
+    if subject and user.login_subject != subject:
+        user.login_subject = subject
+        changed = True
+    if not getattr(user, "is_verified", False):
+        # Never-verified row: a pre-registration must not survive this login.
+        user.password_hash = OAUTH_PASSWORD_SENTINEL
+        user.login_method = provider
+        user.is_verified = True
+        changed = True
+    if changed:
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    logger.info("Logged in existing %s OAuth user: %s", provider, email)
+    return user
+
+
 async def google_callback(
     code: str = Query(...),
     state: Optional[str] = Query(None),
@@ -217,47 +282,16 @@ async def google_callback(
 
             email = email.lower().strip()
 
-            # Check if user exists
-            user = db.query(User).filter(User.email == email).first()
-            if not user:
-                # User does not exist, perform silent registration
-                # Assign a random password hash since login is via OAuth
-                random_pass = secrets.token_hex(16)
-                hashed_password = get_password_hash(random_pass)
-
-                # Create user, default is_verified to True because Google verified their email
-                user = User(
-                    email=email,
-                    password_hash=hashed_password,
-                    name=name,
-                    role=role,
-                    is_active=True,
-                    is_verified=True,
-                    verification_token=None,
-                    verification_token_created_at=dt.datetime.utcnow()
-                )
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-
-                # Create profile record if user is an employer
-                if role == "employer":
-                    employer = Employer(
-                        user_id=user.id,
-                        company_name=name,
-                        is_verified=False
-                    )
-                    db.add(employer)
-                    db.commit()
-
-                logger.info(f"Registered new Google OAuth user: {email} with role: {role}")
-            else:
-                # User exists. Ensure their email is marked as verified since they logged in via Google
-                if not user.is_verified:
-                    user.is_verified = True
-                    db.add(user)
-                    db.commit()
-                logger.info(f"Logged in existing Google OAuth user: {email}")
+            # Identity resolution lives in one helper so every provider
+            # (google today, github/apple later) links accounts the same way.
+            user = _resolve_oauth_user(
+                db,
+                email=email,
+                subject=user_info.get("sub"),
+                name=name,
+                role=role,
+                provider="google",
+            )
 
             # No long-lived JWT is ever placed in the URL. Instead, mint a
             # short-lived (10-min) single-use exchange code; the SPA redeems it

@@ -45,6 +45,9 @@ async def change_password(
     # Update password
     new_hash = get_password_hash(new_password)
     setattr(user, 'password_hash', new_hash)
+    # Provider-created accounts hold no password; setting one makes the account
+    # signable-in both ways from now on.
+    setattr(user, 'login_method', 'password')
     # Revoke all existing JWTs for this account (tokens issued before now die).
     setattr(user, 'password_changed_at', dt.datetime.utcnow())
     db.commit()
@@ -217,6 +220,8 @@ async def reset_password(
 
         # Update password (use setattr to avoid type checker issues)
         setattr(user, 'password_hash', get_password_hash(new_password))
+        # A provider-created account that resets its password becomes password-capable.
+        setattr(user, 'login_method', 'password')
         setattr(user, 'password_reset_token', None)
         setattr(user, 'password_reset_expires', None)
         # Revoke all existing JWTs for this account (tokens issued before now die).

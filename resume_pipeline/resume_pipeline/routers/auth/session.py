@@ -149,9 +149,19 @@ async def login(
     """Login and receive access token"""
     from ...db import User
 
+    # Registration and OAuth both store a normalised email; normalise here too
+    # or a user who types "Deep@Gmail.com" gets a 401 for an account that exists.
+    email = (form_data.username or "").strip().lower()
+
     # Find user
-    user = db.query(User).filter(User.email == form_data.username).first()
+    user = db.query(User).filter(User.email == email).first()
     if not user:
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    # Accounts that sign in with a provider hold no password. Answer with the
+    # same generic error so the response never reveals which method an account
+    # uses; "forgot password" is the documented way to add one.
+    if (getattr(user, "login_method", "password") or "password").lower() != "password":
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     # Verify password

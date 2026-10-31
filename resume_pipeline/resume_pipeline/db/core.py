@@ -24,6 +24,16 @@ class User(Base):
     profile_picture_url = Column(String(512), nullable=True)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    # How this account signs in. 'password' accounts hold a real bcrypt hash;
+    # provider accounts (google, later github/apple) hold the sentinel from
+    # auth.OAUTH_PASSWORD_SENTINEL until the user sets a password. Keeping the
+    # method on the row — rather than only inferring it from a provider id —
+    # is what lets each login route decide whether it may serve this account.
+    login_method = Column(String(20), nullable=False, default="password", server_default="password")
+    # Stable subject id from the provider (Google `sub`). Null for password
+    # accounts. A second linked provider needs a user_identities table; this
+    # single column intentionally covers the one external provider we support.
+    login_subject = Column(String(255), nullable=True, index=True)
     verification_token = Column(String(255), nullable=True, unique=True, index=True)
     verification_token_created_at = Column(DateTime, nullable=True)
     password_reset_token = Column(String(255), nullable=True, unique=True, index=True)

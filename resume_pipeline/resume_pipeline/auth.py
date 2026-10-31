@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# Stored in password_hash for accounts whose only credential is a third-party
+# provider. bcrypt can never produce this string, so no password can match it;
+# a password reset replaces it with a real hash and flips login_method back to
+# "password".
+OAUTH_PASSWORD_SENTINEL = "!oauth-no-password"
+
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 # HTTP Bearer scheme with auto_error=False to allow optional tokens
@@ -104,8 +110,18 @@ def _active_secret_key() -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against a hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against a hash.
+
+    Provider-created accounts carry OAUTH_PASSWORD_SENTINEL instead of a hash,
+    so no password can match until the user sets one via reset. A malformed
+    hash is treated as "no password", never as a valid login.
+    """
+    if not hashed_password or hashed_password == OAUTH_PASSWORD_SENTINEL:
+        return False
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 
 def get_password_hash(password: str) -> str:
