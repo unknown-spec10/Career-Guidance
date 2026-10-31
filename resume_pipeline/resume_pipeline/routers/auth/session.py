@@ -158,11 +158,12 @@ async def login(
     if not user:
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
-    # Accounts that sign in with a provider hold no password. Answer with the
-    # same generic error so the response never reveals which method an account
-    # uses; "forgot password" is the documented way to add one.
-    if (getattr(user, "login_method", "password") or "password").lower() != "password":
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    # Provider-created accounts hold no password. Ask the user to use the
+    # method they signed up with — the message never names that method.
+    from ...auth import LOGIN_METHOD_MISMATCH_MESSAGE, has_password
+
+    if not has_password(user):
+        raise HTTPException(status_code=400, detail=LOGIN_METHOD_MISMATCH_MESSAGE)
 
     # Verify password
     password_hash = getattr(user, 'password_hash', '')

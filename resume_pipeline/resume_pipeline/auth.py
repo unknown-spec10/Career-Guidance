@@ -22,6 +22,19 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # "password".
 OAUTH_PASSWORD_SENTINEL = "!oauth-no-password"
 
+# Shown whenever an account tries to sign in with a method it was not created
+# with. Deliberately says nothing about which method the account uses.
+LOGIN_METHOD_MISMATCH_MESSAGE = (
+    "This email is already registered with a different sign-in method. "
+    "Please sign in the way you first created your account."
+)
+
+
+def has_password(user) -> bool:
+    """True when the account can authenticate with a password."""
+    value = getattr(user, "password_hash", "") or ""
+    return bool(value) and value != OAUTH_PASSWORD_SENTINEL
+
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 # HTTP Bearer scheme with auto_error=False to allow optional tokens

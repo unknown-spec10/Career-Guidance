@@ -136,20 +136,22 @@ async def google_login(
     return RedirectResponse(url=auth_uri)
 
 
+class LoginMethodMismatch(Exception):
+    """The address belongs to an account that signs in a different way."""
+
+
 def _resolve_oauth_user(db, *, email, subject, name, role, provider):
     """Find or create the account behind a verified third-party identity.
 
-    Resolution order matters:
-      1. provider subject — the stable id, survives an email change at Google
-      2. email address    — covers accounts created with a password before the
-                            user ever touched the provider
+    An account is only usable through the method it was created with. If the
+    address already belongs to a password account — or to another provider
+    identity — the login is refused and the caller asks the user to sign in
+    the way they originally did, instead of silently linking the accounts.
 
-    Claiming a row that was never verified is treated as an ownership claim:
-    such a row may have been pre-registered with a password by someone who
-    cannot read the mailbox, so that password is rotated away before the
-    account is marked verified.
+    Matching order: provider subject first (stable across an email change at
+    the provider), then the email address.
     """
-    from ...auth import OAUTH_PASSWORD_SENTINEL
+    from ...auth import OAUTH_PASSWORD_SENTINEL, has_password
     from ...db import Employer, User
 
     user = None
@@ -182,14 +184,19 @@ def _resolve_oauth_user(db, *, email, subject, name, role, provider):
         logger.info("Registered new %s OAuth user: %s with role: %s", provider, email, role)
         return user
 
+    linked_here = bool(subject) and user.login_subject == subject
+    if has_password(user) and not linked_here:
+        logger.info("%s sign-in refused for %s: account uses a password", provider, email)
+        raise LoginMethodMismatch(provider)
+    if user.login_subject and subject and user.login_subject != subject:
+        logger.info("%s sign-in refused for %s: linked to another identity", provider, email)
+        raise LoginMethodMismatch(provider)
+
     changed = False
-    if subject and user.login_subject != subject:
+    if subject and not user.login_subject:
         user.login_subject = subject
         changed = True
     if not getattr(user, "is_verified", False):
-        # Never-verified row: a pre-registration must not survive this login.
-        user.password_hash = OAUTH_PASSWORD_SENTINEL
-        user.login_method = provider
         user.is_verified = True
         changed = True
     if changed:
@@ -283,15 +290,23 @@ async def google_callback(
             email = email.lower().strip()
 
             # Identity resolution lives in one helper so every provider
-            # (google today, github/apple later) links accounts the same way.
-            user = _resolve_oauth_user(
-                db,
-                email=email,
-                subject=user_info.get("sub"),
-                name=name,
-                role=role,
-                provider="google",
-            )
+            # (google today, github/apple later) follows the same rules.
+            try:
+                user = _resolve_oauth_user(
+                    db,
+                    email=email,
+                    subject=user_info.get("sub"),
+                    name=name,
+                    role=role,
+                    provider="google",
+                )
+            except LoginMethodMismatch:
+                from ...auth import LOGIN_METHOD_MISMATCH_MESSAGE
+                mismatch_url = f"{settings.FRONTEND_URL}/login?error=" + urllib.parse.quote(
+                    LOGIN_METHOD_MISMATCH_MESSAGE
+                )
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(url=mismatch_url)
 
             # No long-lived JWT is ever placed in the URL. Instead, mint a
             # short-lived (10-min) single-use exchange code; the SPA redeems it
