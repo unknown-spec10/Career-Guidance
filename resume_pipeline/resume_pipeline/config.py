@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 from pathlib import Path
@@ -29,6 +30,33 @@ class Settings(BaseSettings):
     # Pydantic-settings: only read from OS environment, never from .env files.
     # This ensures Render's injected env vars always win over any baked-in .env.
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
+
+    @field_validator(
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "OPENCODE_API_KEY",
+        "GROQ_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_SEARCH_API_KEY",
+        "SECRET_KEY",
+        "ADMIN_PASSWORD",
+        "GMAIL_APP_PASSWORD",
+        "YOUTUBE_DATA_API_KEY",
+        "PG_PASSWORD",
+        mode="before",
+        check_fields=False,  # the demo fork does not define every credential
+    )
+    @classmethod
+    def _strip_credential_whitespace(cls, value):
+        """Trim paste artefacts from credentials.
+
+        Secrets created from a Windows clipboard routinely carry a trailing
+        CR/LF, and Google then rejects the OAuth token exchange with
+        "invalid_client: The provided client secret is invalid." — a message
+        that points at the key rather than at the stray character.
+        """
+        return value.strip() if isinstance(value, str) else value
+
     # Prefer separate fields; fallback to PG_DSN if fully provided
     PG_HOST: str | None = None
     PG_PORT: int | None = None
