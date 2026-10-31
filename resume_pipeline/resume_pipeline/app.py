@@ -230,14 +230,27 @@ async def startup_event():
                     db_session.rollback()
                     logger.warning(f"Failed to create composite unique index: {e}")
 
-                # Create ivfflat index on job_embeddings_cache
+                # Create ivfflat index on job_embeddings_cache — only when the
+                # column really is a pgvector type. Deployments that store
+                # embeddings as JSON cannot support this index, and attempting it
+                # logged a DatatypeMismatch warning on every boot.
                 try:
-                    db_session.execute(text(
-                        "CREATE INDEX IF NOT EXISTS idx_job_emb_cache_ivfflat "
-                        "ON job_embeddings_cache USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10)"
-                    ))
-                    db_session.commit()
-                    logger.info("✓ Verified ivfflat index idx_job_emb_cache_ivfflat")
+                    column_type = db_session.execute(text(
+                        "SELECT data_type FROM information_schema.columns "
+                        "WHERE table_name = 'job_embeddings_cache' AND column_name = 'embedding'"
+                    )).scalar()
+                    if (column_type or "").lower() != "user-defined":
+                        logger.info(
+                            "Skipping ivfflat index: embedding column is %s, not a vector type",
+                            column_type,
+                        )
+                    else:
+                        db_session.execute(text(
+                            "CREATE INDEX IF NOT EXISTS idx_job_emb_cache_ivfflat "
+                            "ON job_embeddings_cache USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10)"
+                        ))
+                        db_session.commit()
+                        logger.info("✓ Verified ivfflat index idx_job_emb_cache_ivfflat")
                 except Exception as e:
                     db_session.rollback()
                     logger.warning(f"Failed to create ivfflat index on job_embeddings_cache: {e}")
