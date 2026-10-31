@@ -263,8 +263,17 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"Startup job-expiry sweep failed: {e}")
 
-        # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible)
+        # Initialize RAG system (lazy initialization on first query, but pre-initialize if possible).
+        # Skipped when no corpus is shipped: without it the indexer has nothing to
+        # read and its cache path fails on a read-only image, logging an error at
+        # every boot for a feature that cannot serve a single query.
         try:
+            from pathlib import Path as _DocsPath
+
+            _docs_dir = _DocsPath(__file__).resolve().parents[1] / "docs"
+            if not _docs_dir.is_dir() or not any(_docs_dir.iterdir()):
+                logger.info("RAG disabled: no documentation corpus at %s", _docs_dir)
+                raise ImportError("no docs corpus")
             from .rag.rag_service import get_rag_service
             rag_service = get_rag_service()
             

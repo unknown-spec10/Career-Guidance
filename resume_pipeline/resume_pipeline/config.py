@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     STORAGE_BACKEND: str = "local"  # "local" or "gcs"
     
     # GCP Storage Integration
-    GCS_BUCKET_NAME: str = "mine-career-guidance-bucket"
+    GCS_BUCKET_NAME: str = "career-sync"
     GCS_PROJECT_ID: str | None = None
 
     # Capability-based model selection (model-agnostic)

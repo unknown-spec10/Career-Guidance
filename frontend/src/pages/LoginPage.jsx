@@ -137,7 +137,7 @@ export default function LoginPage() {
   }, [location.search, navigate, toast])
 
   const handleGoogleLogin = () => {
-    const base = API_BASE_URL || 'http://localhost:8000'
+    const base = API_BASE_URL || window.location.origin
     window.location.href = `${base}/api/auth/google/login?role=${googleRole}`
   }
 

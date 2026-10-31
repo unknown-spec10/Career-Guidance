@@ -53,8 +53,8 @@ export GOOGLE_SEARCH_ENGINE_ID="957a8463ab6f24e38"  # Custom Search engine id (p
 export GMAIL_USER=""              # sender address (identifier; app password is a secret)
 # Storage (local by default; gcs + bucket when using Cloud Storage).
 export STORAGE_BACKEND="local"
-export GCS_BUCKET_NAME="mine-career-guidance-bucket"
-export GCS_PROJECT_ID=""
+export GCS_BUCKET_NAME="career-sync"
+export GCS_PROJECT_ID="gen-lang-client-0977081292"
 # LLM transport: the OPENCODE_API_KEY secret is an OpenCode Go subscription
 # key — it only works against the Go gateway (402 on pay-as-you-go zen/v1).
 # The adapter also sends x-opencode-session + a product user-agent (required

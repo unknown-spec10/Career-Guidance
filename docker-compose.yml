@@ -117,7 +117,7 @@ services:
       VECTOR_RETRIEVAL_MIN_CANDIDATES: ${VECTOR_RETRIEVAL_MIN_CANDIDATES:-20}
       # --- Storage backends (local | gcs) ---
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
-      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-mine-career-guidance-bucket}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-career-sync}
       GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
       # --- GCP Secret Manager (container entrypoint; VM only) ---
       # Unset locally: the entrypoint execs straight through and the repo-root
