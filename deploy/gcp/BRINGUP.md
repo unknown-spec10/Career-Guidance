@@ -104,8 +104,10 @@ docker compose -f docker-compose.yml pull       # prebuilt Hub image only — ne
 docker compose -f docker-compose.yml up -d      # entrypoint loads secrets; Caddy starts alongside
 docker logs -f career-guidance-backend          # API logs (secrets are never logged)
 docker logs -f career-guidance-caddy            # ACME/TLS + proxy logs
-curl -fsS https://deepsync.duckdns.org/health   # public TLS healthcheck
-curl -fsS http://localhost:8000/health          # loopback-only backend check
+curl -fsS https://deepsync.duckdns.org/health       # liveness (public TLS)
+curl -fsS https://deepsync.duckdns.org/health/deep  # + database + storage; expect
+                                                    #   storage: "writable (mountpoint)"
+curl -fsS http://127.0.0.1:8000/health              # loopback-only backend check
 ```
 
 If you start the VM by hand (SSH session, startup script already ran once),
@@ -185,7 +187,7 @@ Secret name = environment variable name, so the mapping is one-to-one.
 | `GOOGLE_SEARCH_API_KEY` | no | Legacy alias accepted by `config.py` |
 | `GOOGLE_CLIENT_SECRET` | no | Google OAuth |
 | `YOUTUBE_DATA_API_KEY` | no | Learning-path video discovery |
-| `GMAIL_APP_PASSWORD` | no | Gmail SMTP verification mail |
+| `GMAIL_APP_PASSWORD` | no | Gmail app password for verification/reset mail (STARTTLS 587); `GMAIL_USER` in `user-data.sh` must be set or mail is skipped |
 | `DUCKDNS_TOKEN` | no | DuckDNS API token — read by `user-data.sh` only (DNS/TLS degrades without it) |
 
 Non-secret config (`PG_HOST`, `PG_PORT`, `PG_USER`, `PG_DB`, `APP_ENV`,

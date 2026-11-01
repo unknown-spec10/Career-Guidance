@@ -149,8 +149,10 @@ OPENCODE_API_KEY=your_opencode_api_key
 GROQ_API_KEY=your_groq_api_key    # STT only
 
 # Email (Gmail SMTP App Password)
-GMAIL_USER=your-email@gmail.com
+GMAIL_USER=your-email@gmail.com        # sender address for verification/reset mail
 GMAIL_APP_PASSWORD=your_16_char_app_password
+# Mail is sent over STARTTLS on port 587. Port 465 is blocked outbound on the
+# production VM, and the app only speaks 587 — do not switch it back.
 
 # Authentication Secret — REQUIRED, min 32 chars (hard requirement when APP_ENV=production)
 SECRET_KEY=your-super-secret-jwt-key-min-32-chars
@@ -185,6 +187,15 @@ npm run dev
 
 *   **Frontend Access**: `http://localhost:3000` (Proxies requests to API on port `8000`)
 *   **FastAPI Docs**: `http://localhost:8000/docs`
+*   **Liveness**: `GET /health` — static `{"status":"ok"}`, safe for platform probes
+*   **Readiness**: `GET /health/deep` — also verifies the database round trip and the
+    storage backend, answering **503** when either is broken. On the VM the storage
+    check is the important one: it reports `writable (mountpoint)` only when the
+    gcsfuse mount is really attached, and `plain directory` when uploads would land on
+    ephemeral disk
+*   **Avatars**: `GET /api/media/avatar/{user_id}` — auth required, streams the object
+    (or redirects to a signed URL where the backend can sign), and returns a generated
+    initials SVG when the object is missing
 
 ---
 
@@ -211,6 +222,17 @@ Secret **names** (values never committed): `PG_PASSWORD`, `SECRET_KEY`,
 = backend origin, optionally `VITE_API_BASE_URL` (takes precedence in
 `frontend/src/config/api.js`). No other `VITE_*` variables are read. Build:
 `npm run build` → `dist`, SPA rewrites from `frontend/vercel.json`.
+
+**Email transport**: STARTTLS on `smtp.gmail.com:587`, sender = `GMAIL_USER`,
+password = `GMAIL_APP_PASSWORD` (Secret Manager). All three senders — verification,
+verification code, password reset — share one helper with a 20 s timeout, so a
+blocked port fails loudly in the log instead of hanging the request.
+
+**LLM cost guards** (added after an unexplained credit drain): employer analysis is
+cached and reused instead of re-generated, explanation retries are bounded
+(`MAX_EXPLANATION_ATTEMPTS = 3` per row), and `LLM_MAX_CALLS_PER_DAY` (default `0` =
+unlimited) hard-stops the router once the daily budget is spent. Check them with
+`python resume_pipeline/scripts/verify_llm_cost_guards.py`.
 
 ---
 

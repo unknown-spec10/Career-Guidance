@@ -20,7 +20,11 @@ cd resume_pipeline
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Initialize the PostgreSQL Database (Creates 18 tables)
+# 4. Health probes (run these before declaring a deploy good)
+curl -fsS https://deepsync.duckdns.org/health        # liveness
+curl -fsS https://deepsync.duckdns.org/health/deep   # + database + storage (503 when broken)
+
+# 5. Initialize the PostgreSQL Database (Creates 18 tables)
 python scripts/init_db.py
 
 # 5. Populate the database with sample seed data
@@ -70,7 +74,9 @@ Ensure the `.env` file at the repository root contains the following variables:
 | `PG_DSN` | Backend | Full Postgres DSN (e.g. `postgresql+psycopg2://user:pass@host/db`) |
 | `PG_HOST` / `PG_USER` / `PG_PASSWORD` | Backend | Individual Postgres connection parameters (fallback to DSN) |
 | `SECRET_KEY` | Backend | Secret used to sign authentication JWT tokens (min 32 chars) |
-| `GMAIL_USER` / `GMAIL_APP_PASSWORD`| Backend | Gmail credentials used to dispatch email verification tokens |
+| `GMAIL_USER` / `GMAIL_APP_PASSWORD`| Backend | Gmail credentials used to dispatch verification and password-reset mail. Sent over STARTTLS on **port 587** (465 is blocked on the VM) |
+| `LLM_MAX_CALLS_PER_DAY` | Backend | Hard daily cap on LLM calls (`0` = unlimited). Exceeding it raises `LLMCallBudgetExceeded` instead of silently spending |
+| `DB_BACKEND` / `SQLITE_PATH` | Backend | `postgres` (default, production) or `sqlite` (demo profile, file at `SQLITE_PATH`) |
 | `VITE_API_URL` | Frontend | Base URL of the API server (used in production builds) |
 
 Legacy provider model keys (`GROQ_CHAT_MODEL`, `GROQ_STT_MODEL`) are still read, but only as
