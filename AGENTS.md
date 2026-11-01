@@ -106,7 +106,7 @@ npm run lint     # ESLint (zero warnings tolerance)
 ### Run all backend tests
 
 ```powershell
-# From resume_pipeline/ with venv active — matches CI exactly
+# From resume_pipeline/ with venv active — this is the release check (there is no CI)
 $env:GEMINI_MOCK_MODE="true"; $env:CI_SKIP_DB_VALIDATION="true"; $env:SECRET_KEY="test_secret_key_at_least_32_characters_long_for_signing_jwt"
 pytest tests/ -q --ignore=tests/test_api.py    # Quiet (canonical)
 pytest tests/ -v                               # Verbose
@@ -151,7 +151,7 @@ pytest tests/test_parsing.py::test_cgpa_normalization -v -s
   integration suite and is the ONLY module excluded from CI.
 - `probe_semantic_indexing_strategy.py` and `probe_smtp_password_reset.py` (in `resume_pipeline/tests/`) are interactive
   CLI probe scripts (collect zero pytest tests); run manually, never via pytest.
-- CI additionally verifies `alembic upgrade head` twice against a disposable PostgreSQL 16
+- No CI runs this for you: verify `alembic upgrade head` twice against a disposable Postgres 16 locally before a release
   service container (idempotency + real PG DDL coverage). See `.github/workflows/ci-cd.yml`.
 - Set `GEMINI_MOCK_MODE=true` in `.env` to stub LLM calls during testing.
 
@@ -159,7 +159,7 @@ pytest tests/test_parsing.py::test_cgpa_normalization -v -s
 
 ```powershell
 # From frontend/
-npm test          # Single run (matches CI)
+npm test          # Single run (release gate)
 npm run test:watch
 ```
 

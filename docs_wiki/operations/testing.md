@@ -1,6 +1,6 @@
 # Testing & Verification
 
-Authoritative guide to running and understanding the test suites for the Career Guidance AI System — locally and in CI.
+Authoritative guide to running and understanding the test suites for the Career Guidance AI System. There is no CI: every suite here is run locally before a release.
 
 ---
 

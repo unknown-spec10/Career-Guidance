@@ -270,41 +270,36 @@ This pulls the updated Docker Hub image and restarts the backend service cleanly
 
 ---
 
-### 6. GitHub Actions Keep-Alive
-To prevent Supabase's free tier database from sleeping and organization projects from getting suspended due to inactivity, a workflow cron job is configured at `.github/workflows/keep-supabase-alive.yml`.
+### 6. Supabase keep-alive (manual)
+The GitHub Actions workflow that pinged the backend on a cron was deleted along with the
+rest of `.github/workflows/`. Supabase pauses free projects after ~7 days without
+activity; if that matters, ping the API yourself on a schedule
+(`curl -fsS https://deepsync.duckdns.org/health/deep`) from any scheduler you own.
 
-Ensure the curl command inside is set to ping your EC2 backend health check:
-```yaml
-      - name: Ping backend health check
-        run: curl -f http://${{ secrets.EC2_HOST }}:8000/health || echo "EC2 backend pinged"
+---
+
+### 8. Release process (manual — no CI)
+`.github/workflows/` was removed: there is no automated test, build or deploy job.
+A release is four explicit steps on your machine:
+
+```bash
+# 1. tests
+cd resume_pipeline && pytest tests/ -q --ignore=tests/test_api.py
+cd ../frontend && npm test && npm run build
+
+# 2. image
+docker build -f resume_pipeline/Dockerfile \
+  -t deepdocker2023/career-guidance-backend:latest \
+  -t deepdocker2023/career-guidance-backend:$(date +%Y%m%d-%H%M%S) .
+docker push deepdocker2023/career-guidance-backend:latest
+
+# 3. deploy on the VM
+gcloud compute ssh career-sync --zone=us-central1-a \
+  --command='cd /opt/career-guidance && sudo docker compose pull backend && sudo docker compose up -d --force-recreate backend'
+
+# 4. verify
+curl -fsS https://deepsync.duckdns.org/health/deep
 ```
-
----
-
-### 8. GitHub Actions CI/CD Pipeline Automation
-We have established a fully automated CI/CD pipeline at `.github/workflows/ci-cd.yml` that handles testing, building, and automated deployments.
-
-#### Pipeline Flow:
-1. **Frontend CI (Tests, Lint & Build)**: Verifies frontend changes on all Pull Requests and Pushes targeting `main` by installing dependencies, running the Vitest suite (`npm test`), checking code quality (`eslint`), and verifying compilation (`vite build`).
-2. **Backend CI (Tests & Migrations)**: Sets up Python 3.11, caches packages, installs the Python deps (ONNX Runtime embedding backend, no deep-learning framework), and runs the pytest suite under mock LLM conditions (`GEMINI_MOCK_MODE=true`) with the in-memory SQLite stub (`CI_SKIP_DB_VALIDATION=true`). Only `test_api.py` is excluded — it is a live OpenCode API connectivity smoke test, not a deterministic suite. A second step then verifies the full Alembic migration chain (`0001 → head`, run twice for idempotency) against a disposable PostgreSQL 16 service container, exercising PG-specific DDL that SQLite cannot.
-3. **Docker Build & Push**: On merging/pushing to the `main` branch, it builds the backend Docker image and pushes it to Docker Hub under two tags: `:latest` and a unique commit SHA tag `:${{ github.sha }}`.
-4. **EC2 SSH Deploy (DISABLED)**: The `ec2-deploy` job is parked with `if: false`
-   in `.github/workflows/ci-cd.yml` — `deploy/aws/` and
-   `deploy/docker/docker-compose.prod.yml` were deleted, and there is no
-   automated GCP equivalent (no new CI infrastructure invented). The documented
-   deploy path is the manual GCE bring-up in `deploy/gcp/BRINGUP.md` (root
-   `.env` + root `docker-compose.yml` + `resume_pipeline/Dockerfile`). The
-   disabled job's reference script is kept updated to that layout
-   (`docker compose --env-file .env pull` / `up -d --force-recreate`, 30 s
-   wait, non-fatal `verify_data.py` check).
-
-#### Required GitHub Secrets:
-To activate this pipeline, navigate to your GitHub Repository -> **Settings -> Secrets and variables -> Actions** and create the following **Repository Secrets**:
-* `DOCKER_HUB_USERNAME`: Your Docker Hub username.
-* `DOCKER_HUB_TOKEN`: A Personal Access Token (PAT) generated in Docker Hub settings.
-* `EC2_HOST` / `EC2_USERNAME` / `EC2_SSH_KEY` (+ `EC2_DEPLOY_DIR`): Only consumed by the **disabled** `ec2-deploy` reference job and the keep-alive ping — not needed for the GCP manual path.
-
----
 
 ## 🚦 Pre-Deployment Checklist
 

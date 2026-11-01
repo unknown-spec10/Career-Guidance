@@ -219,7 +219,7 @@ See **Deferred** below. Nothing documented as shipped is missing.
   `npm run build` clean.
 - Migrations: `alembic upgrade head` applied 0001→0007 to the dev database
   without data loss and re-runs idempotently; chain also verified against throwaway
-  SQLite DBs in `test_migrations.py`; CI validates on real PostgreSQL.
+  SQLite DBs in `test_migrations.py`; validate against real PostgreSQL locally before a release (no CI runs it).
 - Independent adversarial audit: 10 claims attacked from scratch; 8 CONFIRMED-RESOLVED,
   C5 PARTIAL→burst-nuance documented (#1), C10 violation found & fixed
   (JobModerationPage fake "Flagged" heuristic removed). All actionable defects
