@@ -233,21 +233,42 @@ class GCSFileStorage(FileStorage):
 
 
     def healthcheck(self):
-        """Verify the bucket is reachable with the current credentials."""
+        """Verify the bucket is readable with the current credentials.
+
+        Uses a one-object listing rather than bucket metadata: the runtime
+        account holds object permissions, not storage.buckets.get, and a probe
+        that needs a permission the app never uses would report a healthy
+        deployment as broken.
+        """
         try:
-            if self.bucket.exists():
-                return True, f"bucket {self.bucket_name} reachable"
-            return False, f"bucket {self.bucket_name} missing"
+            next(iter(self.bucket.list_blobs(max_results=1)), None)
+            return True, f"bucket {self.bucket_name} readable"
         except Exception as exc:  # noqa: BLE001
             return False, f"bucket {self.bucket_name}: {exc}"
 
     def signed_url(self, remote_path: str, expires_in: int = 900):
-        """Short-lived direct URL, or None when signing is not permitted."""
+        """Short-lived direct URL, or None when the object is missing or signing fails."""
         from datetime import timedelta
 
+        blob = self.bucket.blob(remote_path)
         try:
-            return self.bucket.blob(remote_path).generate_signed_url(
-                expiration=timedelta(seconds=expires_in)
+            if not blob.exists():
+                return None
+            # Workload/service-account credentials from the metadata server carry
+            # a token but no private key, so the signature has to come from the
+            # IAM SignBlob API: pass the identity and its access token explicitly.
+            from google import auth as google_auth
+            from google.auth.transport import requests as google_requests
+
+            creds, _ = google_auth.default()
+            if not getattr(creds, "token", None):
+                creds.refresh(google_requests.Request())
+            sa_email = getattr(creds, "service_account_email", None)
+            return blob.generate_signed_url(
+                expiration=timedelta(seconds=expires_in),
+                version="v4",
+                service_account_email=sa_email,
+                access_token=creds.token,
             )
         except Exception as exc:  # noqa: BLE001
             logger.info("signed URL unavailable for %s: %s", remote_path, exc)

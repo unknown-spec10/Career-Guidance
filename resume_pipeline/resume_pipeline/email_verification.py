@@ -28,6 +28,21 @@ def generate_verification_code(length: int = 6, digits_only: bool = True) -> str
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
+def _smtp_send(msg, gmail_user: str, gmail_password: str) -> None:
+    """Deliver a message through Gmail over STARTTLS on 587.
+
+    Port 465 (implicit TLS) is blocked on the production VM — connections hang
+    until timeout — while 587 is reachable. STARTTLS on 587 is also what Gmail
+    recommends for new integrations, so it is the only path used here.
+    """
+    with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as server:
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(gmail_user, gmail_password)
+        server.send_message(msg)
+
+
 def send_verification_email(to_email: str, verification_token: str, user_name: str) -> bool:
     """Send verification email via Gmail SMTP"""
     try:
@@ -100,9 +115,7 @@ def send_verification_email(to_email: str, verification_token: str, user_name: s
         msg.attach(part2)
         
         # Send email via Gmail SMTP
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(gmail_user, gmail_password)
-            server.send_message(msg)
+        _smtp_send(msg, gmail_user, gmail_password)
         
         logger.info(f"Verification email sent to {to_email}")
         return True
@@ -160,9 +173,7 @@ def send_verification_code_email(to_email: str, code: str, user_name: str) -> bo
         msg.attach(part1)
         msg.attach(part2)
 
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(gmail_user, gmail_password)
-            server.send_message(msg)
+        _smtp_send(msg, gmail_user, gmail_password)
 
         logger.info(f"Verification code email sent to {to_email}")
         return True
@@ -228,9 +239,7 @@ def send_password_reset_code_email(to_email: str, code: str, user_name: str) -> 
         msg.attach(part1)
         msg.attach(part2)
 
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(gmail_user, gmail_password)
-            server.send_message(msg)
+        _smtp_send(msg, gmail_user, gmail_password)
 
         logger.info(f"Password reset code email sent to {to_email}")
         return True
