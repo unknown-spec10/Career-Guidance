@@ -14,6 +14,7 @@ import mimetypes
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
@@ -84,6 +85,16 @@ def get_avatar(
         raise HTTPException(status_code=404, detail="User not found")
 
     key = avatar_key(user)
+    # Prefer a short-lived signed URL: the browser fetches straight from the
+    # bucket, so no image bytes pass through the API. Falls back to streaming
+    # when signing is not permitted (no SignBlob role) or the backend is local.
+    try:
+        signed = get_storage_client().signed_url(key, expires_in=900)
+    except Exception:
+        signed = None
+    if signed:
+        return RedirectResponse(url=signed, status_code=302, headers={"Cache-Control": "private, max-age=600"})
+
     data: Optional[bytes] = None
     try:
         data = get_storage_client().read_bytes(key)

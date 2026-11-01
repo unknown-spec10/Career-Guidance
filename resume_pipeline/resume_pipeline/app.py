@@ -107,6 +107,66 @@ def root_endpoint():
 def health_check():
     return {"status": "ok"}
 
+# ---------------------------------------------------------------------------
+# Deep health probe
+#
+# /health stays a static OK so platform probes never flap. /health/deep checks
+# the things that actually break silently: the database round trip and the file
+# storage backend (a gcsfuse mount that failed to attach looks perfectly healthy
+# on /health while every upload lands on the container's ephemeral disk).
+# Results are cached so an uptime check every minute cannot turn into load.
+# ---------------------------------------------------------------------------
+
+_DEEP_HEALTH_TTL_SECONDS = 30
+_deep_health_cache = {"at": 0.0, "payload": None, "status": 200}
+
+
+def _probe_database() -> tuple[bool, str]:
+    try:
+        from sqlalchemy import text
+
+        from .db import SessionLocal
+
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+        return True, "ok"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"database: {exc}"
+
+
+def _probe_storage() -> tuple[bool, str]:
+    try:
+        from .core.storage import get_storage_client
+
+        return get_storage_client().healthcheck()
+    except Exception as exc:  # noqa: BLE001
+        return False, f"storage: {exc}"
+
+
+@app.get("/health/deep")
+@app.get("/api/health/deep")
+def health_deep():
+    import time
+    from fastapi.responses import JSONResponse
+
+    now = time.monotonic()
+    if _deep_health_cache["payload"] and now - _deep_health_cache["at"] < _DEEP_HEALTH_TTL_SECONDS:
+        return JSONResponse(_deep_health_cache["payload"], status_code=_deep_health_cache["status"])
+
+    db_ok, db_detail = _probe_database()
+    storage_ok, storage_detail = _probe_storage()
+    payload = {
+        "status": "ok" if (db_ok and storage_ok) else "degraded",
+        "checks": {
+            "database": {"ok": db_ok, "detail": db_detail},
+            "storage": {"ok": storage_ok, "detail": storage_detail},
+        },
+    }
+    status_code = 200 if (db_ok and storage_ok) else 503
+    _deep_health_cache.update(at=now, payload=payload, status=status_code)
+    return JSONResponse(payload, status_code=status_code)
+
+
 
 @app.on_event("startup")
 async def startup_event():

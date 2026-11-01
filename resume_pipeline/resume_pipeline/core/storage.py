@@ -83,6 +83,23 @@ class LocalFileStorage(FileStorage):
             return None
         return path.read_bytes()
 
+
+    def healthcheck(self):
+        """Verify the storage path exists and can be written to right now."""
+        path = self.base_path
+        try:
+            if not path.exists():
+                return False, f"missing path {path}"
+            probe = path / ".health-probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            mounted = os.path.ismount(path)
+            # A path under the gcsfuse mount that is no longer a mountpoint is
+            # container-local storage: writable, but everything is lost on restart.
+            return True, f"writable ({'mountpoint' if mounted else 'plain directory'})"
+        except Exception as exc:  # noqa: BLE001
+            return False, f"{path}: {exc}"
+
     def get_file_url(self, remote_path: str, expires_in: int = 900) -> str:
         # For local backend, return file URL or absolute path string
         # Since it's a web API, we can route it through /static or return the key
@@ -212,6 +229,28 @@ class GCSFileStorage(FileStorage):
             return None
         except Exception as exc:  # noqa: BLE001
             logger.error("GCS read_bytes failed for %s: %s", remote_path, exc)
+            return None
+
+
+    def healthcheck(self):
+        """Verify the bucket is reachable with the current credentials."""
+        try:
+            if self.bucket.exists():
+                return True, f"bucket {self.bucket_name} reachable"
+            return False, f"bucket {self.bucket_name} missing"
+        except Exception as exc:  # noqa: BLE001
+            return False, f"bucket {self.bucket_name}: {exc}"
+
+    def signed_url(self, remote_path: str, expires_in: int = 900):
+        """Short-lived direct URL, or None when signing is not permitted."""
+        from datetime import timedelta
+
+        try:
+            return self.bucket.blob(remote_path).generate_signed_url(
+                expiration=timedelta(seconds=expires_in)
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info("signed URL unavailable for %s: %s", remote_path, exc)
             return None
 
     def list_files(self, prefix: str) -> List[str]:

@@ -80,6 +80,15 @@ class FileStorage(ABC):
         ...
 
     @abstractmethod
+
+    def healthcheck(self) -> tuple[bool, str]:
+        """Return (ok, detail) for a live storage check."""
+        raise NotImplementedError
+
+    def signed_url(self, remote_path: str, expires_in: int = 900) -> Optional[str]:
+        """Return a direct URL when the backend supports it, else None."""
+        return None
+
     def list_files(self, prefix: str) -> List[str]:
         """List files with the given prefix in the storage backend."""
         ...
