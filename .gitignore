@@ -90,3 +90,6 @@ resume_pipeline/resume_pipeline/interview/subtopic_taxonomy.json
 *.swo
 *.ds_store
 Thumbs.db
+
+# Local OpenCode project skills (personal, not shared)
+.opencode/
