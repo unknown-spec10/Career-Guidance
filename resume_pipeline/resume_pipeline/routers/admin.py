@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import desc, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth import require_role
@@ -219,6 +220,55 @@ async def admin_update_user(
         details={"old_is_active": old_value, "new_is_active": bool(payload.is_active)},
     )
     return _user_dict(user)
+
+
+@router.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(
+    user_id: int,
+    current_user=Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Delete a user account.
+
+    Refuses to remove admins or your own account, and refuses when the account
+    still owns rows (applications, recommendations, audit entries) so data is
+    never orphaned silently — deactivate those instead with PATCH.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account",
+        )
+    if (user.role or "").lower() == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Refusing to delete an admin account",
+        )
+
+    email = user.email
+    try:
+        db.delete(user)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User still owns records; deactivate instead of deleting",
+        )
+
+    logger.info(f"Admin {current_user.email} deleted user {user_id} ({email})")
+    _write_audit(
+        db,
+        action="admin_user_delete",
+        target_type="User",
+        target_id=user_id,
+        user_id=current_user.id,
+        details={"email": email},
+    )
+    return {"deleted": user_id, "email": email}
 
 
 # ============================================================
